@@ -13,6 +13,7 @@ public sealed class MapNavAgent : MonoBehaviour
     [SerializeField] private float cornerLookAheadDistance;
     [SerializeField] private float heightOffset;
     [SerializeField] private bool useRegionPathfinding = true;
+    [SerializeField] private bool useBuildDataContextQueries;
     [SerializeField] private bool constrainToNavigationSpaces = true;
     [SerializeField] private bool logDebug;
 
@@ -126,12 +127,12 @@ public sealed class MapNavAgent : MonoBehaviour
         if (navigation == null || _waypoints.Count == 0)
             return false;
 
-        MapNavigationQueryContext context = navigation.QueryContext;
-        MapNavRegion currentRegion = MapNavigationQuery.FindContainingRegion(context, current, boundaryTolerance);
-        MapNavRegion targetRegion = MapNavigationQuery.FindContainingRegion(context, _waypoints[^1], boundaryTolerance);
+        MapNavRegion currentRegion = FindContainingRegion(current);
+        MapNavRegion targetRegion = FindContainingRegion(_waypoints[^1]);
         if (currentRegion == null || targetRegion == null || currentRegion.Id != targetRegion.Id)
             return false;
 
+        MapNavigationQueryContext context = navigation.QueryContext;
         if (MapNavigationQuery.FindInternalRegionPath(context, currentRegion, current, _waypoints[^1], agentRadius, out List<Vector3> internalPath) != MapNavigationQuery.InternalPathResult.PathFound)
             return false;
 
@@ -149,14 +150,13 @@ public sealed class MapNavAgent : MonoBehaviour
         if (navigation == null)
             return true;
 
-        MapNavigationQueryContext context = navigation.QueryContext;
-        if (!MapNavigationQuery.IsInsideAnyObstacle(context, nextPosition, boundaryTolerance))
+        if (!IsInsideAnyObstacle(nextPosition))
             return true;
 
-        if (!MapNavigationQuery.IsInsideAnyObstacle(context, current, boundaryTolerance))
+        if (!IsInsideAnyObstacle(current))
             return false;
 
-        if (!MapNavigationQuery.TryProjectOutOfAnyObstacle(context, current, boundaryTolerance, agentRadius, out Vector3 projected))
+        if (!TryProjectOutOfAnyObstacle(current, out Vector3 projected))
             return false;
 
         Vector3 currentDelta = projected - current;
@@ -171,14 +171,13 @@ public sealed class MapNavAgent : MonoBehaviour
         if (navigation == null)
             return true;
 
-        MapNavigationQueryContext context = navigation.QueryContext;
-        if (MapNavigationQuery.IsInsideNavigationSpace(context, nextPosition, boundaryTolerance))
+        if (IsInsideNavigationSpace(nextPosition))
             return true;
 
-        if (MapNavigationQuery.IsInsideNavigationSpace(context, current, boundaryTolerance))
+        if (IsInsideNavigationSpace(current))
             return false;
 
-        if (!MapNavigationQuery.TryProjectToClosestNavigationSpace(context, current, out Vector3 currentProjection, out _, out _))
+        if (!TryProjectToClosestNavigationSpace(current, out Vector3 currentProjection, out _, out _))
             return false;
 
         Vector3 currentDelta = currentProjection - current;
@@ -186,6 +185,42 @@ public sealed class MapNavAgent : MonoBehaviour
         currentDelta.y = 0f;
         nextDelta.y = 0f;
         return nextDelta.sqrMagnitude < currentDelta.sqrMagnitude;
+    }
+
+    private bool IsInsideNavigationSpace(Vector3 worldPosition)
+    {
+        if (navigation == null)
+            return true;
+
+        if (useBuildDataContextQueries)
+            return MapNavigationQuery.IsInsideNavigationSpace(navigation.BuildDataContext, worldPosition, boundaryTolerance);
+
+        return MapNavigationQuery.IsInsideNavigationSpace(navigation.QueryContext, worldPosition, boundaryTolerance);
+    }
+
+    private bool IsInsideAnyObstacle(Vector3 worldPosition)
+    {
+        if (navigation == null)
+            return false;
+
+        if (useBuildDataContextQueries)
+            return MapNavigationQuery.IsInsideAnyObstacle(navigation.BuildDataContext, worldPosition, boundaryTolerance);
+
+        return MapNavigationQuery.IsInsideAnyObstacle(navigation.QueryContext, worldPosition, boundaryTolerance);
+    }
+
+    private bool TryProjectOutOfAnyObstacle(Vector3 worldPosition, out Vector3 projected)
+    {
+        if (navigation == null)
+        {
+            projected = worldPosition;
+            return false;
+        }
+
+        if (useBuildDataContextQueries)
+            return MapNavigationQuery.TryProjectOutOfAnyObstacle(navigation.BuildDataContext, worldPosition, boundaryTolerance, agentRadius, out projected);
+
+        return MapNavigationQuery.TryProjectOutOfAnyObstacle(navigation.QueryContext, worldPosition, boundaryTolerance, agentRadius, out projected);
     }
 
     private void AdvancePastStaleWaypoints(Vector3 current)
@@ -273,8 +308,8 @@ public sealed class MapNavAgent : MonoBehaviour
 
         MapNavigationQueryContext context = navigation.QueryContext;
         Vector3 resolvedTarget = worldTarget;
-        MapNavRegion currentRegion = MapNavigationQuery.FindContainingRegion(context, transform.position, boundaryTolerance);
-        MapNavRegion targetRegion = MapNavigationQuery.FindContainingRegion(context, resolvedTarget, boundaryTolerance);
+        MapNavRegion currentRegion = FindContainingRegion(transform.position);
+        MapNavRegion targetRegion = FindContainingRegion(resolvedTarget);
 
         if (currentRegion == null)
         {
@@ -286,10 +321,10 @@ public sealed class MapNavAgent : MonoBehaviour
 
         if (targetRegion == null)
         {
-            if (MapNavigationQuery.TryProjectToClosestNavigationSpace(context, resolvedTarget, out Vector3 projected, out string spaceName, out float distance))
+            if (TryProjectToClosestNavigationSpace(resolvedTarget, out Vector3 projected, out string spaceName, out float distance))
             {
                 resolvedTarget = projected;
-                targetRegion = MapNavigationQuery.FindContainingRegion(context, resolvedTarget, boundaryTolerance);
+                targetRegion = FindContainingRegion(resolvedTarget);
                 Log($"Reprojected blocked target to {spaceName}. Projected={projected}, Distance={distance:0.###}");
             }
         }
@@ -376,8 +411,7 @@ public sealed class MapNavAgent : MonoBehaviour
         if (navigation == null)
             return worldTarget;
 
-        MapNavigationQueryContext context = navigation.QueryContext;
-        MapNavRegion targetRegion = MapNavigationQuery.FindContainingRegion(context, worldTarget, boundaryTolerance);
+        MapNavRegion targetRegion = FindContainingRegion(worldTarget);
         if (targetRegion != null)
         {
             Vector3 obstacleResolvedTarget = ResolveTargetOutOfObstacles(targetRegion, worldTarget);
@@ -390,11 +424,10 @@ public sealed class MapNavAgent : MonoBehaviour
 
     private Vector3 ResolveTargetToNavigationSpace(Vector3 worldTarget)
     {
-        MapNavigationQueryContext context = navigation.QueryContext;
-        if (MapNavigationQuery.IsInsideNavigationSpace(context, worldTarget, boundaryTolerance))
+        if (IsInsideNavigationSpace(worldTarget))
             return worldTarget;
 
-        if (!MapNavigationQuery.TryProjectToClosestNavigationSpace(context, worldTarget, out Vector3 projected, out string spaceName, out float distance))
+        if (!TryProjectToClosestNavigationSpace(worldTarget, out Vector3 projected, out string spaceName, out float distance))
             return worldTarget;
 
         Log($"Projected outside target to {spaceName}. Original={worldTarget}, Projected={projected}, Distance={distance:0.###}");
@@ -403,15 +436,7 @@ public sealed class MapNavAgent : MonoBehaviour
 
     private Vector3 ResolveTargetOutOfObstacles(MapNavRegion targetRegion, Vector3 worldTarget)
     {
-        if (!MapNavigationQuery.TryProjectOutOfObstacles(
-            navigation.QueryContext,
-            targetRegion,
-            worldTarget,
-            transform.position,
-            agentRadius,
-            out Vector3 projected,
-            out string obstacleName,
-            out float distance))
+        if (!TryProjectOutOfObstacles(targetRegion, worldTarget, transform.position, out Vector3 projected, out string obstacleName, out float distance))
         {
             return worldTarget;
         }
@@ -420,13 +445,129 @@ public sealed class MapNavAgent : MonoBehaviour
         return projected;
     }
 
+    private bool TryProjectOutOfObstacles(
+        MapNavRegion targetRegion,
+        Vector3 worldTarget,
+        Vector3 referenceWorldPosition,
+        out Vector3 projected,
+        out string obstacleName,
+        out float distance)
+    {
+        if (navigation == null || targetRegion == null)
+        {
+            projected = worldTarget;
+            obstacleName = "None";
+            distance = 0f;
+            return false;
+        }
+
+        if (useBuildDataContextQueries
+            && navigation.BuildDataContext.TryFindRegion(targetRegion.Id, out MapNavRegionData regionData))
+        {
+            return MapNavigationQuery.TryProjectOutOfObstacles(
+                navigation.BuildDataContext,
+                regionData,
+                worldTarget,
+                referenceWorldPosition,
+                agentRadius,
+                out projected,
+                out obstacleName,
+                out distance);
+        }
+
+        return MapNavigationQuery.TryProjectOutOfObstacles(
+            navigation.QueryContext,
+            targetRegion,
+            worldTarget,
+            referenceWorldPosition,
+            agentRadius,
+            out projected,
+            out obstacleName,
+            out distance);
+    }
+
     private void AddOutsideRecoveryWaypoint()
     {
-        if (navigation == null || !MapNavigationQuery.TryProjectToClosestNavigationSpace(navigation.QueryContext, transform.position, out Vector3 projected, out string spaceName, out float distance))
+        if (navigation == null || !TryProjectToClosestNavigationSpace(transform.position, out Vector3 projected, out string spaceName, out float distance))
             return;
 
         AddWaypointIfSeparated(projected);
         Log($"Added outside recovery waypoint to {spaceName}. Projected={projected}, Distance={distance:0.###}");
+    }
+
+    private MapNavRegion FindContainingRegion(Vector3 worldPosition)
+    {
+        if (navigation == null)
+            return null;
+
+        if (useBuildDataContextQueries
+            && MapNavigationQuery.TryFindContainingRegion(navigation.BuildDataContext, worldPosition, boundaryTolerance, out MapNavRegionData regionData))
+        {
+            return navigation.FindRegion(regionData.Id);
+        }
+
+        return MapNavigationQuery.FindContainingRegion(navigation.QueryContext, worldPosition, boundaryTolerance);
+    }
+
+    private bool TryProjectToClosestNavigationSpace(Vector3 worldPosition, out Vector3 projected, out string spaceName, out float distance)
+    {
+        if (navigation == null)
+        {
+            projected = worldPosition;
+            spaceName = "No Navigation";
+            distance = 0f;
+            return false;
+        }
+
+        if (useBuildDataContextQueries)
+            return MapNavigationQuery.TryProjectToClosestNavigationSpace(navigation.BuildDataContext, worldPosition, out projected, out spaceName, out distance);
+
+        return MapNavigationQuery.TryProjectToClosestNavigationSpace(navigation.QueryContext, worldPosition, out projected, out spaceName, out distance);
+    }
+
+    private bool TryGetNavigationHeight(
+        Vector3 worldPosition,
+        float tolerance,
+        int previousTransitionId,
+        int previousRegionId,
+        out float height,
+        out string spaceName,
+        out int transitionId,
+        out int regionId)
+    {
+        if (navigation == null)
+        {
+            height = 0f;
+            spaceName = "No Navigation";
+            transitionId = -1;
+            regionId = -1;
+            return false;
+        }
+
+        if (useBuildDataContextQueries)
+        {
+            return MapNavigationQuery.TryGetNavigationHeight(
+                navigation.BuildDataContext,
+                worldPosition,
+                tolerance,
+                previousTransitionId,
+                previousRegionId,
+                out height,
+                out spaceName,
+                out transitionId,
+                out regionId);
+        }
+
+        return MapNavigationQuery.TryGetNavigationHeight(
+            navigation.QueryContext,
+            worldPosition,
+            tolerance,
+            previousTransitionId,
+            previousRegionId,
+            out height,
+            out spaceName,
+            out transitionId,
+            out regionId);
     }
 
     private static string DescribePath(IReadOnlyList<MapNavigationQuery.PathStep> path)
@@ -496,8 +637,7 @@ public sealed class MapNavAgent : MonoBehaviour
         if (navigation == null)
             return "No Navigation";
 
-        if (MapNavigationQuery.TryGetNavigationHeight(
-            navigation.QueryContext,
+        if (TryGetNavigationHeight(
             waypoint,
             boundaryTolerance,
             -1,
@@ -522,8 +662,7 @@ public sealed class MapNavAgent : MonoBehaviour
             return;
         }
 
-        if (MapNavigationQuery.TryGetNavigationHeight(
-            navigation.QueryContext,
+        if (TryGetNavigationHeight(
             transform.position,
             boundaryTolerance,
             _currentTransitionId,

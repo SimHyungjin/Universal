@@ -112,7 +112,620 @@ public static class MapNavigationValidator
                 results.Add($"Transition {transition.Id} must not have negative cost.");
         }
 
+        ValidateBuildData(map, results);
         return results;
+    }
+
+    private static void ValidateBuildData(MapNavigationAuthoring map, List<string> results)
+    {
+        MapNavigationBuildData buildData = map.BuildData;
+        if (buildData == null)
+        {
+            results.Add("[BuildData] Build data cache is null.");
+            return;
+        }
+
+        IReadOnlyList<MapNavRegion> sourceRegions = map.Regions;
+        IReadOnlyList<MapNavTransition> sourceTransitions = map.Transitions;
+        int sourceRegionCount = CountNonNull(sourceRegions);
+        int sourceTransitionCount = CountNonNull(sourceTransitions);
+        int sourceObstacleCount = CountNonNullObstacles(sourceRegions);
+
+        if (buildData.Regions.Length != sourceRegionCount)
+            results.Add($"[BuildData] Region count {buildData.Regions.Length} does not match source count {sourceRegionCount}.");
+
+        if (buildData.Transitions.Length != sourceTransitionCount)
+            results.Add($"[BuildData] Transition count {buildData.Transitions.Length} does not match source count {sourceTransitionCount}.");
+
+        if (buildData.Obstacles.Length != sourceObstacleCount)
+            results.Add($"[BuildData] Obstacle count {buildData.Obstacles.Length} does not match source count {sourceObstacleCount}.");
+
+        ValidateRegionBuildData(buildData, sourceRegions, results);
+        ValidateTransitionBuildData(buildData, sourceTransitions, results);
+        ValidateObstacleBuildData(buildData, sourceRegions, results);
+        ValidateBuildDataContextParity(map, results);
+    }
+
+    private static void ValidateBuildDataContextParity(MapNavigationAuthoring map, List<string> results)
+    {
+        MapNavigationQueryContext sourceContext = map.QueryContext;
+        MapNavigationBuildDataContext buildContext = map.BuildDataContext;
+        if (!sourceContext.IsValid || !buildContext.IsValid)
+        {
+            results.Add("[BuildDataContext] Cannot compare parity because one context is invalid.");
+            return;
+        }
+
+        ValidateRegionContextParity(sourceContext, buildContext, map.Regions, results);
+        ValidateTransitionContextParity(sourceContext, buildContext, map.Transitions, results);
+        ValidateObstacleContextParity(sourceContext, buildContext, map.Regions, results);
+        ValidateProjectionParity(sourceContext, buildContext, map.Regions, map.Transitions, results);
+        ValidateContainingRegionParity(sourceContext, buildContext, map.Regions, map.Transitions, results);
+        ValidateNavigationHeightParity(sourceContext, buildContext, map.Regions, map.Transitions, results);
+        ValidateInsideNavigationSpaceParity(sourceContext, buildContext, map.Regions, map.Transitions, results);
+        ValidateObstacleProjectionParity(sourceContext, buildContext, map.Regions, results);
+    }
+
+    private static void ValidateRegionContextParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceRegions.Count; i++)
+        {
+            MapNavRegion source = sourceRegions[i];
+            if (source == null || !buildContext.TryFindRegion(source.Id, out MapNavRegionData data))
+                continue;
+
+            CompareRegionPoint(sourceContext, buildContext, source, data, buildContext.GetRegionCenter(data), "center", results);
+            IReadOnlyList<Vector2> points = sourceContext.GetRegionPoints(source);
+            for (int p = 0; p < points.Count; p++)
+                CompareRegionPoint(sourceContext, buildContext, source, data, points[p], $"point {p}", results);
+        }
+    }
+
+    private static void CompareRegionPoint(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        MapNavRegion source,
+        MapNavRegionData data,
+        Vector2 point,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceContains = sourceContext.ContainsRegion(source, point);
+        bool buildContains = buildContext.ContainsRegion(data, point);
+        if (sourceContains != buildContains)
+            results.Add($"[BuildDataContext] Region {source.Id} {pointLabel} contains mismatch. Source={sourceContains}, BuildData={buildContains}.");
+
+        float sourceHeight = sourceContext.GetRegionHeight(source, point);
+        float buildHeight = buildContext.GetRegionHeight(data, point);
+        if (!NearlyEqual(sourceHeight, buildHeight))
+            results.Add($"[BuildDataContext] Region {source.Id} {pointLabel} height mismatch. Source={sourceHeight:0.###}, BuildData={buildHeight:0.###}.");
+    }
+
+    private static void ValidateTransitionContextParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        IReadOnlyList<MapNavTransition> sourceTransitions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceTransitions.Count; i++)
+        {
+            MapNavTransition source = sourceTransitions[i];
+            if (source == null || !buildContext.TryFindTransition(source.Id, out MapNavTransitionData data))
+                continue;
+
+            IReadOnlyList<Vector2> points = sourceContext.GetTransitionPoints(source);
+            Vector2 center = MapNavGeometry.AveragePoint(points);
+            CompareTransitionPoint(sourceContext, buildContext, source, data, center, "center", results);
+            for (int p = 0; p < points.Count; p++)
+                CompareTransitionPoint(sourceContext, buildContext, source, data, points[p], $"point {p}", results);
+        }
+    }
+
+    private static void CompareTransitionPoint(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        MapNavTransition source,
+        MapNavTransitionData data,
+        Vector2 point,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceContains = sourceContext.ContainsTransition(source, point);
+        bool buildContains = buildContext.ContainsTransition(data, point);
+        if (sourceContains != buildContains)
+            results.Add($"[BuildDataContext] Transition {source.Id} {pointLabel} contains mismatch. Source={sourceContains}, BuildData={buildContains}.");
+
+        float sourceHeight = sourceContext.GetTransitionHeight(source, point);
+        float buildHeight = buildContext.GetTransitionHeight(data, point);
+        if (!NearlyEqual(sourceHeight, buildHeight))
+            results.Add($"[BuildDataContext] Transition {source.Id} {pointLabel} height mismatch. Source={sourceHeight:0.###}, BuildData={buildHeight:0.###}.");
+    }
+
+    private static void ValidateObstacleContextParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        List<string> results)
+    {
+        for (int r = 0; r < sourceRegions.Count; r++)
+        {
+            MapNavRegion region = sourceRegions[r];
+            if (region == null || region.Obstacles == null || !buildContext.TryFindRegion(region.Id, out MapNavRegionData regionData))
+                continue;
+
+            IReadOnlyList<MapNavObstacleData> obstacleData = buildContext.GetRegionObstacles(regionData);
+            for (int o = 0; o < region.Obstacles.Count; o++)
+            {
+                MapNavObstacle source = region.Obstacles[o];
+                if (source == null || o >= obstacleData.Count)
+                    continue;
+
+                IReadOnlyList<Vector2> points = sourceContext.GetObstaclePoints(source);
+                Vector2 center = MapNavGeometry.AveragePoint(points);
+                CompareObstaclePoint(sourceContext, buildContext, source, obstacleData[o], region.Id, o, center, "center", results);
+                for (int p = 0; p < points.Count; p++)
+                    CompareObstaclePoint(sourceContext, buildContext, source, obstacleData[o], region.Id, o, points[p], $"point {p}", results);
+            }
+        }
+    }
+
+    private static void CompareObstaclePoint(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        MapNavObstacle source,
+        MapNavObstacleData data,
+        int regionId,
+        int obstacleIndex,
+        Vector2 point,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceContains = sourceContext.ContainsObstacle(source, point);
+        bool buildContains = buildContext.ContainsObstacle(data, point);
+        if (sourceContains != buildContains)
+            results.Add($"[BuildDataContext] Region {regionId} obstacle {obstacleIndex} {pointLabel} contains mismatch. Source={sourceContains}, BuildData={buildContains}.");
+    }
+
+    private static void ValidateProjectionParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        IReadOnlyList<MapNavTransition> sourceTransitions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceRegions.Count; i++)
+        {
+            MapNavRegion region = sourceRegions[i];
+            if (region == null)
+                continue;
+
+            CompareProjection(sourceContext, buildContext, sourceContext.ToWorld(region, sourceContext.GetRegionCenter(region)), $"Region {region.Id} center", results);
+        }
+
+        for (int i = 0; i < sourceTransitions.Count; i++)
+        {
+            MapNavTransition transition = sourceTransitions[i];
+            if (transition == null)
+                continue;
+
+            Vector2 center = MapNavGeometry.AveragePoint(sourceContext.GetTransitionPoints(transition));
+            CompareProjection(sourceContext, buildContext, sourceContext.ToWorld(transition, center), $"Transition {transition.Id} center", results);
+        }
+    }
+
+    private static void CompareProjection(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        Vector3 worldPoint,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceFound = MapNavigationQuery.TryProjectToClosestNavigationSpace(sourceContext, worldPoint, out Vector3 sourceProjected, out string sourceName, out float sourceDistance);
+        bool buildFound = MapNavigationQuery.TryProjectToClosestNavigationSpace(buildContext, worldPoint, out Vector3 buildProjected, out string buildName, out float buildDistance);
+        if (sourceFound != buildFound)
+        {
+            results.Add($"[BuildDataContext] {pointLabel} projection found mismatch. Source={sourceFound}, BuildData={buildFound}.");
+            return;
+        }
+
+        if (!sourceFound)
+            return;
+
+        if (!NearlyEqual(sourceDistance, buildDistance) || !NearlyEqualPlanar(sourceProjected, buildProjected))
+        {
+            results.Add($"[BuildDataContext] {pointLabel} projection mismatch. Source={sourceName} {sourceProjected:F3} d={sourceDistance:0.###}, BuildData={buildName} {buildProjected:F3} d={buildDistance:0.###}.");
+        }
+    }
+
+    private static void ValidateContainingRegionParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        IReadOnlyList<MapNavTransition> sourceTransitions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceRegions.Count; i++)
+        {
+            MapNavRegion region = sourceRegions[i];
+            if (region == null)
+                continue;
+
+            CompareContainingRegion(sourceContext, buildContext, sourceContext.ToWorld(region, sourceContext.GetRegionCenter(region)), $"Region {region.Id} center", results);
+        }
+
+        for (int i = 0; i < sourceTransitions.Count; i++)
+        {
+            MapNavTransition transition = sourceTransitions[i];
+            if (transition == null)
+                continue;
+
+            Vector2 center = MapNavGeometry.AveragePoint(sourceContext.GetTransitionPoints(transition));
+            CompareContainingRegion(sourceContext, buildContext, sourceContext.ToWorld(transition, center), $"Transition {transition.Id} center", results);
+        }
+    }
+
+    private static void CompareContainingRegion(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        Vector3 worldPoint,
+        string pointLabel,
+        List<string> results)
+    {
+        MapNavRegion sourceRegion = MapNavigationQuery.FindContainingRegion(sourceContext, worldPoint, 0f);
+        bool buildFound = MapNavigationQuery.TryFindContainingRegion(buildContext, worldPoint, 0f, out MapNavRegionData buildRegion);
+
+        if ((sourceRegion != null) != buildFound)
+        {
+            results.Add($"[BuildDataContext] {pointLabel} containing region found mismatch. Source={sourceRegion != null}, BuildData={buildFound}.");
+            return;
+        }
+
+        if (sourceRegion == null)
+            return;
+
+        if (sourceRegion.Id != buildRegion.Id)
+            results.Add($"[BuildDataContext] {pointLabel} containing region mismatch. Source={sourceRegion.Id}, BuildData={buildRegion.Id}.");
+    }
+
+    private static void ValidateNavigationHeightParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        IReadOnlyList<MapNavTransition> sourceTransitions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceRegions.Count; i++)
+        {
+            MapNavRegion region = sourceRegions[i];
+            if (region == null)
+                continue;
+
+            CompareNavigationHeight(sourceContext, buildContext, sourceContext.ToWorld(region, sourceContext.GetRegionCenter(region)), -1, region.Id, $"Region {region.Id} center", results);
+        }
+
+        for (int i = 0; i < sourceTransitions.Count; i++)
+        {
+            MapNavTransition transition = sourceTransitions[i];
+            if (transition == null)
+                continue;
+
+            Vector2 center = MapNavGeometry.AveragePoint(sourceContext.GetTransitionPoints(transition));
+            CompareNavigationHeight(sourceContext, buildContext, sourceContext.ToWorld(transition, center), transition.Id, -1, $"Transition {transition.Id} center", results);
+        }
+    }
+
+    private static void CompareNavigationHeight(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        Vector3 worldPoint,
+        int previousTransitionId,
+        int previousRegionId,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceFound = MapNavigationQuery.TryGetNavigationHeight(
+            sourceContext,
+            worldPoint,
+            0f,
+            previousTransitionId,
+            previousRegionId,
+            out float sourceHeight,
+            out _,
+            out int sourceTransitionId,
+            out int sourceRegionId);
+        bool buildFound = MapNavigationQuery.TryGetNavigationHeight(
+            buildContext,
+            worldPoint,
+            0f,
+            previousTransitionId,
+            previousRegionId,
+            out float buildHeight,
+            out _,
+            out int buildTransitionId,
+            out int buildRegionId);
+
+        if (sourceFound != buildFound)
+        {
+            results.Add($"[BuildDataContext] {pointLabel} height found mismatch. Source={sourceFound}, BuildData={buildFound}.");
+            return;
+        }
+
+        if (!sourceFound)
+            return;
+
+        if (!NearlyEqual(sourceHeight, buildHeight)
+            || sourceTransitionId != buildTransitionId
+            || sourceRegionId != buildRegionId)
+        {
+            results.Add($"[BuildDataContext] {pointLabel} height result mismatch. Source h={sourceHeight:0.###}, t={sourceTransitionId}, r={sourceRegionId}; BuildData h={buildHeight:0.###}, t={buildTransitionId}, r={buildRegionId}.");
+        }
+    }
+
+    private static void ValidateInsideNavigationSpaceParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        IReadOnlyList<MapNavTransition> sourceTransitions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceRegions.Count; i++)
+        {
+            MapNavRegion region = sourceRegions[i];
+            if (region == null)
+                continue;
+
+            CompareInsideNavigationSpace(sourceContext, buildContext, sourceContext.ToWorld(region, sourceContext.GetRegionCenter(region)), $"Region {region.Id} center", results);
+
+            IReadOnlyList<MapNavObstacle> obstacles = sourceContext.GetRegionObstacles(region);
+            for (int o = 0; o < obstacles.Count; o++)
+            {
+                IReadOnlyList<Vector2> points = sourceContext.GetObstaclePoints(obstacles[o]);
+                if (points.Count > 0)
+                    CompareInsideNavigationSpace(sourceContext, buildContext, sourceContext.ToWorld(region, MapNavGeometry.AveragePoint(points)), $"Region {region.Id} obstacle {o} center", results);
+            }
+        }
+
+        for (int i = 0; i < sourceTransitions.Count; i++)
+        {
+            MapNavTransition transition = sourceTransitions[i];
+            if (transition == null)
+                continue;
+
+            Vector2 center = MapNavGeometry.AveragePoint(sourceContext.GetTransitionPoints(transition));
+            CompareInsideNavigationSpace(sourceContext, buildContext, sourceContext.ToWorld(transition, center), $"Transition {transition.Id} center", results);
+        }
+    }
+
+    private static void CompareInsideNavigationSpace(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        Vector3 worldPoint,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceInside = MapNavigationQuery.IsInsideNavigationSpace(sourceContext, worldPoint, 0f);
+        bool buildInside = MapNavigationQuery.IsInsideNavigationSpace(buildContext, worldPoint, 0f);
+        if (sourceInside != buildInside)
+            results.Add($"[BuildDataContext] {pointLabel} inside navigation mismatch. Source={sourceInside}, BuildData={buildInside}.");
+    }
+
+    private static void ValidateObstacleProjectionParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        List<string> results)
+    {
+        for (int r = 0; r < sourceRegions.Count; r++)
+        {
+            MapNavRegion region = sourceRegions[r];
+            if (region == null || !buildContext.TryFindRegion(region.Id, out MapNavRegionData regionData))
+                continue;
+
+            Vector3 referenceWorld = sourceContext.ToWorld(region, sourceContext.GetRegionCenter(region));
+            IReadOnlyList<MapNavObstacle> obstacles = sourceContext.GetRegionObstacles(region);
+            IReadOnlyList<MapNavObstacleData> buildObstacles = buildContext.GetRegionObstacles(regionData);
+            for (int o = 0; o < obstacles.Count; o++)
+            {
+                if (obstacles[o] == null || o >= buildObstacles.Count)
+                    continue;
+
+                IReadOnlyList<Vector2> points = sourceContext.GetObstaclePoints(obstacles[o]);
+                if (points.Count < 3)
+                    continue;
+
+                Vector3 obstacleWorld = sourceContext.ToWorld(region, MapNavGeometry.AveragePoint(points));
+                CompareObstacleProjection(sourceContext, buildContext, region, regionData, obstacleWorld, referenceWorld, $"Region {region.Id} obstacle {o} center", results);
+            }
+        }
+    }
+
+    private static void CompareObstacleProjection(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBuildDataContext buildContext,
+        MapNavRegion sourceRegion,
+        MapNavRegionData buildRegion,
+        Vector3 worldPoint,
+        Vector3 referenceWorld,
+        string pointLabel,
+        List<string> results)
+    {
+        const float Padding = 0.1f;
+        bool sourceFound = MapNavigationQuery.TryProjectOutOfObstacles(
+            sourceContext,
+            sourceRegion,
+            worldPoint,
+            referenceWorld,
+            Padding,
+            out Vector3 sourceProjected,
+            out _,
+            out float sourceDistance);
+        bool buildFound = MapNavigationQuery.TryProjectOutOfObstacles(
+            buildContext,
+            buildRegion,
+            worldPoint,
+            referenceWorld,
+            Padding,
+            out Vector3 buildProjected,
+            out _,
+            out float buildDistance);
+
+        if (sourceFound != buildFound)
+        {
+            results.Add($"[BuildDataContext] {pointLabel} obstacle projection found mismatch. Source={sourceFound}, BuildData={buildFound}.");
+            return;
+        }
+
+        if (!sourceFound)
+            return;
+
+        if (!NearlyEqual(sourceDistance, buildDistance) || !NearlyEqualPlanar(sourceProjected, buildProjected))
+        {
+            results.Add($"[BuildDataContext] {pointLabel} obstacle projection mismatch. Source={sourceProjected:F3} d={sourceDistance:0.###}, BuildData={buildProjected:F3} d={buildDistance:0.###}.");
+        }
+    }
+
+    private static void ValidateRegionBuildData(MapNavigationBuildData buildData, IReadOnlyList<MapNavRegion> sourceRegions, List<string> results)
+    {
+        for (int i = 0; i < sourceRegions.Count; i++)
+        {
+            MapNavRegion source = sourceRegions[i];
+            if (source == null)
+                continue;
+
+            if (!buildData.TryGetRegion(source.Id, out MapNavRegionData data))
+            {
+                results.Add($"[BuildData] Missing region {source.Id}.");
+                continue;
+            }
+
+            ValidatePointRange(buildData, data.PointStart, data.PointCount, $"Region {source.Id}", results);
+            ValidateObstacleRange(buildData, data.ObstacleStart, data.ObstacleCount, $"Region {source.Id}", results);
+
+            if (data.PointCount != GetCount(source.Points))
+                results.Add($"[BuildData] Region {source.Id} point count {data.PointCount} does not match source count {GetCount(source.Points)}.");
+
+            if (data.ObstacleCount != GetCount(source.Obstacles))
+                results.Add($"[BuildData] Region {source.Id} obstacle count {data.ObstacleCount} does not match source count {GetCount(source.Obstacles)}.");
+        }
+    }
+
+    private static void ValidateTransitionBuildData(MapNavigationBuildData buildData, IReadOnlyList<MapNavTransition> sourceTransitions, List<string> results)
+    {
+        for (int i = 0; i < sourceTransitions.Count; i++)
+        {
+            MapNavTransition source = sourceTransitions[i];
+            if (source == null)
+                continue;
+
+            if (!buildData.TryGetTransition(source.Id, out MapNavTransitionData data))
+            {
+                results.Add($"[BuildData] Missing transition {source.Id}.");
+                continue;
+            }
+
+            ValidatePointRange(buildData, data.PointStart, data.PointCount, $"Transition {source.Id}", results);
+
+            if (data.PointCount != GetCount(source.Points))
+                results.Add($"[BuildData] Transition {source.Id} point count {data.PointCount} does not match source count {GetCount(source.Points)}.");
+        }
+    }
+
+    private static void ValidateObstacleBuildData(MapNavigationBuildData buildData, IReadOnlyList<MapNavRegion> sourceRegions, List<string> results)
+    {
+        for (int r = 0; r < sourceRegions.Count; r++)
+        {
+            MapNavRegion region = sourceRegions[r];
+            if (region == null || region.Obstacles == null)
+                continue;
+
+            if (!buildData.TryGetRegion(region.Id, out MapNavRegionData regionData))
+                continue;
+
+            IReadOnlyList<MapNavObstacleData> obstacleData = buildData.GetRegionObstacles(regionData);
+            for (int o = 0; o < region.Obstacles.Count; o++)
+            {
+                MapNavObstacle source = region.Obstacles[o];
+                if (source == null || o >= obstacleData.Count)
+                    continue;
+
+                MapNavObstacleData data = obstacleData[o];
+                ValidatePointRange(buildData, data.PointStart, data.PointCount, $"Region {region.Id} obstacle {o}", results);
+
+                if (data.RegionId != region.Id)
+                    results.Add($"[BuildData] Region {region.Id} obstacle {o} has RegionId {data.RegionId}.");
+
+                if (data.PointCount != GetCount(source.Points))
+                    results.Add($"[BuildData] Region {region.Id} obstacle {o} point count {data.PointCount} does not match source count {GetCount(source.Points)}.");
+            }
+        }
+    }
+
+    private static void ValidatePointRange(MapNavigationBuildData buildData, int start, int count, string label, List<string> results)
+    {
+        if (!IsValidRange(start, count, buildData.Points.Length))
+            results.Add($"[BuildData] {label} point range start={start}, count={count} is out of bounds for Points length {buildData.Points.Length}.");
+    }
+
+    private static void ValidateObstacleRange(MapNavigationBuildData buildData, int start, int count, string label, List<string> results)
+    {
+        if (!IsValidRange(start, count, buildData.Obstacles.Length))
+            results.Add($"[BuildData] {label} obstacle range start={start}, count={count} is out of bounds for Obstacles length {buildData.Obstacles.Length}.");
+    }
+
+    private static int CountNonNull<T>(IReadOnlyList<T> items) where T : class
+    {
+        if (items == null)
+            return 0;
+
+        int count = 0;
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (items[i] != null)
+                count++;
+        }
+
+        return count;
+    }
+
+    private static int CountNonNullObstacles(IReadOnlyList<MapNavRegion> regions)
+    {
+        if (regions == null)
+            return 0;
+
+        int count = 0;
+        for (int i = 0; i < regions.Count; i++)
+        {
+            if (regions[i]?.Obstacles == null)
+                continue;
+
+            count += CountNonNull(regions[i].Obstacles);
+        }
+
+        return count;
+    }
+
+    private static int GetCount<T>(IReadOnlyList<T> items)
+    {
+        return items?.Count ?? 0;
+    }
+
+    private static bool IsValidRange(int start, int count, int length)
+    {
+        return start >= 0 && count >= 0 && start <= length && count <= length - start;
+    }
+
+    private static bool NearlyEqual(float a, float b)
+    {
+        return Mathf.Abs(a - b) <= 0.001f;
+    }
+
+    private static bool NearlyEqualPlanar(Vector3 a, Vector3 b)
+    {
+        return NearlyEqual(a.x, b.x) && NearlyEqual(a.z, b.z) && NearlyEqual(a.y, b.y);
     }
 
     private static bool HasSelfIntersection(IReadOnlyList<Vector2> points)

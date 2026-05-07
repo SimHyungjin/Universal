@@ -8,10 +8,16 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
     [SerializeField] private List<MapNavTransition> transitions = new();
 
     private readonly MapNavigationRuntimeData _runtimeData = new();
+    private MapNavigationBuildData _buildData = MapNavigationBuildData.Empty();
 
     public IReadOnlyList<MapNavRegion> Regions => regions;
     public IReadOnlyList<MapNavTransition> Transitions => transitions;
     public MapNavigationRuntimeData RuntimeData => _runtimeData;
+    public MapNavigationBuildData BuildData => _buildData;
+    public MapNavigationBuildDataContext BuildDataContext => new(
+        _buildData,
+        transform.localToWorldMatrix,
+        transform.worldToLocalMatrix);
     public MapNavigationQueryContext QueryContext => new(
         regions,
         transitions,
@@ -32,6 +38,7 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
     public void RebuildRuntimeData()
     {
         _runtimeData.Rebuild(regions, transitions);
+        _buildData = MapNavigationBuildData.Build(regions, transitions);
     }
 
     public MapNavRegion FindRegion(int regionId)

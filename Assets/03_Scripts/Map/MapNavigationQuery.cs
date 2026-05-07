@@ -70,6 +70,20 @@ public static class MapNavigationQuery
         return !IsInsideRegionObstacle(context, region, worldPosition);
     }
 
+    public static bool IsInsideNavigationSpace(MapNavigationBuildDataContext context, Vector3 worldPosition, float tolerance)
+    {
+        if (!context.IsValid)
+            return true;
+
+        if (TryFindBestTransition(context, worldPosition, tolerance, out _))
+            return true;
+
+        if (!TryFindBestRegion(context, worldPosition, tolerance, out MapNavRegionData region))
+            return false;
+
+        return !IsInsideRegionObstacle(context, region, worldPosition);
+    }
+
     public static bool TryProjectToClosestNavigationSpace(
         MapNavigationAuthoring navigation,
         Vector3 worldPosition,
@@ -106,36 +120,92 @@ public static class MapNavigationQuery
         for (int i = 0; i < context.TransitionCount; i++)
         {
             MapNavTransition transition = context.GetTransitionAt(i);
-            if (transition == null || transition.Points == null || transition.Points.Count < 2)
+            if (!context.HasEnoughTransitionPoints(transition, 2))
                 continue;
 
-            Vector2 closest = MapNavGeometry.ClosestPointOnPolygon(transition.Points, localPoint);
+            Vector2 closest = context.GetClosestPointOnTransition(transition, localPoint);
             float sqrDistance = (closest - localPoint).sqrMagnitude;
             if (sqrDistance >= bestSqrDistance)
                 continue;
 
             bestSqrDistance = sqrDistance;
             projectedWorldPosition = context.ToWorld(transition, closest);
-            spaceName = transition.DisplayName;
+            spaceName = context.GetTransitionDisplayName(transition);
             found = true;
         }
 
         for (int i = 0; i < context.RegionCount; i++)
         {
             MapNavRegion region = context.GetRegionAt(i);
-            if (region == null || region.Points == null || region.Points.Count < 2)
+            if (!context.HasEnoughRegionPoints(region, 2))
                 continue;
 
-            Vector2 closest = region.Contains(localPoint)
+            Vector2 closest = context.ContainsRegion(region, localPoint)
                 ? localPoint
-                : MapNavGeometry.ClosestPointOnPolygon(region.Points, localPoint);
+                : context.GetClosestPointOnRegion(region, localPoint);
             float sqrDistance = (closest - localPoint).sqrMagnitude;
             if (sqrDistance >= bestSqrDistance)
                 continue;
 
             bestSqrDistance = sqrDistance;
             projectedWorldPosition = context.ToWorld(region, closest);
-            spaceName = region.DisplayName;
+            spaceName = context.GetRegionDisplayName(region);
+            found = true;
+        }
+
+        planarDistance = found ? Mathf.Sqrt(bestSqrDistance) : 0f;
+        return found;
+    }
+
+    public static bool TryProjectToClosestNavigationSpace(
+        MapNavigationBuildDataContext context,
+        Vector3 worldPosition,
+        out Vector3 projectedWorldPosition,
+        out string spaceName,
+        out float planarDistance)
+    {
+        projectedWorldPosition = worldPosition;
+        spaceName = "Outside";
+        planarDistance = 0f;
+
+        if (!context.IsValid)
+            return false;
+
+        Vector2 localPoint = context.ToLocal2D(worldPosition);
+        float bestSqrDistance = float.PositiveInfinity;
+        bool found = false;
+
+        for (int i = 0; i < context.TransitionCount; i++)
+        {
+            if (!context.TryGetTransitionAt(i, out MapNavTransitionData transition) || !context.HasEnoughTransitionPoints(transition, 2))
+                continue;
+
+            Vector2 closest = context.GetClosestPointOnTransition(transition, localPoint);
+            float sqrDistance = (closest - localPoint).sqrMagnitude;
+            if (sqrDistance >= bestSqrDistance)
+                continue;
+
+            bestSqrDistance = sqrDistance;
+            projectedWorldPosition = context.ToWorld(transition, closest);
+            spaceName = $"Transition {transition.Id}";
+            found = true;
+        }
+
+        for (int i = 0; i < context.RegionCount; i++)
+        {
+            if (!context.TryGetRegionAt(i, out MapNavRegionData region) || !context.HasEnoughRegionPoints(region, 2))
+                continue;
+
+            Vector2 closest = context.ContainsRegion(region, localPoint)
+                ? localPoint
+                : context.GetClosestPointOnRegion(region, localPoint);
+            float sqrDistance = (closest - localPoint).sqrMagnitude;
+            if (sqrDistance >= bestSqrDistance)
+                continue;
+
+            bestSqrDistance = sqrDistance;
+            projectedWorldPosition = context.ToWorld(region, closest);
+            spaceName = $"Region {region.Id}";
             found = true;
         }
 
@@ -205,7 +275,8 @@ public static class MapNavigationQuery
         obstacleName = "None";
         planarDistance = 0f;
 
-        if (!context.IsValid || region == null || region.Obstacles == null)
+        IReadOnlyList<MapNavObstacle> obstacles = context.GetRegionObstacles(region);
+        if (!context.IsValid || region == null || obstacles == null)
             return false;
 
         Vector2 localPoint = context.ToLocal2D(worldPosition);
@@ -213,15 +284,63 @@ public static class MapNavigationQuery
         float bestSqrDistance = float.PositiveInfinity;
         bool found = false;
 
-        for (int i = 0; i < region.Obstacles.Count; i++)
+        for (int i = 0; i < obstacles.Count; i++)
         {
-            MapNavObstacle obstacle = region.Obstacles[i];
-            if (obstacle == null || obstacle.Points == null || obstacle.Points.Count < 2 || !obstacle.Contains(localPoint))
+            MapNavObstacle obstacle = obstacles[i];
+            if (!context.HasEnoughObstaclePoints(obstacle, 2) || !context.ContainsObstacle(obstacle, localPoint))
                 continue;
 
-            Vector2 closest = MapNavGeometry.ClosestPointOnPolygon(obstacle.Points, localPoint);
+            Vector2 closest = context.GetClosestPointOnObstacle(obstacle, localPoint);
             float resolvedPadding = Mathf.Max(padding, obstacle.CornerPadding);
-            if (!TryFindNearestClearPoint(region, region.Obstacles, closest, localPoint, referencePoint, resolvedPadding, out Vector2 projected))
+            if (!TryFindNearestClearPoint(context, region, obstacles, closest, localPoint, referencePoint, resolvedPadding, out Vector2 projected))
+                continue;
+
+            float sqrDistance = (projected - referencePoint).sqrMagnitude + ((projected - localPoint).sqrMagnitude * 0.15f);
+            if (sqrDistance >= bestSqrDistance)
+                continue;
+
+            bestSqrDistance = sqrDistance;
+            projectedWorldPosition = context.ToWorld(region, projected);
+            obstacleName = $"Obstacle {i}";
+            found = true;
+        }
+
+        planarDistance = found ? Mathf.Sqrt(bestSqrDistance) : 0f;
+        return found;
+    }
+
+    public static bool TryProjectOutOfObstacles(
+        MapNavigationBuildDataContext context,
+        MapNavRegionData region,
+        Vector3 worldPosition,
+        Vector3 referenceWorldPosition,
+        float padding,
+        out Vector3 projectedWorldPosition,
+        out string obstacleName,
+        out float planarDistance)
+    {
+        projectedWorldPosition = worldPosition;
+        obstacleName = "None";
+        planarDistance = 0f;
+
+        if (!context.IsValid)
+            return false;
+
+        IReadOnlyList<MapNavObstacleData> obstacles = context.GetRegionObstacles(region);
+        Vector2 localPoint = context.ToLocal2D(worldPosition);
+        Vector2 referencePoint = context.ToLocal2D(referenceWorldPosition);
+        float bestSqrDistance = float.PositiveInfinity;
+        bool found = false;
+
+        for (int i = 0; i < obstacles.Count; i++)
+        {
+            MapNavObstacleData obstacle = obstacles[i];
+            if (!context.HasEnoughObstaclePoints(obstacle, 2) || !context.ContainsObstacle(obstacle, localPoint))
+                continue;
+
+            Vector2 closest = context.GetClosestPointOnObstacle(obstacle, localPoint);
+            float resolvedPadding = Mathf.Max(padding, obstacle.CornerPadding);
+            if (!TryFindNearestClearPoint(context, region, obstacles, closest, localPoint, referencePoint, resolvedPadding, out Vector2 projected))
                 continue;
 
             float sqrDistance = (projected - referencePoint).sqrMagnitude + ((projected - localPoint).sqrMagnitude * 0.15f);
@@ -245,11 +364,20 @@ public static class MapNavigationQuery
 
     public static bool IsInsideRegionObstacle(MapNavigationQueryContext context, MapNavRegion region, Vector3 worldPosition)
     {
-        if (!context.IsValid || region == null || region.Obstacles == null)
+        if (!context.IsValid || region == null)
             return false;
 
         Vector2 localPoint = context.ToLocal2D(worldPosition);
-        return IsInsideAnyObstacle(localPoint, region.Obstacles);
+        return IsInsideAnyObstacle(localPoint, context.GetRegionObstacles(region));
+    }
+
+    public static bool IsInsideRegionObstacle(MapNavigationBuildDataContext context, MapNavRegionData region, Vector3 worldPosition)
+    {
+        if (!context.IsValid)
+            return false;
+
+        Vector2 localPoint = context.ToLocal2D(worldPosition);
+        return IsInsideAnyObstacle(context, localPoint, context.GetRegionObstacles(region));
     }
 
     public static bool IsInsideAnyObstacle(MapNavigationAuthoring navigation, Vector3 worldPosition, float tolerance)
@@ -263,6 +391,17 @@ public static class MapNavigationQuery
             return false;
 
         if (!TryFindBestRegion(context, worldPosition, tolerance, out MapNavRegion region))
+            return false;
+
+        return IsInsideRegionObstacle(context, region, worldPosition);
+    }
+
+    public static bool IsInsideAnyObstacle(MapNavigationBuildDataContext context, Vector3 worldPosition, float tolerance)
+    {
+        if (!context.IsValid)
+            return false;
+
+        if (!TryFindBestRegion(context, worldPosition, tolerance, out MapNavRegionData region))
             return false;
 
         return IsInsideRegionObstacle(context, region, worldPosition);
@@ -301,6 +440,24 @@ public static class MapNavigationQuery
         return TryProjectOutOfObstacles(context, region, worldPosition, worldPosition, padding, out projectedWorldPosition, out _, out _);
     }
 
+    public static bool TryProjectOutOfAnyObstacle(
+        MapNavigationBuildDataContext context,
+        Vector3 worldPosition,
+        float tolerance,
+        float padding,
+        out Vector3 projectedWorldPosition)
+    {
+        projectedWorldPosition = worldPosition;
+
+        if (!context.IsValid)
+            return false;
+
+        if (!TryFindBestRegion(context, worldPosition, tolerance, out MapNavRegionData region))
+            return false;
+
+        return TryProjectOutOfObstacles(context, region, worldPosition, worldPosition, padding, out projectedWorldPosition, out _, out _);
+    }
+
     public static MapNavRegion FindContainingRegion(MapNavigationAuthoring navigation, Vector3 worldPosition)
     {
         return FindContainingRegion(navigation, worldPosition, 0f);
@@ -323,6 +480,47 @@ public static class MapNavigationQuery
             return null;
 
         return context.FindRegion(transition.ToRegionId) ?? context.FindRegion(transition.FromRegionId);
+    }
+
+    public static bool TryFindContainingRegion(
+        MapNavigationBuildDataContext context,
+        Vector3 worldPosition,
+        float tolerance,
+        out MapNavRegionData region)
+    {
+        region = default;
+        if (!context.IsValid)
+            return false;
+
+        Vector2 localPoint = context.ToLocal2D(worldPosition);
+        for (int i = 0; i < context.RegionCount; i++)
+        {
+            if (!context.TryGetRegionAt(i, out MapNavRegionData candidate))
+                continue;
+
+            if (!context.ContainsRegion(candidate, localPoint, tolerance))
+                continue;
+
+            region = candidate;
+            return true;
+        }
+
+        for (int i = 0; i < context.TransitionCount; i++)
+        {
+            if (!context.TryGetTransitionAt(i, out MapNavTransitionData transition))
+                continue;
+
+            if (!context.ContainsTransition(transition, localPoint, tolerance))
+                continue;
+
+            if (context.TryFindRegion(transition.ToRegionId, out region)
+                || context.TryFindRegion(transition.FromRegionId, out region))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static bool TryGetNavigationHeight(MapNavigationAuthoring navigation, Vector3 worldPosition, out float height, out string spaceName)
@@ -376,13 +574,13 @@ public static class MapNavigationQuery
         Vector3 local = context.ToLocal3D(worldPosition);
         Vector2 localPoint = new(local.x, local.z);
         MapNavTransition previousTransition = context.FindTransition(previousTransitionId);
-        if (previousTransition != null && previousTransition.Contains(localPoint, tolerance))
+        if (context.ContainsTransition(previousTransition, localPoint, tolerance))
         {
-            float previousHeight = previousTransition.GetHeight(localPoint);
+            float previousHeight = context.GetTransitionHeight(previousTransition, localPoint);
             if (Mathf.Abs(local.y - previousHeight) <= 1.5f)
             {
                 height = previousHeight;
-                spaceName = previousTransition.DisplayName;
+                spaceName = context.GetTransitionDisplayName(previousTransition);
                 transitionId = previousTransition.Id;
                 regionId = -1;
                 return true;
@@ -390,12 +588,13 @@ public static class MapNavigationQuery
         }
 
         MapNavRegion previousRegion = context.FindRegion(previousRegionId);
-        if (previousRegion != null && previousRegion.Contains(localPoint, tolerance))
+        if (context.ContainsRegion(previousRegion, localPoint, tolerance))
         {
-            if (Mathf.Abs(local.y - previousRegion.Height) <= 1.5f)
+            float previousHeight = context.GetRegionHeight(previousRegion, localPoint);
+            if (Mathf.Abs(local.y - previousHeight) <= 1.5f)
             {
-                height = previousRegion.Height;
-                spaceName = previousRegion.DisplayName;
+                height = previousHeight;
+                spaceName = context.GetRegionDisplayName(previousRegion);
                 transitionId = -1;
                 regionId = previousRegion.Id;
                 return true;
@@ -404,8 +603,8 @@ public static class MapNavigationQuery
 
         if (TryFindBestTransition(context, worldPosition, tolerance, out MapNavTransition transition))
         {
-            height = transition.GetHeight(localPoint);
-            spaceName = transition.DisplayName;
+            height = context.GetTransitionHeight(transition, localPoint);
+            spaceName = context.GetTransitionDisplayName(transition);
             transitionId = transition.Id;
             regionId = -1;
             return true;
@@ -413,8 +612,83 @@ public static class MapNavigationQuery
 
         if (TryFindBestRegion(context, worldPosition, tolerance, out MapNavRegion region))
         {
-            height = region.Height;
-            spaceName = region.DisplayName;
+            height = context.GetRegionHeight(region, localPoint);
+            spaceName = context.GetRegionDisplayName(region);
+            transitionId = -1;
+            regionId = region.Id;
+            return true;
+        }
+
+        height = 0f;
+        spaceName = "Outside";
+        transitionId = -1;
+        regionId = -1;
+        return false;
+    }
+
+    public static bool TryGetNavigationHeight(
+        MapNavigationBuildDataContext context,
+        Vector3 worldPosition,
+        float tolerance,
+        int previousTransitionId,
+        int previousRegionId,
+        out float height,
+        out string spaceName,
+        out int transitionId,
+        out int regionId)
+    {
+        if (!context.IsValid)
+        {
+            height = 0f;
+            spaceName = "No Navigation";
+            transitionId = -1;
+            regionId = -1;
+            return false;
+        }
+
+        Vector3 local = context.ToLocal3D(worldPosition);
+        Vector2 localPoint = new(local.x, local.z);
+        if (context.TryFindTransition(previousTransitionId, out MapNavTransitionData previousTransition)
+            && context.ContainsTransition(previousTransition, localPoint, tolerance))
+        {
+            float previousHeight = context.GetTransitionHeight(previousTransition, localPoint);
+            if (Mathf.Abs(local.y - previousHeight) <= 1.5f)
+            {
+                height = previousHeight;
+                spaceName = $"Transition {previousTransition.Id}";
+                transitionId = previousTransition.Id;
+                regionId = -1;
+                return true;
+            }
+        }
+
+        if (context.TryFindRegion(previousRegionId, out MapNavRegionData previousRegion)
+            && context.ContainsRegion(previousRegion, localPoint, tolerance))
+        {
+            float previousHeight = context.GetRegionHeight(previousRegion, localPoint);
+            if (Mathf.Abs(local.y - previousHeight) <= 1.5f)
+            {
+                height = previousHeight;
+                spaceName = $"Region {previousRegion.Id}";
+                transitionId = -1;
+                regionId = previousRegion.Id;
+                return true;
+            }
+        }
+
+        if (TryFindBestTransition(context, worldPosition, tolerance, out MapNavTransitionData transition))
+        {
+            height = context.GetTransitionHeight(transition, localPoint);
+            spaceName = $"Transition {transition.Id}";
+            transitionId = transition.Id;
+            regionId = -1;
+            return true;
+        }
+
+        if (TryFindBestRegion(context, worldPosition, tolerance, out MapNavRegionData region))
+        {
+            height = context.GetRegionHeight(region, localPoint);
+            spaceName = $"Region {region.Id}";
             transitionId = -1;
             regionId = region.Id;
             return true;
@@ -564,7 +838,7 @@ public static class MapNavigationQuery
 
         Vector2 start = context.ToLocal2D(startWorldPosition);
         Vector2 target = context.ToLocal2D(targetWorldPosition);
-        IReadOnlyList<MapNavObstacle> obstacles = region.Obstacles;
+        IReadOnlyList<MapNavObstacle> obstacles = context.GetRegionObstacles(region);
         if (IsInsideAnyObstacle(start, obstacles))
             return InternalPathResult.Failed;
 
@@ -578,16 +852,17 @@ public static class MapNavigationQuery
         for (int i = 0; i < obstacles.Count; i++)
         {
             MapNavObstacle obstacle = obstacles[i];
-            if (obstacle == null || obstacle.Points == null || obstacle.Points.Count < 3)
+            IReadOnlyList<Vector2> obstaclePoints = context.GetObstaclePoints(obstacle);
+            if (obstaclePoints.Count < 3)
                 continue;
 
-            Vector2 center = MapNavGeometry.AveragePoint(obstacle.Points);
+            Vector2 center = MapNavGeometry.AveragePoint(obstaclePoints);
             float padding = Mathf.Max(0f, agentRadius) + Mathf.Max(0f, obstacle.CornerPadding);
-            for (int p = 0; p < obstacle.Points.Count; p++)
+            for (int p = 0; p < obstaclePoints.Count; p++)
             {
-                Vector2 fromCenter = obstacle.Points[p] - center;
-                Vector2 candidate = obstacle.Points[p] + (fromCenter.sqrMagnitude > 0.0001f ? fromCenter.normalized * padding : Vector2.zero);
-                if (!region.Contains(candidate, 0f))
+                Vector2 fromCenter = obstaclePoints[p] - center;
+                Vector2 candidate = obstaclePoints[p] + (fromCenter.sqrMagnitude > 0.0001f ? fromCenter.normalized * padding : Vector2.zero);
+                if (!context.ContainsRegion(region, candidate, 0f))
                     continue;
 
                 if (IsInsideAnyObstacle(candidate, obstacles))
@@ -617,6 +892,13 @@ public static class MapNavigationQuery
         out Vector3 entry,
         out Vector3 exit)
     {
+        if (navigation == null)
+        {
+            entry = Vector3.zero;
+            exit = Vector3.zero;
+            return;
+        }
+
         GetTransitionEndpointWorld(navigation.QueryContext, transition, isForward, agentRadius, out entry, out exit);
     }
 
@@ -628,7 +910,7 @@ public static class MapNavigationQuery
         out Vector3 entry,
         out Vector3 exit)
     {
-        GetTransitionEndpointCenters(transition, out Vector2 fromCenter, out Vector2 toCenter);
+        GetTransitionEndpointCenters(context, transition, out Vector2 fromCenter, out Vector2 toCenter);
 
         Vector2 entryLocal = isForward ? fromCenter : toCenter;
         Vector2 exitLocal = isForward ? toCenter : fromCenter;
@@ -753,7 +1035,7 @@ public static class MapNavigationQuery
             context,
             link,
             currentEnd,
-            link.ToRegionId == goalRegionId ? worldTarget : context.ToWorld(toRegion, GetRegionCenter(toRegion)));
+            link.ToRegionId == goalRegionId ? worldTarget : context.ToWorld(toRegion, context.GetRegionCenter(toRegion)));
         Vector3 entry = context.ToWorld(fromRegion, portalLocal);
         exit = context.ToWorld(toRegion, portalLocal);
         edgeCost = GetPlanarDistance(currentEnd, entry)
@@ -773,10 +1055,10 @@ public static class MapNavigationQuery
         for (int i = 0; i < context.TransitionCount; i++)
         {
             MapNavTransition transition = context.GetTransitionAt(i);
-            if (transition == null || !transition.Contains(localPoint, tolerance))
+            if (!context.ContainsTransition(transition, localPoint, tolerance))
                 continue;
 
-            float height = transition.GetHeight(localPoint);
+            float height = context.GetTransitionHeight(transition, localPoint);
             float heightDelta = Mathf.Abs(local.y - height);
             if (heightDelta >= bestHeightDelta)
                 continue;
@@ -798,10 +1080,10 @@ public static class MapNavigationQuery
         for (int i = 0; i < context.RegionCount; i++)
         {
             MapNavRegion region = context.GetRegionAt(i);
-            if (region == null || !region.Contains(localPoint, tolerance))
+            if (!context.ContainsRegion(region, localPoint, tolerance))
                 continue;
 
-            float heightDelta = Mathf.Abs(local.y - region.Height);
+            float heightDelta = Mathf.Abs(local.y - context.GetRegionHeight(region, localPoint));
             if (heightDelta >= bestHeightDelta)
                 continue;
 
@@ -810,6 +1092,63 @@ public static class MapNavigationQuery
         }
 
         return bestRegion != null;
+    }
+
+    private static bool TryFindBestTransition(MapNavigationBuildDataContext context, Vector3 worldPosition, float tolerance, out MapNavTransitionData bestTransition)
+    {
+        Vector3 local = context.ToLocal3D(worldPosition);
+        Vector2 localPoint = new(local.x, local.z);
+        float bestHeightDelta = float.PositiveInfinity;
+        bestTransition = default;
+        bool found = false;
+
+        for (int i = 0; i < context.TransitionCount; i++)
+        {
+            if (!context.TryGetTransitionAt(i, out MapNavTransitionData transition))
+                continue;
+
+            if (!context.ContainsTransition(transition, localPoint, tolerance))
+                continue;
+
+            float height = context.GetTransitionHeight(transition, localPoint);
+            float heightDelta = Mathf.Abs(local.y - height);
+            if (heightDelta >= bestHeightDelta)
+                continue;
+
+            bestHeightDelta = heightDelta;
+            bestTransition = transition;
+            found = true;
+        }
+
+        return found;
+    }
+
+    private static bool TryFindBestRegion(MapNavigationBuildDataContext context, Vector3 worldPosition, float tolerance, out MapNavRegionData bestRegion)
+    {
+        Vector3 local = context.ToLocal3D(worldPosition);
+        Vector2 localPoint = new(local.x, local.z);
+        float bestHeightDelta = float.PositiveInfinity;
+        bestRegion = default;
+        bool found = false;
+
+        for (int i = 0; i < context.RegionCount; i++)
+        {
+            if (!context.TryGetRegionAt(i, out MapNavRegionData region))
+                continue;
+
+            if (!context.ContainsRegion(region, localPoint, tolerance))
+                continue;
+
+            float heightDelta = Mathf.Abs(local.y - context.GetRegionHeight(region, localPoint));
+            if (heightDelta >= bestHeightDelta)
+                continue;
+
+            bestHeightDelta = heightDelta;
+            bestRegion = region;
+            found = true;
+        }
+
+        return found;
     }
 
     private static int PopCheapest(List<int> open, IReadOnlyDictionary<int, float> bestCost, int goalRegionId, Vector3 worldTarget, IReadOnlyDictionary<int, Vector3> endPositions)
@@ -872,12 +1211,24 @@ public static class MapNavigationQuery
 
     public static void GetTransitionEndpointCenters(MapNavTransition transition, out Vector2 fromCenter, out Vector2 toCenter)
     {
-        Vector2 direction = transition.UpDirection.sqrMagnitude > 0.0001f
+        IReadOnlyList<Vector2> points = transition?.Points != null ? transition.Points : System.Array.Empty<Vector2>();
+        Vector2 direction = transition != null && transition.UpDirection.sqrMagnitude > 0.0001f
             ? transition.UpDirection.normalized
             : Vector2.up;
 
-        fromCenter = GetEndpointSupportCenter(transition.Points, direction, true);
-        toCenter = GetEndpointSupportCenter(transition.Points, direction, false);
+        fromCenter = GetEndpointSupportCenter(points, direction, true);
+        toCenter = GetEndpointSupportCenter(points, direction, false);
+    }
+
+    public static void GetTransitionEndpointCenters(MapNavigationQueryContext context, MapNavTransition transition, out Vector2 fromCenter, out Vector2 toCenter)
+    {
+        Vector2 direction = transition != null && transition.UpDirection.sqrMagnitude > 0.0001f
+            ? transition.UpDirection.normalized
+            : Vector2.up;
+
+        IReadOnlyList<Vector2> points = context.GetTransitionPoints(transition);
+        fromCenter = GetEndpointSupportCenter(points, direction, true);
+        toCenter = GetEndpointSupportCenter(points, direction, false);
     }
 
     private static Vector2 GetEndpointSupportCenter(IReadOnlyList<Vector2> points, Vector2 direction, bool useMin)
@@ -1004,18 +1355,19 @@ public static class MapNavigationQuery
         for (int i = 0; i < obstacles.Count; i++)
         {
             MapNavObstacle obstacle = obstacles[i];
-            if (obstacle == null || obstacle.Points == null || obstacle.Points.Count < 3)
+            IReadOnlyList<Vector2> points = GetObstaclePoints(obstacle);
+            if (points.Count < 3)
                 continue;
 
-            if (obstacle.Contains(from) || obstacle.Contains(to))
+            if (MapNavGeometry.ContainsPoint(points, from) || MapNavGeometry.ContainsPoint(points, to))
                 return false;
 
-            if (obstacle.Contains((from + to) * 0.5f))
+            if (MapNavGeometry.ContainsPoint(points, (from + to) * 0.5f))
                 return false;
 
-            for (int p = 0, previous = obstacle.Points.Count - 1; p < obstacle.Points.Count; previous = p++)
+            for (int p = 0, previous = points.Count - 1; p < points.Count; previous = p++)
             {
-                if (MapNavGeometry.SegmentsIntersect(from, to, obstacle.Points[previous], obstacle.Points[p]))
+                if (MapNavGeometry.SegmentsIntersect(from, to, points[previous], points[p]))
                     return false;
             }
         }
@@ -1027,7 +1379,19 @@ public static class MapNavigationQuery
     {
         for (int i = 0; i < obstacles.Count; i++)
         {
-            if (obstacles[i] != null && obstacles[i].Contains(point))
+            IReadOnlyList<Vector2> points = GetObstaclePoints(obstacles[i]);
+            if (points.Count >= 3 && MapNavGeometry.ContainsPoint(points, point))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsInsideAnyObstacle(MapNavigationBuildDataContext context, Vector2 point, IReadOnlyList<MapNavObstacleData> obstacles)
+    {
+        for (int i = 0; i < obstacles.Count; i++)
+        {
+            if (context.HasEnoughObstaclePoints(obstacles[i], 3) && context.ContainsObstacle(obstacles[i], point))
                 return true;
         }
 
@@ -1035,6 +1399,7 @@ public static class MapNavigationQuery
     }
 
     private static bool TryFindNearestClearPoint(
+        MapNavigationQueryContext context,
         MapNavRegion region,
         IReadOnlyList<MapNavObstacle> obstacles,
         Vector2 closestOnObstacle,
@@ -1071,10 +1436,66 @@ public static class MapNavigationQuery
             for (int step = 1; step <= 8; step++)
             {
                 Vector2 candidate = closestOnObstacle + direction.normalized * (padding * step);
-                if (!region.Contains(candidate, 0f))
+                if (!context.ContainsRegion(region, candidate, 0f))
                     continue;
 
                 if (IsInsideAnyObstacle(candidate, obstacles))
+                    continue;
+
+                float sqrDistance = (candidate - referencePoint).sqrMagnitude + ((candidate - originalPoint).sqrMagnitude * 0.15f);
+                if (sqrDistance >= bestSqrDistance)
+                    continue;
+
+                bestSqrDistance = sqrDistance;
+                clearPoint = candidate;
+            }
+        }
+
+        return bestSqrDistance < float.PositiveInfinity;
+    }
+
+    private static bool TryFindNearestClearPoint(
+        MapNavigationBuildDataContext context,
+        MapNavRegionData region,
+        IReadOnlyList<MapNavObstacleData> obstacles,
+        Vector2 closestOnObstacle,
+        Vector2 originalPoint,
+        Vector2 referencePoint,
+        float padding,
+        out Vector2 clearPoint)
+    {
+        clearPoint = default;
+
+        Vector2 centerDirection = closestOnObstacle - originalPoint;
+        Vector2 polygonDirection = closestOnObstacle - MapNavGeometry.AveragePoint(GetContainingObstaclePoints(context, obstacles, originalPoint));
+        Vector2[] directions =
+        {
+            centerDirection,
+            polygonDirection,
+            Vector2.up,
+            Vector2.down,
+            Vector2.left,
+            Vector2.right,
+            new Vector2(1f, 1f).normalized,
+            new Vector2(-1f, 1f).normalized,
+            new Vector2(1f, -1f).normalized,
+            new Vector2(-1f, -1f).normalized
+        };
+
+        float bestSqrDistance = float.PositiveInfinity;
+        for (int d = 0; d < directions.Length; d++)
+        {
+            Vector2 direction = directions[d];
+            if (direction.sqrMagnitude <= 0.0001f)
+                continue;
+
+            for (int step = 1; step <= 8; step++)
+            {
+                Vector2 candidate = closestOnObstacle + direction.normalized * (padding * step);
+                if (!context.ContainsRegion(region, candidate, 0f))
+                    continue;
+
+                if (IsInsideAnyObstacle(context, candidate, obstacles))
                     continue;
 
                 float sqrDistance = (candidate - referencePoint).sqrMagnitude + ((candidate - originalPoint).sqrMagnitude * 0.15f);
@@ -1093,16 +1514,29 @@ public static class MapNavigationQuery
     {
         for (int i = 0; i < obstacles.Count; i++)
         {
-            if (obstacles[i] != null && obstacles[i].Contains(point))
-                return obstacles[i].Points;
+            IReadOnlyList<Vector2> points = GetObstaclePoints(obstacles[i]);
+            if (points.Count >= 3 && MapNavGeometry.ContainsPoint(points, point))
+                return points;
         }
 
         return System.Array.Empty<Vector2>();
     }
 
-    private static Vector2 GetRegionCenter(MapNavRegion region)
+    private static IReadOnlyList<Vector2> GetContainingObstaclePoints(MapNavigationBuildDataContext context, IReadOnlyList<MapNavObstacleData> obstacles, Vector2 point)
     {
-        return region != null ? MapNavGeometry.AveragePoint(region.Points) : Vector2.zero;
+        for (int i = 0; i < obstacles.Count; i++)
+        {
+            IReadOnlyList<Vector2> points = context.GetObstaclePoints(obstacles[i]);
+            if (points.Count >= 3 && MapNavGeometry.ContainsPoint(points, point))
+                return points;
+        }
+
+        return System.Array.Empty<Vector2>();
+    }
+
+    private static IReadOnlyList<Vector2> GetObstaclePoints(MapNavObstacle obstacle)
+    {
+        return obstacle?.Points != null ? obstacle.Points : System.Array.Empty<Vector2>();
     }
 
 }

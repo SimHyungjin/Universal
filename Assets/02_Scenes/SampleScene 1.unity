@@ -1987,6 +1987,7 @@ MonoBehaviour:
   cornerLookAheadDistance: 0
   heightOffset: 0
   useRegionPathfinding: 1
+  useBuildDataContextQueries: 1
   constrainToNavigationSpaces: 0
   logDebug: 0
 --- !u!65 &855380141
@@ -4238,7 +4239,7 @@ MonoBehaviour:
     Type: 1
     FromHeight: 0
     ToHeight: 2.5
-    UpDirection: {x: 0, y: 0}
+    UpDirection: {x: 0, y: 1}
     Points:
     - {x: 2.2007036, y: -20.35969}
     - {x: -0.43151474, y: -20.87272}
@@ -4274,7 +4275,7 @@ MonoBehaviour:
     Type: 1
     FromHeight: 2.5
     ToHeight: 3.75
-    UpDirection: {x: 0, y: 0}
+    UpDirection: {x: 0, y: 1}
     Points:
     - {x: -5.5, y: 4}
     - {x: -4.5, y: 4}
