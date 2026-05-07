@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 45d0a3a5b24e64044806b780c43eeac0, type: 3}
+  m_Name: SO_CustomSymbol
+  m_EditorClassIdentifier: 
+  Symbols:
+  - Name: DEBUG_ENABLE
+    Description: "Debug \uD638\uCD9C"
+    IncludeInBuild: 1
+    AllPlatforms: 1
+    Window: 0
+    Mac: 0
+    Android: 0
+    Ios: 0
