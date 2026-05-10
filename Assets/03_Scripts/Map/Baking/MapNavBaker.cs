@@ -1,0 +1,597 @@
+using System.Collections.Generic;
+using MapNav.Data;
+using Unity.Collections;
+using Unity.Entities;
+using Unity.Mathematics;
+using UnityEngine;
+
+namespace MapNav.Baking
+{
+    public static class MapNavBaker
+    {
+        public static BlobAssetReference<NavBlob> Build(MapNavigationAuthoring authoring, Allocator allocator)
+        {
+            if (authoring == null)
+                return BuildEmpty(allocator);
+
+            return Build(authoring.Regions, authoring.Transitions, allocator);
+        }
+
+        public static BlobAssetReference<NavBlob> Build(
+            IReadOnlyList<MapNavRegion> sourceRegions,
+            IReadOnlyList<MapNavTransition> sourceTransitions,
+            Allocator allocator)
+        {
+            List<MapNavRegion> regions = SortById(sourceRegions, r => r.Id);
+            List<MapNavTransition> transitions = SortById(sourceTransitions, t => t.Id);
+
+            List<float2> points = new();
+            NavRegion[] regionData = new NavRegion[regions.Count];
+            NavTransition[] transitionData = new NavTransition[transitions.Count];
+            List<NavObstacle> obstacleData = new();
+
+            BuildRegions(regions, regionData, obstacleData, points);
+            BuildTransitions(transitions, transitionData, points);
+
+            List<NavEdge>[] regionEdges = BuildRegionEdgeBuckets(regionData, points);
+            List<NavEdge>[] transitionEdges = new List<NavEdge>[transitionData.Length];
+            for (int i = 0; i < transitionEdges.Length; i++)
+                transitionEdges[i] = new List<NavEdge>();
+
+            AddTransitionEdges(regionData, transitionData, points, regionEdges, transitionEdges);
+
+            return CreateBlob(points, regionData, transitionData, obstacleData, regionEdges, transitionEdges, allocator);
+        }
+
+        public static BlobAssetReference<NavBlob> BuildEmpty(Allocator allocator)
+        {
+            using BlobBuilder builder = new(Allocator.Temp);
+            ref NavBlob root = ref builder.ConstructRoot<NavBlob>();
+            builder.Allocate(ref root.Points, 0);
+            builder.Allocate(ref root.Regions, 0);
+            builder.Allocate(ref root.Transitions, 0);
+            builder.Allocate(ref root.Obstacles, 0);
+            builder.Allocate(ref root.RegionEdges, 0);
+            builder.Allocate(ref root.RegionEdgeRange, 0);
+            builder.Allocate(ref root.TransitionEdges, 0);
+            builder.Allocate(ref root.TransitionEdgeRange, 0);
+            builder.Allocate(ref root.Grid.CellRanges, 0);
+            builder.Allocate(ref root.Grid.Entries, 0);
+            return builder.CreateBlobAssetReference<NavBlob>(allocator);
+        }
+
+        private static List<T> SortById<T>(IReadOnlyList<T> source, System.Func<T, int> idSelector) where T : class
+        {
+            List<T> list = new();
+            if (source == null)
+                return list;
+
+            for (int i = 0; i < source.Count; i++)
+            {
+                if (source[i] != null)
+                    list.Add(source[i]);
+            }
+
+            list.Sort((a, b) => idSelector(a).CompareTo(idSelector(b)));
+            return list;
+        }
+
+        private static void BuildRegions(
+            List<MapNavRegion> regions,
+            NavRegion[] regionData,
+            List<NavObstacle> obstacleData,
+            List<float2> points)
+        {
+            for (int i = 0; i < regions.Count; i++)
+            {
+                MapNavRegion region = regions[i];
+                region.RecalculateBounds();
+
+                int pointStart = points.Count;
+                AppendPoints(region.Points, points);
+
+                int obstacleStart = obstacleData.Count;
+                int obstacleCount = AppendObstacles(region.Id, region.Obstacles, obstacleData, points);
+
+                regionData[i] = new NavRegion
+                {
+                    Id = region.Id,
+                    LayerId = region.NavLayerId,
+                    Height = region.Height,
+                    Cost = math.max(0f, region.Cost),
+                    PointStart = pointStart,
+                    PointCount = region.Points?.Count ?? 0,
+                    ObstacleStart = obstacleStart,
+                    ObstacleCount = obstacleCount,
+                    BoundsMin = ToFloat2(region.BoundsMin),
+                    BoundsMax = ToFloat2(region.BoundsMax),
+                    Center = ComputeCenter(region.Points),
+                    HasBounds = ToByte(region.HasBounds)
+                };
+            }
+        }
+
+        private static void BuildTransitions(
+            List<MapNavTransition> transitions,
+            NavTransition[] transitionData,
+            List<float2> points)
+        {
+            for (int i = 0; i < transitions.Count; i++)
+            {
+                MapNavTransition transition = transitions[i];
+                transition.RecalculateBounds();
+
+                int pointStart = points.Count;
+                AppendPoints(transition.Points, points);
+
+                transitionData[i] = new NavTransition
+                {
+                    Id = transition.Id,
+                    Type = (int)transition.Type,
+                    FromRegionId = transition.FromRegionId,
+                    ToRegionId = transition.ToRegionId,
+                    FromHeight = transition.FromHeight,
+                    ToHeight = transition.ToHeight,
+                    UpDirection = ToFloat2(transition.UpDirection),
+                    Cost = math.max(0f, transition.Cost),
+                    MinRadius = math.max(0f, transition.MinRadius),
+                    CanStopInside = ToByte(transition.CanStopInside),
+                    CanFightInside = ToByte(transition.CanFightInside),
+                    Bidirectional = ToByte(transition.Bidirectional),
+                    Enabled = ToByte(transition.Enabled),
+                    PointStart = pointStart,
+                    PointCount = transition.Points?.Count ?? 0,
+                    BoundsMin = ToFloat2(transition.BoundsMin),
+                    BoundsMax = ToFloat2(transition.BoundsMax),
+                    Center = ComputeCenter(transition.Points),
+                    HasBounds = ToByte(transition.HasBounds)
+                };
+            }
+        }
+
+        private static int AppendObstacles(
+            int regionId,
+            IReadOnlyList<MapNavObstacle> sourceObstacles,
+            List<NavObstacle> obstacleData,
+            List<float2> points)
+        {
+            if (sourceObstacles == null)
+                return 0;
+
+            int added = 0;
+            for (int i = 0; i < sourceObstacles.Count; i++)
+            {
+                MapNavObstacle obstacle = sourceObstacles[i];
+                if (obstacle == null)
+                    continue;
+
+                obstacle.RecalculateBounds();
+                int pointStart = points.Count;
+                AppendPoints(obstacle.Points, points);
+
+                obstacleData.Add(new NavObstacle
+                {
+                    RegionId = regionId,
+                    PointStart = pointStart,
+                    PointCount = obstacle.Points?.Count ?? 0,
+                    CornerPadding = math.max(0f, obstacle.CornerPadding),
+                    BoundsMin = ToFloat2(obstacle.BoundsMin),
+                    BoundsMax = ToFloat2(obstacle.BoundsMax),
+                    HasBounds = ToByte(obstacle.HasBounds)
+                });
+                added++;
+            }
+
+            return added;
+        }
+
+        private static void AppendPoints(IReadOnlyList<Vector2> source, List<float2> target)
+        {
+            if (source == null)
+                return;
+
+            for (int i = 0; i < source.Count; i++)
+                target.Add(new float2(source[i].x, source[i].y));
+        }
+
+        private static List<NavEdge>[] BuildRegionEdgeBuckets(NavRegion[] regionData, List<float2> points)
+        {
+            List<NavEdge>[] buckets = new List<NavEdge>[regionData.Length];
+            for (int i = 0; i < buckets.Length; i++)
+                buckets[i] = new List<NavEdge>();
+
+            for (int a = 0; a < regionData.Length; a++)
+            {
+                NavRegion regionA = regionData[a];
+                if (regionA.PointCount < 3)
+                    continue;
+
+                IReadOnlyList<Vector2> pointsA = ToVector2Slice(points, regionA.PointStart, regionA.PointCount);
+                for (int b = a + 1; b < regionData.Length; b++)
+                {
+                    NavRegion regionB = regionData[b];
+                    if (regionB.PointCount < 3)
+                        continue;
+
+                    if (!MapNavigationRegionLinkUtility.CanLink(regionA.LayerId, regionA.Height, regionB.LayerId, regionB.Height))
+                        continue;
+
+                    IReadOnlyList<Vector2> pointsB = ToVector2Slice(points, regionB.PointStart, regionB.PointCount);
+                    if (!MapNavigationRegionLinkUtility.TryFindSharedPortal(pointsA, pointsB, out Vector2 portalA, out Vector2 portalB))
+                        continue;
+
+                    float cost = math.max(0f, (regionA.Cost + regionB.Cost) * 0.5f);
+                    float portalHeight = (regionA.Height + regionB.Height) * 0.5f;
+                    buckets[a].Add(new NavEdge
+                    {
+                        ToKind = NavSpaceKind.Region,
+                        ToId = regionB.Id,
+                        PortalLocalA = ToFloat2(portalA),
+                        PortalLocalB = ToFloat2(portalB),
+                        Cost = cost,
+                        PortalHeight = portalHeight
+                    });
+                    buckets[b].Add(new NavEdge
+                    {
+                        ToKind = NavSpaceKind.Region,
+                        ToId = regionA.Id,
+                        PortalLocalA = ToFloat2(portalA),
+                        PortalLocalB = ToFloat2(portalB),
+                        Cost = cost,
+                        PortalHeight = portalHeight
+                    });
+                }
+            }
+
+            return buckets;
+        }
+
+        private static void AddTransitionEdges(
+            NavRegion[] regionData,
+            NavTransition[] transitionData,
+            List<float2> points,
+            List<NavEdge>[] regionEdges,
+            List<NavEdge>[] transitionEdges)
+        {
+            for (int t = 0; t < transitionData.Length; t++)
+            {
+                NavTransition trans = transitionData[t];
+                if (trans.Enabled == 0 || trans.PointCount < 3)
+                    continue;
+
+                int fromIdx = FindRegionIndexById(regionData, trans.FromRegionId);
+                int toIdx = FindRegionIndexById(regionData, trans.ToRegionId);
+                if (fromIdx < 0 || toIdx < 0)
+                    continue;
+
+                GetTransitionEndpointPortals(trans, points, out float2 fromA, out float2 fromB, out float2 toA, out float2 toB);
+
+                regionEdges[fromIdx].Add(new NavEdge
+                {
+                    ToKind = NavSpaceKind.Transition,
+                    ToId = trans.Id,
+                    PortalLocalA = fromA,
+                    PortalLocalB = fromB,
+                    Cost = trans.Cost,
+                    PortalHeight = trans.FromHeight
+                });
+
+                transitionEdges[t].Add(new NavEdge
+                {
+                    ToKind = NavSpaceKind.Region,
+                    ToId = trans.ToRegionId,
+                    PortalLocalA = toA,
+                    PortalLocalB = toB,
+                    Cost = trans.Cost,
+                    PortalHeight = trans.ToHeight
+                });
+
+                if (trans.Bidirectional == 0)
+                    continue;
+
+                regionEdges[toIdx].Add(new NavEdge
+                {
+                    ToKind = NavSpaceKind.Transition,
+                    ToId = trans.Id,
+                    PortalLocalA = toA,
+                    PortalLocalB = toB,
+                    Cost = trans.Cost,
+                    PortalHeight = trans.ToHeight
+                });
+
+                transitionEdges[t].Add(new NavEdge
+                {
+                    ToKind = NavSpaceKind.Region,
+                    ToId = trans.FromRegionId,
+                    PortalLocalA = fromA,
+                    PortalLocalB = fromB,
+                    Cost = trans.Cost,
+                    PortalHeight = trans.FromHeight
+                });
+            }
+        }
+
+        private static void GetTransitionEndpointPortals(
+            NavTransition transition,
+            List<float2> points,
+            out float2 fromA,
+            out float2 fromB,
+            out float2 toA,
+            out float2 toB)
+        {
+            if (transition.PointCount <= 0)
+            {
+                fromA = fromB = toA = toB = transition.Center;
+                return;
+            }
+
+            float2 direction = math.lengthsq(transition.UpDirection) > 0.0001f
+                ? math.normalize(transition.UpDirection)
+                : new float2(0f, 1f);
+
+            GetEndpointSupportEdge(points, transition.PointStart, transition.PointCount, direction, true, out fromA, out fromB);
+            GetEndpointSupportEdge(points, transition.PointStart, transition.PointCount, direction, false, out toA, out toB);
+        }
+
+        private static void GetEndpointSupportEdge(
+            List<float2> points,
+            int pointStart,
+            int pointCount,
+            float2 direction,
+            bool useMin,
+            out float2 a,
+            out float2 b)
+        {
+            a = points[pointStart];
+            b = pointCount > 1 ? points[pointStart + 1] : a;
+            float aProjection = math.dot(a, direction);
+            float bProjection = math.dot(b, direction);
+            if (IsBetterProjection(bProjection, aProjection, useMin))
+            {
+                (a, b) = (b, a);
+                (aProjection, bProjection) = (bProjection, aProjection);
+            }
+
+            for (int i = 2; i < pointCount; i++)
+            {
+                float2 point = points[pointStart + i];
+                float projection = math.dot(point, direction);
+                if (IsBetterProjection(projection, aProjection, useMin))
+                {
+                    b = a;
+                    bProjection = aProjection;
+                    a = point;
+                    aProjection = projection;
+                    continue;
+                }
+
+                if (IsBetterProjection(projection, bProjection, useMin))
+                {
+                    b = point;
+                    bProjection = projection;
+                }
+            }
+        }
+
+        private static bool IsBetterProjection(float candidate, float current, bool useMin)
+        {
+            return useMin ? candidate < current : candidate > current;
+        }
+
+        private static int FindRegionIndexById(NavRegion[] regions, int id)
+        {
+            int min = 0;
+            int max = regions.Length - 1;
+            while (min <= max)
+            {
+                int mid = min + ((max - min) / 2);
+                int candidate = regions[mid].Id;
+                if (candidate == id)
+                    return mid;
+
+                if (candidate < id)
+                    min = mid + 1;
+                else
+                    max = mid - 1;
+            }
+
+            return -1;
+        }
+
+        private static BlobAssetReference<NavBlob> CreateBlob(
+            List<float2> points,
+            NavRegion[] regionData,
+            NavTransition[] transitionData,
+            List<NavObstacle> obstacleData,
+            List<NavEdge>[] regionEdges,
+            List<NavEdge>[] transitionEdges,
+            Allocator allocator)
+        {
+            using BlobBuilder builder = new(Allocator.Temp);
+            ref NavBlob root = ref builder.ConstructRoot<NavBlob>();
+
+            BlobBuilderArray<float2> pointsArr = builder.Allocate(ref root.Points, points.Count);
+            for (int i = 0; i < points.Count; i++)
+                pointsArr[i] = points[i];
+
+            BlobBuilderArray<NavRegion> regionsArr = builder.Allocate(ref root.Regions, regionData.Length);
+            for (int i = 0; i < regionData.Length; i++)
+                regionsArr[i] = regionData[i];
+
+            BlobBuilderArray<NavTransition> transitionsArr = builder.Allocate(ref root.Transitions, transitionData.Length);
+            for (int i = 0; i < transitionData.Length; i++)
+                transitionsArr[i] = transitionData[i];
+
+            BlobBuilderArray<NavObstacle> obstaclesArr = builder.Allocate(ref root.Obstacles, obstacleData.Count);
+            for (int i = 0; i < obstacleData.Count; i++)
+                obstaclesArr[i] = obstacleData[i];
+
+            FlattenEdges(builder, ref root.RegionEdges, ref root.RegionEdgeRange, regionEdges);
+            FlattenEdges(builder, ref root.TransitionEdges, ref root.TransitionEdgeRange, transitionEdges);
+
+            BuildSpatialGrid(builder, ref root.Grid, regionData, transitionData);
+
+            return builder.CreateBlobAssetReference<NavBlob>(allocator);
+        }
+
+        private static void BuildSpatialGrid(
+            BlobBuilder builder,
+            ref NavSpatialGrid grid,
+            NavRegion[] regions,
+            NavTransition[] transitions)
+        {
+            float2 min = new float2(float.PositiveInfinity);
+            float2 max = new float2(float.NegativeInfinity);
+            bool any = false;
+
+            for (int i = 0; i < regions.Length; i++)
+            {
+                if (regions[i].HasBounds == 0 || regions[i].PointCount < 3) continue;
+                min = math.min(min, regions[i].BoundsMin);
+                max = math.max(max, regions[i].BoundsMax);
+                any = true;
+            }
+            for (int i = 0; i < transitions.Length; i++)
+            {
+                if (transitions[i].HasBounds == 0 || transitions[i].Enabled == 0 || transitions[i].PointCount < 3) continue;
+                min = math.min(min, transitions[i].BoundsMin);
+                max = math.max(max, transitions[i].BoundsMax);
+                any = true;
+            }
+
+            if (!any)
+            {
+                grid.HasGrid = 0;
+                grid.CellSize = 0f;
+                grid.Origin = float2.zero;
+                grid.CellsX = 0;
+                grid.CellsZ = 0;
+                builder.Allocate(ref grid.CellRanges, 0);
+                builder.Allocate(ref grid.Entries, 0);
+                return;
+            }
+
+            float2 size = math.max(new float2(0.001f), max - min);
+            float minDim = math.min(size.x, size.y);
+            float cellSize = math.max(0.5f, minDim / 16f);
+            int cellsX = math.max(1, (int)math.ceil(size.x / cellSize));
+            int cellsZ = math.max(1, (int)math.ceil(size.y / cellSize));
+
+            // Cap explosion in pathological maps: target ~4096 cells max, scale up cell size if needed
+            const int MaxCells = 4096;
+            while (cellsX * cellsZ > MaxCells)
+            {
+                cellSize *= 1.5f;
+                cellsX = math.max(1, (int)math.ceil(size.x / cellSize));
+                cellsZ = math.max(1, (int)math.ceil(size.y / cellSize));
+            }
+            int cellCount = cellsX * cellsZ;
+
+            List<NavGridEntry>[] perCell = new List<NavGridEntry>[cellCount];
+            for (int c = 0; c < cellCount; c++) perCell[c] = new List<NavGridEntry>();
+
+            for (int i = 0; i < regions.Length; i++)
+            {
+                ref NavRegion r = ref regions[i];
+                if (r.HasBounds == 0 || r.PointCount < 3) continue;
+                AppendToCells(perCell, min, cellSize, cellsX, cellsZ, r.BoundsMin, r.BoundsMax,
+                    new NavGridEntry { Kind = NavSpaceKind.Region, Id = r.Id });
+            }
+
+            for (int i = 0; i < transitions.Length; i++)
+            {
+                ref NavTransition t = ref transitions[i];
+                if (t.HasBounds == 0 || t.Enabled == 0 || t.PointCount < 3) continue;
+                AppendToCells(perCell, min, cellSize, cellsX, cellsZ, t.BoundsMin, t.BoundsMax,
+                    new NavGridEntry { Kind = NavSpaceKind.Transition, Id = t.Id });
+            }
+
+            int total = 0;
+            for (int c = 0; c < cellCount; c++) total += perCell[c].Count;
+
+            BlobBuilderArray<int2> rangeArr = builder.Allocate(ref grid.CellRanges, cellCount);
+            BlobBuilderArray<NavGridEntry> entryArr = builder.Allocate(ref grid.Entries, total);
+            int cursor = 0;
+            for (int c = 0; c < cellCount; c++)
+            {
+                rangeArr[c] = new int2(cursor, perCell[c].Count);
+                for (int e = 0; e < perCell[c].Count; e++)
+                    entryArr[cursor++] = perCell[c][e];
+            }
+
+            grid.HasGrid = 1;
+            grid.CellSize = cellSize;
+            grid.Origin = min;
+            grid.CellsX = cellsX;
+            grid.CellsZ = cellsZ;
+        }
+
+        private static void AppendToCells(
+            List<NavGridEntry>[] perCell,
+            float2 origin,
+            float cellSize,
+            int cellsX,
+            int cellsZ,
+            float2 bMin,
+            float2 bMax,
+            NavGridEntry entry)
+        {
+            int x0 = math.clamp((int)math.floor((bMin.x - origin.x) / cellSize), 0, cellsX - 1);
+            int x1 = math.clamp((int)math.floor((bMax.x - origin.x) / cellSize), 0, cellsX - 1);
+            int z0 = math.clamp((int)math.floor((bMin.y - origin.y) / cellSize), 0, cellsZ - 1);
+            int z1 = math.clamp((int)math.floor((bMax.y - origin.y) / cellSize), 0, cellsZ - 1);
+            for (int z = z0; z <= z1; z++)
+                for (int x = x0; x <= x1; x++)
+                    perCell[z * cellsX + x].Add(entry);
+        }
+
+        private static void FlattenEdges(
+            BlobBuilder builder,
+            ref BlobArray<NavEdge> edgesField,
+            ref BlobArray<int2> rangeField,
+            List<NavEdge>[] buckets)
+        {
+            int total = 0;
+            for (int i = 0; i < buckets.Length; i++)
+                total += buckets[i].Count;
+
+            BlobBuilderArray<NavEdge> edgesArr = builder.Allocate(ref edgesField, total);
+            BlobBuilderArray<int2> rangeArr = builder.Allocate(ref rangeField, buckets.Length);
+
+            int cursor = 0;
+            for (int i = 0; i < buckets.Length; i++)
+            {
+                List<NavEdge> bucket = buckets[i];
+                rangeArr[i] = new int2(cursor, bucket.Count);
+                for (int e = 0; e < bucket.Count; e++)
+                    edgesArr[cursor++] = bucket[e];
+            }
+        }
+
+        private static IReadOnlyList<Vector2> ToVector2Slice(List<float2> source, int start, int count)
+        {
+            Vector2[] result = new Vector2[count];
+            for (int i = 0; i < count; i++)
+            {
+                float2 p = source[start + i];
+                result[i] = new Vector2(p.x, p.y);
+            }
+            return result;
+        }
+
+        private static float2 ComputeCenter(IReadOnlyList<Vector2> source)
+        {
+            if (source == null || source.Count == 0)
+                return float2.zero;
+
+            float2 sum = float2.zero;
+            for (int i = 0; i < source.Count; i++)
+                sum += new float2(source[i].x, source[i].y);
+
+            return sum / source.Count;
+        }
+
+        private static float2 ToFloat2(Vector2 value) => new float2(value.x, value.y);
+        private static byte ToByte(bool value) => value ? (byte)1 : (byte)0;
+    }
+}

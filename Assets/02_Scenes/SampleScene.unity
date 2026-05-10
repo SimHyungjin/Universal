@@ -703,6 +703,67 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 2494658788200280072, guid: 09a56ed68b1ac9f42aaa90c2cb801c4a, type: 3}
   m_PrefabInstance: {fileID: 327738036}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &387206961
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 387206963}
+  - component: {fileID: 387206962}
+  m_Layer: 0
+  m_Name: Test (1)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &387206962
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 387206961}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8c7f9b0450ad0464e918e7b5f13a9b4e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MapNav.Ecs.NavRuntimeBootstrap
+  map: {fileID: 1674693950}
+  spawnAgents: 1
+  agentCount: 30
+  onlyNavLayerId: -1
+  maxSampleAttempts: 64
+  agentRadius: 0.35
+  stopDistance: 0.08
+  moveSpeed: 10
+  waypointAdvanceDistance: 0.35
+  cornerLookAheadDistance: 0
+  heightOffset: 0
+  boundaryTolerance: 0.05
+  targetRepathDistance: 0.15
+  stuckRepathDelay: 0.75
+  stuckRepathCooldown: 1.5
+  stuckProgressDistance: 0.03
+  maxPathsPerFrame: 32
+--- !u!4 &387206963
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 387206961}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &408677775
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1833,7 +1894,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &806008354
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2028,7 +2089,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &855380140
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2323,6 +2384,52 @@ Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 92a15f5106ef73c4899c4044e783df7e, type: 3}
   m_PrefabInstance: {fileID: 979333326}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1031176742
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1031176744}
+  - component: {fileID: 1031176743}
+  m_Layer: 0
+  m_Name: Test (3)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1031176743
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1031176742}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0697f878cb19a3d4dafe04ee4a85edfd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MapNav.Ecs.NavVisualShellPool
+  prefab: {fileID: -736713962339166218, guid: 04738dbb6c25d5543bd2557bd2828702, type: 3}
+  poolRoot: {fileID: 1031176744}
+--- !u!4 &1031176744
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1031176742}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1033719553
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -3647,7 +3754,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1480061537
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3664,6 +3771,7 @@ MonoBehaviour:
   poolRoot: {fileID: 1480061538}
   cullingCamera: {fileID: 0}
   visibleDistance: 60
+  visibleDistanceHysteresis: 5
   maxVisibleShells: 256
   refreshInterval: 0.15
 --- !u!4 &1480061538
@@ -4059,11 +4167,11 @@ Camera:
     y: 0
     width: 1
     height: 1
-  near clip plane: 0.01
+  near clip plane: -10
   far clip plane: 1000
   field of view: 60
   orthographic: 1
-  orthographic size: 10
+  orthographic size: 15
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
@@ -4089,6 +4197,102 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0.4266001, y: -0.3394444, z: 0.17670357, w: 0.81949115}
   m_LocalPosition: {x: 5, y: 11, z: -5}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1630737198
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1630737200}
+  - component: {fileID: 1630737199}
+  m_Layer: 0
+  m_Name: Test
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1630737199
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1630737198}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 87d3c77016011d142bf9de5c218e1f00, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::NavCoreSelfTest
+--- !u!4 &1630737200
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1630737198}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1668387496
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1668387498}
+  - component: {fileID: 1668387497}
+  m_Layer: 0
+  m_Name: Test (2)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1668387497
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1668387496}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 54c039a9c74e8d548bb47a8e55a68baa, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MapNav.Ecs.NavRandomTargetRequester
+  map: {fileID: 1674693950}
+  requestOnEnable: 1
+  repeat: 1
+  interval: 2
+  maxAgentsPerTick: 128
+  maxSampleAttempts: 32
+  minTargetChangeDistance: 0.25
+  onlyNavLayerId: -1
+--- !u!4 &1668387498
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1668387496}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -4130,9 +4334,9 @@ MonoBehaviour:
     Cost: 0
     Points:
     - {x: -14, y: -24}
-    - {x: 5, y: -24}
-    - {x: 5, y: -16}
-    - {x: -14, y: -16}
+    - {x: 2.5, y: -24}
+    - {x: 2.5, y: -17}
+    - {x: -14, y: -17}
     Obstacles:
     - Points:
       - {x: -12, y: -24}
@@ -4147,6 +4351,16 @@ MonoBehaviour:
       - {x: -7, y: -24}
       CornerPadding: 0.25
   - Id: 1
+    NavLayerId: 0
+    Height: 0
+    Cost: 0
+    Points:
+    - {x: 2.5, y: -24}
+    - {x: 5.5, y: -24}
+    - {x: 5.5, y: -21}
+    - {x: 2.5, y: -21}
+    Obstacles: []
+  - Id: 2
     NavLayerId: 1
     Height: 1.25
     Cost: 0
@@ -4174,7 +4388,7 @@ MonoBehaviour:
       - {x: -24, y: -22}
       - {x: -24, y: -24}
       CornerPadding: 0.25
-  - Id: 2
+  - Id: 3
     NavLayerId: 2
     Height: 2.5
     Cost: 0
@@ -4202,7 +4416,7 @@ MonoBehaviour:
       - {x: 6, y: -9}
       - {x: 6, y: -10}
       CornerPadding: 0.25
-  - Id: 3
+  - Id: 4
     NavLayerId: 2
     Height: 2.5
     Cost: 0
@@ -4212,23 +4426,27 @@ MonoBehaviour:
     - {x: 24, y: -19.5}
     - {x: 24, y: -24}
     Obstacles: []
-  - Id: 4
+  - Id: 5
     NavLayerId: 2
     Height: 2.5
     Cost: 0
     Points:
     - {x: 4, y: -20}
     - {x: 4, y: -16}
-    - {x: 7, y: -16}
+    - {x: 5.5, y: -16}
+    - {x: 5.5, y: -20}
+    Obstacles: []
+  - Id: 6
+    NavLayerId: 2
+    Height: 2.5
+    Cost: 0
+    Points:
+    - {x: 5.5, y: -20}
+    - {x: 5.5, y: -19.5}
+    - {x: 7, y: -19.5}
     - {x: 7, y: -20}
-    Obstacles:
-    - Points:
-      - {x: 5.5, y: -19.5}
-      - {x: 5.5, y: -15}
-      - {x: 9, y: -15}
-      - {x: 9, y: -19.5}
-      CornerPadding: 0.25
-  - Id: 5
+    Obstacles: []
+  - Id: 7
     NavLayerId: 2
     Height: 2.5
     Cost: 0
@@ -4256,7 +4474,7 @@ MonoBehaviour:
       - {x: -15, y: 14}
       - {x: -15, y: 10}
       CornerPadding: 0.25
-  - Id: 6
+  - Id: 8
     NavLayerId: 2
     Height: 2.5
     Cost: 0
@@ -4278,7 +4496,7 @@ MonoBehaviour:
       - {x: -3.5, y: 24}
       - {x: -3.5, y: 19}
       CornerPadding: 0.25
-  - Id: 7
+  - Id: 9
     NavLayerId: 3
     Height: 3.75
     Cost: 0
@@ -4288,7 +4506,7 @@ MonoBehaviour:
     - {x: 5, y: 24}
     - {x: 5, y: 5}
     Obstacles: []
-  - Id: 8
+  - Id: 10
     NavLayerId: 3
     Height: 3.75
     Cost: 0
@@ -4298,7 +4516,7 @@ MonoBehaviour:
     - {x: -2, y: 14}
     - {x: -2, y: 6.5}
     Obstacles: []
-  - Id: 9
+  - Id: 11
     NavLayerId: 4
     Height: 5
     Cost: 0
@@ -4308,7 +4526,7 @@ MonoBehaviour:
     - {x: 24, y: 24}
     - {x: 24, y: -18}
     Obstacles: []
-  - Id: 10
+  - Id: 12
     NavLayerId: 4
     Height: 5
     Cost: 0
@@ -4318,7 +4536,7 @@ MonoBehaviour:
     - {x: 11, y: 24}
     - {x: 11, y: -9}
     Obstacles: []
-  - Id: 11
+  - Id: 13
     NavLayerId: 4
     Height: 5
     Cost: 0
@@ -4331,7 +4549,7 @@ MonoBehaviour:
   transitions:
   - Id: 0
     FromRegionId: 0
-    ToRegionId: 1
+    ToRegionId: 2
     Type: 1
     FromHeight: 0
     ToHeight: 1.25
@@ -4349,16 +4567,16 @@ MonoBehaviour:
     Enabled: 1
   - Id: 1
     FromRegionId: 0
-    ToRegionId: 2
+    ToRegionId: 3
     Type: 1
     FromHeight: 0
     ToHeight: 2.5
     UpDirection: {x: 0, y: 1}
     Points:
-    - {x: 2.2007036, y: -20.35969}
-    - {x: -0.43151474, y: -20.87272}
-    - {x: -0.033158667, y: -15.358871}
-    - {x: 2.8057485, y: -15.221968}
+    - {x: 2, y: -20.2}
+    - {x: 0, y: -20.2}
+    - {x: 0, y: -15}
+    - {x: 2, y: -15}
     Cost: 0
     MinRadius: 0
     CanStopInside: 1
@@ -4366,8 +4584,8 @@ MonoBehaviour:
     Bidirectional: 1
     Enabled: 1
   - Id: 2
-    FromRegionId: 1
-    ToRegionId: 2
+    FromRegionId: 2
+    ToRegionId: 3
     Type: 1
     FromHeight: 1.25
     ToHeight: 2.5
@@ -4384,8 +4602,8 @@ MonoBehaviour:
     Bidirectional: 1
     Enabled: 1
   - Id: 3
-    FromRegionId: 2
-    ToRegionId: 8
+    FromRegionId: 3
+    ToRegionId: 10
     Type: 1
     FromHeight: 2.5
     ToHeight: 3.75
@@ -4393,8 +4611,8 @@ MonoBehaviour:
     Points:
     - {x: -5.5, y: 4}
     - {x: -4.5, y: 4}
-    - {x: -4.5, y: 6}
-    - {x: -5.5, y: 6}
+    - {x: -4.5, y: 6.5}
+    - {x: -5.5, y: 6.5}
     Cost: 0
     MinRadius: 0
     CanStopInside: 1
@@ -4402,17 +4620,17 @@ MonoBehaviour:
     Bidirectional: 1
     Enabled: 1
   - Id: 4
-    FromRegionId: 2
-    ToRegionId: 9
+    FromRegionId: 3
+    ToRegionId: 11
     Type: 1
     FromHeight: 2.5
     ToHeight: 5
     UpDirection: {x: 1, y: 0}
     Points:
-    - {x: 6.5, y: -12}
-    - {x: 6.5, y: -11}
-    - {x: 10.5, y: -11}
-    - {x: 10.5, y: -12}
+    - {x: 5.5, y: -12}
+    - {x: 5.5, y: -11}
+    - {x: 11, y: -11}
+    - {x: 11, y: -12}
     Cost: 1
     MinRadius: 0
     CanStopInside: 1
@@ -4728,7 +4946,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1710786577
 Transform:
   m_ObjectHideFlags: 0
@@ -4759,7 +4977,7 @@ MonoBehaviour:
   map: {fileID: 1674693950}
   createNavigationSingleton: 1
   spawnAgents: 1
-  agentCount: 10
+  agentCount: 40
   onlyNavLayerId: -1
   maxSampleAttempts: 64
   sampleCenter: {fileID: 0}
@@ -5548,6 +5766,10 @@ SceneRoots:
   - {fileID: 832575519}
   - {fileID: 1629692213}
   - {fileID: 1674693951}
+  - {fileID: 1630737200}
+  - {fileID: 387206963}
+  - {fileID: 1668387498}
+  - {fileID: 1031176744}
   - {fileID: 855380144}
   - {fileID: 806008355}
   - {fileID: 1710786577}

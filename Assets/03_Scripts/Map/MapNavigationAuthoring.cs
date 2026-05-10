@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using MapNav.Baking;
+using MapNav.Data;
 using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
@@ -12,6 +14,7 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
     private readonly MapNavigationRuntimeData _runtimeData = new();
     private MapNavigationBuildData _buildData = MapNavigationBuildData.Empty();
     private BlobAssetReference<MapNavigationBlob> _blobData;
+    private BlobAssetReference<NavBlob> _navBlobData;
     private bool _blobDataDirty = true;
 
     public IReadOnlyList<MapNavRegion> Regions => regions;
@@ -24,6 +27,14 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
         {
             EnsureBlobDataCurrent();
             return _blobData;
+        }
+    }
+    public BlobAssetReference<NavBlob> NavBlobData
+    {
+        get
+        {
+            EnsureBlobDataCurrent();
+            return _navBlobData;
         }
     }
 
@@ -88,6 +99,7 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
     {
         DisposeBlobData();
         _blobData = MapNavigationBlobBuilder.CreateBlobAsset(_buildData, Allocator.Persistent);
+        _navBlobData = MapNavBaker.Build(this, Allocator.Persistent);
         _blobDataDirty = false;
     }
 
@@ -108,6 +120,9 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
     {
         if (_blobData.IsCreated)
             _blobData.Dispose();
+
+        if (_navBlobData.IsCreated)
+            _navBlobData.Dispose();
 
         _blobDataDirty = true;
     }
