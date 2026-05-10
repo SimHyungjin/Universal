@@ -441,21 +441,28 @@ namespace MapNav.Core
             float2 e2 = b - corner;
             float2 n1 = math.normalizesafe(new float2(-e1.y, e1.x));
             float2 n2 = math.normalizesafe(new float2(-e2.y, e2.x));
+            // outward = n1 + n2 has length 2*sin(θ/2) where θ is the interior angle.
+            // To ensure perpendicular distance from each adjacent edge equals `offset`,
+            // displace by outward * offset / sin²(θ/2) = outward * 2*offset / |outward|².
             float2 outward = n1 + n2;
             float lenSq = math.lengthsq(outward);
             if (lenSq < NavMath.Epsilon)
             {
+                // 180° corner — fall back to single edge normal.
                 outward = n1;
                 lenSq = math.lengthsq(outward);
                 if (lenSq < NavMath.Epsilon) return corner;
             }
-            outward /= math.sqrt(lenSq);
 
-            float2 probe = corner + outward * 1e-3f;
+            // Probe to determine which side is outside the polygon.
+            float invLen = math.rsqrt(lenSq);
+            float2 probe = corner + outward * (invLen * 1e-3f);
             if (NavMath.PolygonContains(ref blob.Points, obs.PointStart, obs.PointCount, probe))
                 outward = -outward;
 
-            return corner + outward * offset;
+            // Acute corners can blow up here; clamp displacement to a sane multiple of `offset`.
+            float scale = math.min(2f * offset / lenSq, 8f * offset);
+            return corner + outward * scale;
         }
     }
 }
