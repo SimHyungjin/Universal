@@ -1817,6 +1817,69 @@ Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: ed0a4be52201a1b4396231b1d3f73588, type: 3}
   m_PrefabInstance: {fileID: 805777678}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &806008353
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 806008355}
+  - component: {fileID: 806008354}
+  m_Layer: 0
+  m_Name: MapNavEcsRandomTargetRequester
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &806008354
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 806008353}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 421c340844cfbbb43aba40698172e48f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MapNavEcsRandomTargetRequester
+  map: {fileID: 1674693950}
+  requestOnEnable: 1
+  repeat: 1
+  interval: 2
+  maxAgentsPerTick: 128
+  maxSampleAttempts: 32
+  minTargetChangeDistance: 0.25
+  onlyNavLayerId: -1
+  sampleCenter: {fileID: 0}
+  sampleRadius: 0
+  limitSampleHeight: 0
+  minSampleHeight: -0.5
+  maxSampleHeight: 1.5
+  force: 0
+  logRequests: 1
+  lastStatus: 
+  lastCandidateRegionCount: 0
+  lastQueriedAgentCount: 0
+  lastWrittenTargetCount: 0
+--- !u!4 &806008355
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 806008353}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0
@@ -1987,8 +2050,10 @@ MonoBehaviour:
   cornerLookAheadDistance: 0
   heightOffset: 0
   useRegionPathfinding: 1
+  useBuildDataContextQueries: 1
+  useBlobDataContextQueries: 1
   constrainToNavigationSpaces: 0
-  logDebug: 0
+  logDebug: 1
 --- !u!65 &855380141
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -2110,7 +2175,7 @@ MonoBehaviour:
   navigation: {fileID: 1674693950}
   clickButton: 0
   clickTargetMode: 1
-  logDebug: 0
+  logDebug: 1
   groundMask:
     serializedVersion: 2
     m_Bits: 4294967295
@@ -3566,6 +3631,56 @@ Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 92a15f5106ef73c4899c4044e783df7e, type: 3}
   m_PrefabInstance: {fileID: 1454270125}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1480061536
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1480061538}
+  - component: {fileID: 1480061537}
+  m_Layer: 0
+  m_Name: MapNavEcsVisualShellPool
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1480061537
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1480061536}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ffc591cba2f30e646b07354b78eacd98, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MapNavEcsVisualShellPool
+  prefab: {fileID: 1189426108121125148, guid: 67272ae8227799c469f7cd4fd8ff5ffc, type: 3}
+  poolRoot: {fileID: 1480061538}
+  cullingCamera: {fileID: 0}
+  visibleDistance: 60
+  maxVisibleShells: 256
+  refreshInterval: 0.15
+--- !u!4 &1480061538
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1480061536}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1493763409
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -4238,7 +4353,7 @@ MonoBehaviour:
     Type: 1
     FromHeight: 0
     ToHeight: 2.5
-    UpDirection: {x: 0, y: 0}
+    UpDirection: {x: 0, y: 1}
     Points:
     - {x: 2.2007036, y: -20.35969}
     - {x: -0.43151474, y: -20.87272}
@@ -4274,7 +4389,7 @@ MonoBehaviour:
     Type: 1
     FromHeight: 2.5
     ToHeight: 3.75
-    UpDirection: {x: 0, y: 0}
+    UpDirection: {x: 0, y: 1}
     Points:
     - {x: -5.5, y: 4}
     - {x: -4.5, y: 4}
@@ -4597,6 +4712,74 @@ Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 03f9b2de9f424c440b9bb4174238c57e, type: 3}
   m_PrefabInstance: {fileID: 1696118389}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1710786575
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1710786577}
+  - component: {fileID: 1710786578}
+  m_Layer: 0
+  m_Name: ECS Navigation Runtime Bootstrap
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1710786577
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1710786575}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1710786578
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1710786575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bf46bc667002d0c42b62d9c8ca1d701b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MapNavigationEcsRuntimeBootstrap
+  map: {fileID: 1674693950}
+  createNavigationSingleton: 1
+  spawnAgents: 1
+  agentCount: 10
+  onlyNavLayerId: -1
+  maxSampleAttempts: 64
+  sampleCenter: {fileID: 0}
+  sampleRadius: 0
+  limitSampleHeight: 0
+  minSampleHeight: -0.5
+  maxSampleHeight: 1.5
+  agentRadius: 0.35
+  stopDistance: 0.08
+  moveSpeed: 3.5
+  waypointAdvanceDistance: 0.35
+  cornerLookAheadDistance: 0
+  heightOffset: 0
+  targetRepathDistance: 0.15
+  stuckRepathDelay: 0.75
+  stuckRepathCooldown: 1.5
+  stuckProgressDistance: 0.03
+  useRegionPathfinding: 1
+  constrainToNavigationSpaces: 1
+  lastStatus: 
 --- !u!1001 &1713016557
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -5366,3 +5549,6 @@ SceneRoots:
   - {fileID: 1629692213}
   - {fileID: 1674693951}
   - {fileID: 855380144}
+  - {fileID: 806008355}
+  - {fileID: 1710786577}
+  - {fileID: 1480061538}

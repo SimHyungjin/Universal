@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Entities;
 using UnityEngine;
 
 [DisallowMultipleComponent]
@@ -9,15 +11,37 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
 
     private readonly MapNavigationRuntimeData _runtimeData = new();
     private MapNavigationBuildData _buildData = MapNavigationBuildData.Empty();
+    private BlobAssetReference<MapNavigationBlob> _blobData;
+    private bool _blobDataDirty = true;
 
     public IReadOnlyList<MapNavRegion> Regions => regions;
     public IReadOnlyList<MapNavTransition> Transitions => transitions;
     public MapNavigationRuntimeData RuntimeData => _runtimeData;
     public MapNavigationBuildData BuildData => _buildData;
+    public BlobAssetReference<MapNavigationBlob> BlobData
+    {
+        get
+        {
+            EnsureBlobDataCurrent();
+            return _blobData;
+        }
+    }
+
     public MapNavigationBuildDataContext BuildDataContext => new(
         _buildData,
         transform.localToWorldMatrix,
         transform.worldToLocalMatrix);
+    public MapNavigationBlobDataContext BlobDataContext
+    {
+        get
+        {
+            EnsureBlobDataCurrent();
+            return new MapNavigationBlobDataContext(
+                _blobData,
+                transform.localToWorldMatrix,
+                transform.worldToLocalMatrix);
+        }
+    }
     public MapNavigationQueryContext QueryContext => new(
         regions,
         transitions,
@@ -32,13 +56,60 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
 
     private void OnValidate()
     {
-        RebuildRuntimeData();
+        RebuildRuntimeData(false);
     }
 
     public void RebuildRuntimeData()
     {
+        RebuildRuntimeData(true);
+    }
+
+    private void RebuildRuntimeData(bool rebuildBlobData)
+    {
+        RecalculateBounds();
         _runtimeData.Rebuild(regions, transitions);
         _buildData = MapNavigationBuildData.Build(regions, transitions);
+        _blobDataDirty = true;
+
+        if (rebuildBlobData)
+            RebuildBlobData();
+    }
+
+    private void RecalculateBounds()
+    {
+        for (int i = 0; i < regions.Count; i++)
+            regions[i]?.RecalculateBounds();
+
+        for (int i = 0; i < transitions.Count; i++)
+            transitions[i]?.RecalculateBounds();
+    }
+
+    private void RebuildBlobData()
+    {
+        DisposeBlobData();
+        _blobData = MapNavigationBlobBuilder.CreateBlobAsset(_buildData, Allocator.Persistent);
+        _blobDataDirty = false;
+    }
+
+    private void EnsureBlobDataCurrent()
+    {
+        if (!_blobDataDirty && _blobData.IsCreated)
+            return;
+
+        RebuildBlobData();
+    }
+
+    private void OnDestroy()
+    {
+        DisposeBlobData();
+    }
+
+    private void DisposeBlobData()
+    {
+        if (_blobData.IsCreated)
+            _blobData.Dispose();
+
+        _blobDataDirty = true;
     }
 
     public MapNavRegion FindRegion(int regionId)
@@ -53,20 +124,8 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
 
     public bool TryFindRegion(Vector3 worldPosition, float tolerance, out MapNavRegion region)
     {
-        Vector3 local = transform.InverseTransformPoint(worldPosition);
-        Vector2 point = new(local.x, local.z);
-
-        for (int i = 0; i < regions.Count; i++)
-        {
-            if (!regions[i].Contains(point, tolerance))
-                continue;
-
-            region = regions[i];
-            return true;
-        }
-
-        region = null;
-        return false;
+        region = MapNavigationQuery.FindContainingRegion(QueryContext, worldPosition, tolerance);
+        return region != null;
     }
 
     public bool TryFindTransition(Vector3 worldPosition, out MapNavTransition transition)
@@ -76,20 +135,7 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
 
     public bool TryFindTransition(Vector3 worldPosition, float tolerance, out MapNavTransition transition)
     {
-        Vector3 local = transform.InverseTransformPoint(worldPosition);
-        Vector2 point = new(local.x, local.z);
-
-        for (int i = 0; i < transitions.Count; i++)
-        {
-            if (!transitions[i].Contains(point, tolerance))
-                continue;
-
-            transition = transitions[i];
-            return true;
-        }
-
-        transition = null;
-        return false;
+        return MapNavigationQuery.TryFindContainingTransition(QueryContext, worldPosition, tolerance, out transition);
     }
 
     public Vector3 ToWorld(MapNavRegion region, Vector2 localPoint)

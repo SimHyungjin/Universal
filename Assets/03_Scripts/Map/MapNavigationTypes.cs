@@ -24,6 +24,9 @@ public sealed class MapNavRegion
     public float Cost = 1f;
     public List<Vector2> Points = new();
     public List<MapNavObstacle> Obstacles = new();
+    [NonSerialized] public Vector2 BoundsMin;
+    [NonSerialized] public Vector2 BoundsMax;
+    [NonSerialized] public bool HasBounds;
 
     public string DisplayName => $"Region {Id}";
 
@@ -39,8 +42,27 @@ public sealed class MapNavRegion
 
     public bool Contains(Vector2 localPoint, float tolerance)
     {
+        if (!ContainsBounds(localPoint, tolerance))
+            return false;
+
         return MapNavGeometry.ContainsPoint(Points, localPoint)
             || MapNavGeometry.IsNearEdge(Points, localPoint, tolerance);
+    }
+
+    public void RecalculateBounds()
+    {
+        HasBounds = MapNavBoundsUtility.TryCalculateBounds(Points, out BoundsMin, out BoundsMax);
+
+        if (Obstacles == null)
+            return;
+
+        for (int i = 0; i < Obstacles.Count; i++)
+            Obstacles[i]?.RecalculateBounds();
+    }
+
+    public bool ContainsBounds(Vector2 localPoint, float tolerance = 0f)
+    {
+        return MapNavBoundsUtility.Contains(BoundsMin, BoundsMax, HasBounds, localPoint, tolerance);
     }
 
     public Bounds GetLocalBounds()
@@ -81,6 +103,9 @@ public sealed class MapNavTransition
     public bool CanFightInside;
     public bool Bidirectional = true;
     public bool Enabled = true;
+    [NonSerialized] public Vector2 BoundsMin;
+    [NonSerialized] public Vector2 BoundsMax;
+    [NonSerialized] public bool HasBounds;
 
     public string DisplayName => $"Transition {Id}";
 
@@ -106,8 +131,21 @@ public sealed class MapNavTransition
 
     public bool Contains(Vector2 localPoint, float tolerance)
     {
+        if (!ContainsBounds(localPoint, tolerance))
+            return false;
+
         return MapNavGeometry.ContainsPoint(Points, localPoint)
             || MapNavGeometry.IsNearEdge(Points, localPoint, tolerance);
+    }
+
+    public void RecalculateBounds()
+    {
+        HasBounds = MapNavBoundsUtility.TryCalculateBounds(Points, out BoundsMin, out BoundsMax);
+    }
+
+    public bool ContainsBounds(Vector2 localPoint, float tolerance = 0f)
+    {
+        return MapNavBoundsUtility.Contains(BoundsMin, BoundsMax, HasBounds, localPoint, tolerance);
     }
 
     public Bounds GetLocalBounds()
@@ -155,9 +193,57 @@ public sealed class MapNavObstacle
 {
     public List<Vector2> Points = new();
     public float CornerPadding = 0.25f;
+    [NonSerialized] public Vector2 BoundsMin;
+    [NonSerialized] public Vector2 BoundsMax;
+    [NonSerialized] public bool HasBounds;
 
     public bool Contains(Vector2 localPoint)
     {
+        if (!ContainsBounds(localPoint))
+            return false;
+
         return MapNavGeometry.ContainsPoint(Points, localPoint);
+    }
+
+    public void RecalculateBounds()
+    {
+        HasBounds = MapNavBoundsUtility.TryCalculateBounds(Points, out BoundsMin, out BoundsMax);
+    }
+
+    public bool ContainsBounds(Vector2 localPoint, float tolerance = 0f)
+    {
+        return MapNavBoundsUtility.Contains(BoundsMin, BoundsMax, HasBounds, localPoint, tolerance);
+    }
+}
+
+public static class MapNavBoundsUtility
+{
+    public static bool TryCalculateBounds(IReadOnlyList<Vector2> points, out Vector2 min, out Vector2 max)
+    {
+        min = default;
+        max = default;
+        if (points == null || points.Count == 0)
+            return false;
+
+        min = points[0];
+        max = points[0];
+        for (int i = 1; i < points.Count; i++)
+        {
+            min = Vector2.Min(min, points[i]);
+            max = Vector2.Max(max, points[i]);
+        }
+
+        return true;
+    }
+
+    public static bool Contains(Vector2 min, Vector2 max, bool hasBounds, Vector2 point, float tolerance = 0f)
+    {
+        if (!hasBounds)
+            return false;
+
+        return point.x >= min.x - tolerance
+            && point.x <= max.x + tolerance
+            && point.y >= min.y - tolerance
+            && point.y <= max.y + tolerance;
     }
 }

@@ -118,6 +118,13 @@ public static class MapNavGeometry
         return (a.x * b.y) - (a.y * b.x);
     }
 
+    public static float PlanarDistance(Vector3 a, Vector3 b)
+    {
+        a.y = 0f;
+        b.y = 0f;
+        return Vector3.Distance(a, b);
+    }
+
     public static Vector2 AveragePoint(IReadOnlyList<Vector2> points)
     {
         if (points == null || points.Count == 0)

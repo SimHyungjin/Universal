@@ -20,6 +20,7 @@ public readonly struct MapNavigationBuildDataContext
     public bool IsValid => BuildData != null;
     public int RegionCount => BuildData?.Regions.Length ?? 0;
     public int TransitionCount => BuildData?.Transitions.Length ?? 0;
+    public int ConnectionCount => BuildData?.Connections.Length ?? 0;
     public int ObstacleCount => BuildData?.Obstacles.Length ?? 0;
 
     public bool TryGetRegionAt(int index, out MapNavRegionData region)
@@ -55,6 +56,18 @@ public readonly struct MapNavigationBuildDataContext
         }
 
         obstacle = default;
+        return false;
+    }
+
+    public bool TryGetConnectionAt(int index, out MapNavRegionConnectionData connection)
+    {
+        if (BuildData != null && index >= 0 && index < BuildData.Connections.Length)
+        {
+            connection = BuildData.Connections[index];
+            return true;
+        }
+
+        connection = default;
         return false;
     }
 
@@ -96,6 +109,11 @@ public readonly struct MapNavigationBuildDataContext
         return BuildData != null ? BuildData.GetRegionObstacles(region) : System.Array.Empty<MapNavObstacleData>();
     }
 
+    public IReadOnlyList<MapNavRegionConnectionData> GetRegionConnections(MapNavRegionData region)
+    {
+        return BuildData != null ? BuildData.GetRegionConnections(region) : System.Array.Empty<MapNavRegionConnectionData>();
+    }
+
     public Vector3 ToLocal3D(Vector3 worldPosition)
     {
         return WorldToLocalMatrix.MultiplyPoint3x4(worldPosition);
@@ -119,6 +137,9 @@ public readonly struct MapNavigationBuildDataContext
 
     public bool ContainsRegion(MapNavRegionData region, Vector2 localPoint, float tolerance = 0f)
     {
+        if (!MapNavBoundsUtility.Contains(region.BoundsMin, region.BoundsMax, region.HasBounds, localPoint, tolerance))
+            return false;
+
         IReadOnlyList<Vector2> points = GetRegionPoints(region);
         return MapNavGeometry.ContainsPoint(points, localPoint)
             || MapNavGeometry.IsNearEdge(points, localPoint, tolerance);
@@ -126,6 +147,9 @@ public readonly struct MapNavigationBuildDataContext
 
     public bool ContainsTransition(MapNavTransitionData transition, Vector2 localPoint, float tolerance = 0f)
     {
+        if (!MapNavBoundsUtility.Contains(transition.BoundsMin, transition.BoundsMax, transition.HasBounds, localPoint, tolerance))
+            return false;
+
         IReadOnlyList<Vector2> points = GetTransitionPoints(transition);
         return MapNavGeometry.ContainsPoint(points, localPoint)
             || MapNavGeometry.IsNearEdge(points, localPoint, tolerance);
@@ -133,6 +157,9 @@ public readonly struct MapNavigationBuildDataContext
 
     public bool ContainsObstacle(MapNavObstacleData obstacle, Vector2 localPoint)
     {
+        if (!MapNavBoundsUtility.Contains(obstacle.BoundsMin, obstacle.BoundsMax, obstacle.HasBounds, localPoint))
+            return false;
+
         return MapNavGeometry.ContainsPoint(GetObstaclePoints(obstacle), localPoint);
     }
 
@@ -158,17 +185,17 @@ public readonly struct MapNavigationBuildDataContext
 
     public bool HasEnoughRegionPoints(MapNavRegionData region, int minimum)
     {
-        return region.PointCount >= minimum && GetRegionPoints(region).Count >= minimum;
+        return HasEnoughDeclaredAndResolvedPoints(region.PointCount, GetRegionPoints(region).Count, minimum);
     }
 
     public bool HasEnoughTransitionPoints(MapNavTransitionData transition, int minimum)
     {
-        return transition.PointCount >= minimum && GetTransitionPoints(transition).Count >= minimum;
+        return HasEnoughDeclaredAndResolvedPoints(transition.PointCount, GetTransitionPoints(transition).Count, minimum);
     }
 
     public bool HasEnoughObstaclePoints(MapNavObstacleData obstacle, int minimum)
     {
-        return obstacle.PointCount >= minimum && GetObstaclePoints(obstacle).Count >= minimum;
+        return HasEnoughDeclaredAndResolvedPoints(obstacle.PointCount, GetObstaclePoints(obstacle).Count, minimum);
     }
 
     public Vector2 GetClosestPointOnRegion(MapNavRegionData region, Vector2 localPoint)
@@ -212,5 +239,10 @@ public readonly struct MapNavigationBuildDataContext
             min = Mathf.Min(min, value);
             max = Mathf.Max(max, value);
         }
+    }
+
+    private static bool HasEnoughDeclaredAndResolvedPoints(int declaredCount, int resolvedCount, int minimum)
+    {
+        return declaredCount >= minimum && resolvedCount >= minimum;
     }
 }

@@ -42,10 +42,6 @@ public sealed class MapNavigationRuntimeData
         }
     }
 
-    private const float RegionLinkHeightTolerance = 0.05f;
-    private const float RegionLinkLineTolerance = 0.08f;
-    private const float MinimumRegionLinkPortalLength = 0.05f;
-
     private readonly LookupTable _lookup = new();
     private readonly RegionGraph _graph = new();
 
@@ -119,13 +115,10 @@ public sealed class MapNavigationRuntimeData
                 if (!CanLink(regionB))
                     continue;
 
-                if (regionA.NavLayerId != regionB.NavLayerId)
+                if (!MapNavigationRegionLinkUtility.CanLink(regionA.NavLayerId, regionA.Height, regionB.NavLayerId, regionB.Height))
                     continue;
 
-                if (Mathf.Abs(regionA.Height - regionB.Height) > RegionLinkHeightTolerance)
-                    continue;
-
-                if (!TryFindSharedPortal(regionA.Points, regionB.Points, out Vector2 portalA, out Vector2 portalB))
+                if (!MapNavigationRegionLinkUtility.TryFindSharedPortal(regionA.Points, regionB.Points, out Vector2 portalA, out Vector2 portalB))
                     continue;
 
                 float cost = Mathf.Max(0f, (regionA.Cost + regionB.Cost) * 0.5f);
@@ -259,86 +252,4 @@ public sealed class MapNavigationRuntimeData
         }
     }
 
-    private static bool TryFindSharedPortal(IReadOnlyList<Vector2> pointsA, IReadOnlyList<Vector2> pointsB, out Vector2 portalA, out Vector2 portalB)
-    {
-        portalA = default;
-        portalB = default;
-        float bestSqrDistance = float.PositiveInfinity;
-        bool foundNearbyPortal = false;
-
-        for (int a = 0, previousA = pointsA.Count - 1; a < pointsA.Count; previousA = a++)
-        {
-            Vector2 a0 = pointsA[previousA];
-            Vector2 a1 = pointsA[a];
-
-            for (int b = 0, previousB = pointsB.Count - 1; b < pointsB.Count; previousB = b++)
-            {
-                Vector2 b0 = pointsB[previousB];
-                Vector2 b1 = pointsB[b];
-                if (TryGetCollinearOverlap(a0, a1, b0, b1, out portalA, out portalB))
-                    return true;
-
-                GetClosestPointsOnSegments(a0, a1, b0, b1, out Vector2 closestA, out Vector2 closestB);
-                float sqrDistance = (closestA - closestB).sqrMagnitude;
-                if (sqrDistance > RegionLinkLineTolerance * RegionLinkLineTolerance || sqrDistance >= bestSqrDistance)
-                    continue;
-
-                bestSqrDistance = sqrDistance;
-                Vector2 portal = (closestA + closestB) * 0.5f;
-                portalA = portal;
-                portalB = portal;
-                foundNearbyPortal = true;
-            }
-        }
-
-        return foundNearbyPortal;
-    }
-
-    private static bool TryGetCollinearOverlap(Vector2 a0, Vector2 a1, Vector2 b0, Vector2 b1, out Vector2 overlapA, out Vector2 overlapB)
-    {
-        overlapA = default;
-        overlapB = default;
-        Vector2 axis = a1 - a0;
-        float length = axis.magnitude;
-        if (length <= 0.000001f)
-            return false;
-
-        Vector2 direction = axis / length;
-        if (Mathf.Abs(MapNavGeometry.Cross(direction, b0 - a0)) > RegionLinkLineTolerance
-            || Mathf.Abs(MapNavGeometry.Cross(direction, b1 - a0)) > RegionLinkLineTolerance)
-            return false;
-
-        float bProjection0 = Vector2.Dot(b0 - a0, direction);
-        float bProjection1 = Vector2.Dot(b1 - a0, direction);
-        float overlapMin = Mathf.Max(0f, Mathf.Min(bProjection0, bProjection1));
-        float overlapMax = Mathf.Min(length, Mathf.Max(bProjection0, bProjection1));
-        if (overlapMax - overlapMin < MinimumRegionLinkPortalLength)
-            return false;
-
-        overlapA = a0 + direction * overlapMin;
-        overlapB = a0 + direction * overlapMax;
-        return true;
-    }
-
-    private static void GetClosestPointsOnSegments(Vector2 a0, Vector2 a1, Vector2 b0, Vector2 b1, out Vector2 pointA, out Vector2 pointB)
-    {
-        pointA = a0;
-        pointB = b0;
-        float bestSqrDistance = float.PositiveInfinity;
-        TestPair(a0, MapNavGeometry.ClosestPointOnSegment(a0, b0, b1), ref pointA, ref pointB, ref bestSqrDistance);
-        TestPair(a1, MapNavGeometry.ClosestPointOnSegment(a1, b0, b1), ref pointA, ref pointB, ref bestSqrDistance);
-        TestPair(MapNavGeometry.ClosestPointOnSegment(b0, a0, a1), b0, ref pointA, ref pointB, ref bestSqrDistance);
-        TestPair(MapNavGeometry.ClosestPointOnSegment(b1, a0, a1), b1, ref pointA, ref pointB, ref bestSqrDistance);
-    }
-
-    private static void TestPair(Vector2 candidateA, Vector2 candidateB, ref Vector2 pointA, ref Vector2 pointB, ref float bestSqrDistance)
-    {
-        float sqrDistance = (candidateA - candidateB).sqrMagnitude;
-        if (sqrDistance >= bestSqrDistance)
-            return;
-
-        pointA = candidateA;
-        pointB = candidateB;
-        bestSqrDistance = sqrDistance;
-    }
 }

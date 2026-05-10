@@ -1988,6 +1988,7 @@ MonoBehaviour:
   heightOffset: 0
   useRegionPathfinding: 1
   useBuildDataContextQueries: 1
+  useBlobDataContextQueries: 1
   constrainToNavigationSpaces: 0
   logDebug: 0
 --- !u!65 &855380141

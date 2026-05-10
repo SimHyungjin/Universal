@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Entities;
 using UnityEngine;
 
 public static class MapNavigationValidator
@@ -144,6 +146,533 @@ public static class MapNavigationValidator
         ValidateTransitionBuildData(buildData, sourceTransitions, results);
         ValidateObstacleBuildData(buildData, sourceRegions, results);
         ValidateBuildDataContextParity(map, results);
+        ValidateBlobData(map, buildData, results);
+    }
+
+    private static void ValidateBlobData(MapNavigationAuthoring map, MapNavigationBuildData buildData, List<string> results)
+    {
+        BlobAssetReference<MapNavigationBlob> blob = MapNavigationBlobBuilder.CreateBlobAsset(buildData, Allocator.Persistent);
+        try
+        {
+            MapNavigationBlobDataContext blobContext = new(blob, map.transform.localToWorldMatrix, map.transform.worldToLocalMatrix);
+            if (!blobContext.IsValid)
+            {
+                results.Add("[BlobData] Blob data is not created.");
+                return;
+            }
+
+            if (blobContext.RegionCount != buildData.Regions.Length)
+                results.Add($"[BlobData] Region count {blobContext.RegionCount} does not match BuildData count {buildData.Regions.Length}.");
+
+            if (blobContext.TransitionCount != buildData.Transitions.Length)
+                results.Add($"[BlobData] Transition count {blobContext.TransitionCount} does not match BuildData count {buildData.Transitions.Length}.");
+
+            if (blobContext.ObstacleCount != buildData.Obstacles.Length)
+                results.Add($"[BlobData] Obstacle count {blobContext.ObstacleCount} does not match BuildData count {buildData.Obstacles.Length}.");
+
+            if (blobContext.PointCount != buildData.Points.Length)
+                results.Add($"[BlobData] Point count {blobContext.PointCount} does not match BuildData count {buildData.Points.Length}.");
+
+            ValidateBlobRegionData(blobContext, buildData, results);
+            ValidateBlobTransitionData(blobContext, buildData, results);
+            ValidateBlobObstacleData(blobContext, buildData, results);
+            ValidateBlobPointData(blobContext, buildData, results);
+            ValidateBlobDataContextParity(map.QueryContext, blobContext, map.Regions, map.Transitions, results);
+        }
+        finally
+        {
+            if (blob.IsCreated)
+                blob.Dispose();
+        }
+    }
+
+    private static void ValidateBlobRegionData(MapNavigationBlobDataContext blobContext, MapNavigationBuildData buildData, List<string> results)
+    {
+        for (int i = 0; i < buildData.Regions.Length; i++)
+        {
+            if (!blobContext.TryGetRegionAt(i, out MapNavRegionBlob blobRegion))
+            {
+                results.Add($"[BlobData] Missing region at index {i}.");
+                continue;
+            }
+
+            MapNavRegionData region = buildData.Regions[i];
+            if (blobRegion.Id != region.Id
+                || blobRegion.NavLayerId != region.NavLayerId
+                || !NearlyEqual(blobRegion.Height, region.Height)
+                || !NearlyEqual(blobRegion.Cost, region.Cost)
+                || blobRegion.PointStart != region.PointStart
+                || blobRegion.PointCount != region.PointCount
+                || blobRegion.ObstacleStart != region.ObstacleStart
+                || blobRegion.ObstacleCount != region.ObstacleCount)
+            {
+                results.Add($"[BlobData] Region {region.Id} does not match BuildData.");
+            }
+
+            if (!blobContext.IsValidPointRange(blobRegion.PointStart, blobRegion.PointCount))
+                results.Add($"[BlobData] Region {blobRegion.Id} point range start={blobRegion.PointStart}, count={blobRegion.PointCount} is out of bounds.");
+
+            if (!blobContext.IsValidObstacleRange(blobRegion.ObstacleStart, blobRegion.ObstacleCount))
+                results.Add($"[BlobData] Region {blobRegion.Id} obstacle range start={blobRegion.ObstacleStart}, count={blobRegion.ObstacleCount} is out of bounds.");
+        }
+    }
+
+    private static void ValidateBlobTransitionData(MapNavigationBlobDataContext blobContext, MapNavigationBuildData buildData, List<string> results)
+    {
+        for (int i = 0; i < buildData.Transitions.Length; i++)
+        {
+            if (!blobContext.TryGetTransitionAt(i, out MapNavTransitionBlob blobTransition))
+            {
+                results.Add($"[BlobData] Missing transition at index {i}.");
+                continue;
+            }
+
+            MapNavTransitionData transition = buildData.Transitions[i];
+            if (blobTransition.Id != transition.Id
+                || blobTransition.FromRegionId != transition.FromRegionId
+                || blobTransition.ToRegionId != transition.ToRegionId
+                || blobTransition.Type != (int)transition.Type
+                || !NearlyEqual(blobTransition.FromHeight, transition.FromHeight)
+                || !NearlyEqual(blobTransition.ToHeight, transition.ToHeight)
+                || !NearlyEqual(blobTransition.UpDirection.x, transition.UpDirection.x)
+                || !NearlyEqual(blobTransition.UpDirection.y, transition.UpDirection.y)
+                || !NearlyEqual(blobTransition.Cost, transition.Cost)
+                || !NearlyEqual(blobTransition.MinRadius, transition.MinRadius)
+                || FromByte(blobTransition.CanStopInside) != transition.CanStopInside
+                || FromByte(blobTransition.CanFightInside) != transition.CanFightInside
+                || FromByte(blobTransition.Bidirectional) != transition.Bidirectional
+                || FromByte(blobTransition.Enabled) != transition.Enabled
+                || blobTransition.PointStart != transition.PointStart
+                || blobTransition.PointCount != transition.PointCount)
+            {
+                results.Add($"[BlobData] Transition {transition.Id} does not match BuildData.");
+            }
+
+            if (!blobContext.IsValidPointRange(blobTransition.PointStart, blobTransition.PointCount))
+                results.Add($"[BlobData] Transition {blobTransition.Id} point range start={blobTransition.PointStart}, count={blobTransition.PointCount} is out of bounds.");
+        }
+    }
+
+    private static void ValidateBlobObstacleData(MapNavigationBlobDataContext blobContext, MapNavigationBuildData buildData, List<string> results)
+    {
+        for (int i = 0; i < buildData.Obstacles.Length; i++)
+        {
+            if (!blobContext.TryGetObstacleAt(i, out MapNavObstacleBlob blobObstacle))
+            {
+                results.Add($"[BlobData] Missing obstacle at index {i}.");
+                continue;
+            }
+
+            MapNavObstacleData obstacle = buildData.Obstacles[i];
+            if (blobObstacle.RegionId != obstacle.RegionId
+                || blobObstacle.PointStart != obstacle.PointStart
+                || blobObstacle.PointCount != obstacle.PointCount
+                || !NearlyEqual(blobObstacle.CornerPadding, obstacle.CornerPadding))
+            {
+                results.Add($"[BlobData] Obstacle {i} does not match BuildData.");
+            }
+
+            if (!blobContext.IsValidPointRange(blobObstacle.PointStart, blobObstacle.PointCount))
+                results.Add($"[BlobData] Obstacle {i} point range start={blobObstacle.PointStart}, count={blobObstacle.PointCount} is out of bounds.");
+        }
+    }
+
+    private static void ValidateBlobPointData(MapNavigationBlobDataContext blobContext, MapNavigationBuildData buildData, List<string> results)
+    {
+        for (int i = 0; i < buildData.Points.Length; i++)
+        {
+            if (!blobContext.TryGetPointAt(i, out Vector2 point))
+            {
+                results.Add($"[BlobData] Missing point at index {i}.");
+                continue;
+            }
+
+            if (!NearlyEqual(point.x, buildData.Points[i].x) || !NearlyEqual(point.y, buildData.Points[i].y))
+                results.Add($"[BlobData] Point {i} mismatch. BuildData={buildData.Points[i]:F3}, Blob={point:F3}.");
+        }
+    }
+
+    private static void ValidateBlobDataContextParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        IReadOnlyList<MapNavTransition> sourceTransitions,
+        List<string> results)
+    {
+        if (!sourceContext.IsValid || !blobContext.IsValid)
+        {
+            results.Add("[BlobDataContext] Cannot compare parity because one context is invalid.");
+            return;
+        }
+
+        ValidateBlobRegionContextParity(sourceContext, blobContext, sourceRegions, results);
+        ValidateBlobTransitionContextParity(sourceContext, blobContext, sourceTransitions, results);
+        ValidateBlobObstacleContextParity(sourceContext, blobContext, sourceRegions, results);
+        ValidateBlobProjectionParity(sourceContext, blobContext, sourceRegions, sourceTransitions, results);
+        ValidateBlobContainingRegionParity(sourceContext, blobContext, sourceRegions, sourceTransitions, results);
+        ValidateBlobNavigationHeightParity(sourceContext, blobContext, sourceRegions, sourceTransitions, results);
+        ValidateBlobInsideNavigationSpaceParity(sourceContext, blobContext, sourceRegions, sourceTransitions, results);
+        ValidateBlobObstacleProjectionParity(sourceContext, blobContext, sourceRegions, results);
+    }
+
+    private static void ValidateBlobRegionContextParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceRegions.Count; i++)
+        {
+            MapNavRegion source = sourceRegions[i];
+            if (source == null || !blobContext.TryFindRegion(source.Id, out MapNavRegionBlob blobRegion))
+                continue;
+
+            CompareBlobRegionPoint(sourceContext, blobContext, source, blobRegion, blobContext.GetRegionCenter(blobRegion), "center", results);
+            IReadOnlyList<Vector2> points = sourceContext.GetRegionPoints(source);
+            for (int p = 0; p < points.Count; p++)
+                CompareBlobRegionPoint(sourceContext, blobContext, source, blobRegion, points[p], $"point {p}", results);
+        }
+    }
+
+    private static void CompareBlobRegionPoint(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        MapNavRegion source,
+        MapNavRegionBlob blobRegion,
+        Vector2 point,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceContains = sourceContext.ContainsRegion(source, point);
+        bool blobContains = blobContext.ContainsRegion(blobRegion, point);
+        if (sourceContains != blobContains)
+            results.Add($"[BlobDataContext] Region {source.Id} {pointLabel} contains mismatch. Source={sourceContains}, Blob={blobContains}.");
+
+        float sourceHeight = sourceContext.GetRegionHeight(source, point);
+        if (!NearlyEqual(sourceHeight, blobRegion.Height))
+            results.Add($"[BlobDataContext] Region {source.Id} {pointLabel} height mismatch. Source={sourceHeight:0.###}, Blob={blobRegion.Height:0.###}.");
+    }
+
+    private static void ValidateBlobTransitionContextParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        IReadOnlyList<MapNavTransition> sourceTransitions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceTransitions.Count; i++)
+        {
+            MapNavTransition source = sourceTransitions[i];
+            if (source == null || !blobContext.TryFindTransition(source.Id, out MapNavTransitionBlob blobTransition))
+                continue;
+
+            CompareBlobTransitionPoint(sourceContext, blobContext, source, blobTransition, blobContext.GetTransitionCenter(blobTransition), "center", results);
+            IReadOnlyList<Vector2> points = sourceContext.GetTransitionPoints(source);
+            for (int p = 0; p < points.Count; p++)
+                CompareBlobTransitionPoint(sourceContext, blobContext, source, blobTransition, points[p], $"point {p}", results);
+        }
+    }
+
+    private static void CompareBlobTransitionPoint(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        MapNavTransition source,
+        MapNavTransitionBlob blobTransition,
+        Vector2 point,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceContains = sourceContext.ContainsTransition(source, point);
+        bool blobContains = blobContext.ContainsTransition(blobTransition, point);
+        if (sourceContains != blobContains)
+            results.Add($"[BlobDataContext] Transition {source.Id} {pointLabel} contains mismatch. Source={sourceContains}, Blob={blobContains}.");
+
+        float sourceHeight = sourceContext.GetTransitionHeight(source, point);
+        float blobHeight = blobContext.GetTransitionHeight(blobTransition, point);
+        if (!NearlyEqual(sourceHeight, blobHeight))
+            results.Add($"[BlobDataContext] Transition {source.Id} {pointLabel} height mismatch. Source={sourceHeight:0.###}, Blob={blobHeight:0.###}.");
+    }
+
+    private static void ValidateBlobObstacleContextParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        List<string> results)
+    {
+        for (int r = 0; r < sourceRegions.Count; r++)
+        {
+            MapNavRegion region = sourceRegions[r];
+            if (region == null || region.Obstacles == null || !blobContext.TryFindRegion(region.Id, out MapNavRegionBlob blobRegion))
+                continue;
+
+            for (int o = 0; o < region.Obstacles.Count; o++)
+            {
+                MapNavObstacle source = region.Obstacles[o];
+                int obstacleIndex = blobRegion.ObstacleStart + o;
+                if (source == null || !blobContext.TryGetObstacleAt(obstacleIndex, out MapNavObstacleBlob blobObstacle))
+                    continue;
+
+                CompareBlobObstaclePoint(sourceContext, blobContext, source, blobObstacle, region.Id, o, blobContext.GetObstacleCenter(blobObstacle), "center", results);
+                IReadOnlyList<Vector2> points = sourceContext.GetObstaclePoints(source);
+                for (int p = 0; p < points.Count; p++)
+                    CompareBlobObstaclePoint(sourceContext, blobContext, source, blobObstacle, region.Id, o, points[p], $"point {p}", results);
+            }
+        }
+    }
+
+    private static void CompareBlobObstaclePoint(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        MapNavObstacle source,
+        MapNavObstacleBlob blobObstacle,
+        int regionId,
+        int obstacleIndex,
+        Vector2 point,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceContains = sourceContext.ContainsObstacle(source, point);
+        bool blobContains = blobContext.ContainsObstacle(blobObstacle, point);
+        if (sourceContains != blobContains)
+            results.Add($"[BlobDataContext] Region {regionId} obstacle {obstacleIndex} {pointLabel} contains mismatch. Source={sourceContains}, Blob={blobContains}.");
+    }
+
+    private static void ValidateBlobProjectionParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        IReadOnlyList<MapNavTransition> sourceTransitions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceRegions.Count; i++)
+        {
+            MapNavRegion region = sourceRegions[i];
+            if (region == null)
+                continue;
+
+            CompareBlobProjection(sourceContext, blobContext, sourceContext.ToWorld(region, sourceContext.GetRegionCenter(region)), $"Region {region.Id} center", results);
+        }
+
+        for (int i = 0; i < sourceTransitions.Count; i++)
+        {
+            MapNavTransition transition = sourceTransitions[i];
+            if (transition == null)
+                continue;
+
+            Vector2 center = MapNavGeometry.AveragePoint(sourceContext.GetTransitionPoints(transition));
+            CompareBlobProjection(sourceContext, blobContext, sourceContext.ToWorld(transition, center), $"Transition {transition.Id} center", results);
+        }
+    }
+
+    private static void CompareBlobProjection(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        Vector3 worldPoint,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceFound = MapNavigationQuery.TryProjectToClosestNavigationSpace(sourceContext, worldPoint, out Vector3 sourceProjected, out string sourceName, out float sourceDistance);
+        bool blobFound = MapNavigationQuery.TryProjectToClosestNavigationSpace(blobContext, worldPoint, out Vector3 blobProjected, out string blobName, out float blobDistance);
+        if (sourceFound != blobFound)
+        {
+            results.Add($"[BlobDataContext] {pointLabel} projection found mismatch. Source={sourceFound}, Blob={blobFound}.");
+            return;
+        }
+
+        if (!sourceFound)
+            return;
+
+        if (!NearlyEqual(sourceDistance, blobDistance) || !NearlyEqualPlanar(sourceProjected, blobProjected))
+            results.Add($"[BlobDataContext] {pointLabel} projection mismatch. Source={sourceName} {sourceProjected:F3} d={sourceDistance:0.###}, Blob={blobName} {blobProjected:F3} d={blobDistance:0.###}.");
+    }
+
+    private static void ValidateBlobContainingRegionParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        IReadOnlyList<MapNavTransition> sourceTransitions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceRegions.Count; i++)
+        {
+            MapNavRegion region = sourceRegions[i];
+            if (region != null)
+                CompareBlobContainingRegion(sourceContext, blobContext, sourceContext.ToWorld(region, sourceContext.GetRegionCenter(region)), $"Region {region.Id} center", results);
+        }
+
+        for (int i = 0; i < sourceTransitions.Count; i++)
+        {
+            MapNavTransition transition = sourceTransitions[i];
+            if (transition == null)
+                continue;
+
+            Vector2 center = MapNavGeometry.AveragePoint(sourceContext.GetTransitionPoints(transition));
+            CompareBlobContainingRegion(sourceContext, blobContext, sourceContext.ToWorld(transition, center), $"Transition {transition.Id} center", results);
+        }
+    }
+
+    private static void CompareBlobContainingRegion(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        Vector3 worldPoint,
+        string pointLabel,
+        List<string> results)
+    {
+        MapNavRegion sourceRegion = MapNavigationQuery.FindContainingRegion(sourceContext, worldPoint, 0f);
+        bool blobFound = MapNavigationQuery.TryFindContainingRegion(blobContext, worldPoint, 0f, out MapNavRegionBlob blobRegion);
+
+        if ((sourceRegion != null) != blobFound)
+        {
+            results.Add($"[BlobDataContext] {pointLabel} containing region found mismatch. Source={sourceRegion != null}, Blob={blobFound}.");
+            return;
+        }
+
+        if (sourceRegion != null && sourceRegion.Id != blobRegion.Id)
+            results.Add($"[BlobDataContext] {pointLabel} containing region mismatch. Source={sourceRegion.Id}, Blob={blobRegion.Id}.");
+    }
+
+    private static void ValidateBlobNavigationHeightParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        IReadOnlyList<MapNavTransition> sourceTransitions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceRegions.Count; i++)
+        {
+            MapNavRegion region = sourceRegions[i];
+            if (region != null)
+                CompareBlobNavigationHeight(sourceContext, blobContext, sourceContext.ToWorld(region, sourceContext.GetRegionCenter(region)), -1, region.Id, $"Region {region.Id} center", results);
+        }
+
+        for (int i = 0; i < sourceTransitions.Count; i++)
+        {
+            MapNavTransition transition = sourceTransitions[i];
+            if (transition == null)
+                continue;
+
+            Vector2 center = MapNavGeometry.AveragePoint(sourceContext.GetTransitionPoints(transition));
+            CompareBlobNavigationHeight(sourceContext, blobContext, sourceContext.ToWorld(transition, center), transition.Id, -1, $"Transition {transition.Id} center", results);
+        }
+    }
+
+    private static void CompareBlobNavigationHeight(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        Vector3 worldPoint,
+        int previousTransitionId,
+        int previousRegionId,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceFound = MapNavigationQuery.TryGetNavigationHeight(sourceContext, worldPoint, 0f, previousTransitionId, previousRegionId, out float sourceHeight, out _, out int sourceTransitionId, out int sourceRegionId);
+        bool blobFound = MapNavigationQuery.TryGetNavigationHeight(blobContext, worldPoint, 0f, previousTransitionId, previousRegionId, out float blobHeight, out _, out int blobTransitionId, out int blobRegionId);
+
+        if (sourceFound != blobFound)
+        {
+            results.Add($"[BlobDataContext] {pointLabel} height found mismatch. Source={sourceFound}, Blob={blobFound}.");
+            return;
+        }
+
+        if (sourceFound && (!NearlyEqual(sourceHeight, blobHeight) || sourceTransitionId != blobTransitionId || sourceRegionId != blobRegionId))
+            results.Add($"[BlobDataContext] {pointLabel} height result mismatch. Source h={sourceHeight:0.###}, t={sourceTransitionId}, r={sourceRegionId}; Blob h={blobHeight:0.###}, t={blobTransitionId}, r={blobRegionId}.");
+    }
+
+    private static void ValidateBlobInsideNavigationSpaceParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        IReadOnlyList<MapNavTransition> sourceTransitions,
+        List<string> results)
+    {
+        for (int i = 0; i < sourceRegions.Count; i++)
+        {
+            MapNavRegion region = sourceRegions[i];
+            if (region == null)
+                continue;
+
+            CompareBlobInsideNavigationSpace(sourceContext, blobContext, sourceContext.ToWorld(region, sourceContext.GetRegionCenter(region)), $"Region {region.Id} center", results);
+
+            IReadOnlyList<MapNavObstacle> obstacles = sourceContext.GetRegionObstacles(region);
+            for (int o = 0; o < obstacles.Count; o++)
+            {
+                IReadOnlyList<Vector2> points = sourceContext.GetObstaclePoints(obstacles[o]);
+                if (points.Count > 0)
+                    CompareBlobInsideNavigationSpace(sourceContext, blobContext, sourceContext.ToWorld(region, MapNavGeometry.AveragePoint(points)), $"Region {region.Id} obstacle {o} center", results);
+            }
+        }
+
+        for (int i = 0; i < sourceTransitions.Count; i++)
+        {
+            MapNavTransition transition = sourceTransitions[i];
+            if (transition == null)
+                continue;
+
+            Vector2 center = MapNavGeometry.AveragePoint(sourceContext.GetTransitionPoints(transition));
+            CompareBlobInsideNavigationSpace(sourceContext, blobContext, sourceContext.ToWorld(transition, center), $"Transition {transition.Id} center", results);
+        }
+    }
+
+    private static void CompareBlobInsideNavigationSpace(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        Vector3 worldPoint,
+        string pointLabel,
+        List<string> results)
+    {
+        bool sourceInside = MapNavigationQuery.IsInsideNavigationSpace(sourceContext, worldPoint, 0f);
+        bool blobInside = MapNavigationQuery.IsInsideNavigationSpace(blobContext, worldPoint, 0f);
+        if (sourceInside != blobInside)
+            results.Add($"[BlobDataContext] {pointLabel} inside navigation mismatch. Source={sourceInside}, Blob={blobInside}.");
+    }
+
+    private static void ValidateBlobObstacleProjectionParity(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        IReadOnlyList<MapNavRegion> sourceRegions,
+        List<string> results)
+    {
+        for (int r = 0; r < sourceRegions.Count; r++)
+        {
+            MapNavRegion region = sourceRegions[r];
+            if (region == null || !blobContext.TryFindRegion(region.Id, out MapNavRegionBlob blobRegion))
+                continue;
+
+            Vector3 referenceWorld = sourceContext.ToWorld(region, sourceContext.GetRegionCenter(region));
+            IReadOnlyList<MapNavObstacle> obstacles = sourceContext.GetRegionObstacles(region);
+            for (int o = 0; o < obstacles.Count; o++)
+            {
+                IReadOnlyList<Vector2> points = sourceContext.GetObstaclePoints(obstacles[o]);
+                if (points.Count < 3)
+                    continue;
+
+                Vector3 obstacleWorld = sourceContext.ToWorld(region, MapNavGeometry.AveragePoint(points));
+                CompareBlobObstacleProjection(sourceContext, blobContext, region, blobRegion, obstacleWorld, referenceWorld, $"Region {region.Id} obstacle {o} center", results);
+            }
+        }
+    }
+
+    private static void CompareBlobObstacleProjection(
+        MapNavigationQueryContext sourceContext,
+        MapNavigationBlobDataContext blobContext,
+        MapNavRegion sourceRegion,
+        MapNavRegionBlob blobRegion,
+        Vector3 worldPoint,
+        Vector3 referenceWorld,
+        string pointLabel,
+        List<string> results)
+    {
+        const float Padding = 0.1f;
+        bool sourceFound = MapNavigationQuery.TryProjectOutOfObstacles(sourceContext, sourceRegion, worldPoint, referenceWorld, Padding, out Vector3 sourceProjected, out _, out float sourceDistance);
+        bool blobFound = MapNavigationQuery.TryProjectOutOfObstacles(blobContext, blobRegion, worldPoint, referenceWorld, Padding, out Vector3 blobProjected, out _, out float blobDistance);
+
+        if (sourceFound != blobFound)
+        {
+            results.Add($"[BlobDataContext] {pointLabel} obstacle projection found mismatch. Source={sourceFound}, Blob={blobFound}.");
+            return;
+        }
+
+        if (sourceFound && (!NearlyEqual(sourceDistance, blobDistance) || !NearlyEqualPlanar(sourceProjected, blobProjected)))
+            results.Add($"[BlobDataContext] {pointLabel} obstacle projection mismatch. Source={sourceProjected:F3} d={sourceDistance:0.###}, Blob={blobProjected:F3} d={blobDistance:0.###}.");
     }
 
     private static void ValidateBuildDataContextParity(MapNavigationAuthoring map, List<string> results)
@@ -726,6 +1255,11 @@ public static class MapNavigationValidator
     private static bool NearlyEqualPlanar(Vector3 a, Vector3 b)
     {
         return NearlyEqual(a.x, b.x) && NearlyEqual(a.z, b.z) && NearlyEqual(a.y, b.y);
+    }
+
+    private static bool FromByte(byte value)
+    {
+        return value != 0;
     }
 
     private static bool HasSelfIntersection(IReadOnlyList<Vector2> points)
