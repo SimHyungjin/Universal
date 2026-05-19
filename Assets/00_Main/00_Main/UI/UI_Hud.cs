@@ -1,7 +1,1 @@
-public class UI_Hud : UI_Panel
-{
-    public override void Close()
-    {
-        base.Close();
-    }
-}
+public class UI_Hud : UI_Panel { }

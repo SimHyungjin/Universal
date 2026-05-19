@@ -1,7 +1,6 @@
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
-using UnityEngine.UI;
 
 public sealed class UIManager_SceneLayer
 {
@@ -26,23 +25,12 @@ public sealed class UIManager_SceneLayer
         {
             canvas.overrideSorting = true;
             canvas.sortingOrder    = _order;
-            SetupNestedCanvas(instance);
+            instance.SetupAsNestedCanvas();
         }
 
         instance.Open();
         _current = instance;
         return instance;
-    }
-
-    private static void SetupNestedCanvas(UI ui)
-    {
-        if (ui.TryGetComponent<CanvasScaler>(out var scaler))
-            scaler.enabled = false;
-        ui.transform.localScale = Vector3.one;
-        ui.Rect.anchorMin        = Vector2.zero;
-        ui.Rect.anchorMax        = Vector2.one;
-        ui.Rect.sizeDelta        = Vector2.zero;
-        ui.Rect.anchoredPosition = Vector2.zero;
     }
 
     public void Close()

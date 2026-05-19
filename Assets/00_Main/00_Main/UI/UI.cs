@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 
 public class UI : MonoBehaviour
 {
@@ -13,6 +14,17 @@ public class UI : MonoBehaviour
         Rect = GetComponent<RectTransform>();
         IsInitialized = true;
         return true;
+    }
+
+    internal void SetupAsNestedCanvas()
+    {
+        if (TryGetComponent<CanvasScaler>(out var scaler))
+            scaler.enabled = false;
+        transform.localScale  = Vector3.one;
+        Rect.anchorMin        = Vector2.zero;
+        Rect.anchorMax        = Vector2.one;
+        Rect.sizeDelta        = Vector2.zero;
+        Rect.anchoredPosition = Vector2.zero;
     }
 
     #region Rect Helpers

@@ -4,7 +4,7 @@ using System;
 public class UI_Popup : UI_Panel
 {
     public UIAnimationType AnimationType = UIAnimationType.None;
-    public Action OnCloseRequest;
+    internal Action OnCloseRequest;
 
     public override void Open()
     {

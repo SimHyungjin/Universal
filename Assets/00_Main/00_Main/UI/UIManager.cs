@@ -4,7 +4,7 @@ using UnityEngine;
 
 public sealed class UIManager : PrimaryManager
 {
-    private const int OVERLAY_ORDER = 30000;
+    private const int OVERLAY_ORDER = 0;
     private const int HUD_ORDER     = 1000;
     private const int POPUP_ORDER   = 2000;
     private const int SCENE_ORDER   = 10000;

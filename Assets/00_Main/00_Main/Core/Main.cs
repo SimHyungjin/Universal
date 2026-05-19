@@ -135,14 +135,14 @@ public class Main : MonoBehaviour
     private void Update()
     {
         if (!Loop.IsInitialized) return;
-        Loop.Update(Time.deltaTime);
-        Loop.GameUpdate(Time.deltaTime);
+        Loop.Update(Time.unscaledDeltaTime);
+        Loop.GameUpdate(Time.unscaledDeltaTime);
     }
 
     private void LateUpdate()
     {
         if (!Loop.IsInitialized) return;
-        Loop.LateUpdate(Time.deltaTime);
+        Loop.LateUpdate(Time.unscaledDeltaTime);
     }
 
 #if UNITY_ANDROID || UNITY_IOS || UNITY_EDITOR

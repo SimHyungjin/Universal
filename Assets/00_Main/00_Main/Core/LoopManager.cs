@@ -84,9 +84,8 @@ public class LoopManager : PrimaryManager
     public void SetGameSpeed(float gameSpeed)
     {
         GameSpeed = gameSpeed;
+        Time.timeScale = gameSpeed;
         _listSequence.RemoveAll(seq => !seq.isAlive);
-        foreach (Sequence seq in _listSequence)
-            seq.timeScale = gameSpeed;
     }
 
     public async UniTaskVoid DoFadeGameSpeed(float targetSpeed, float duration)

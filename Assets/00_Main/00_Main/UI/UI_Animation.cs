@@ -110,8 +110,8 @@ public static class UI_Animation
     private static async UniTask PlayTween(Transform tr, Tween tween)
     {
         _activeTweens[tr] = tween;
-        await tween;
-        _activeTweens.Remove(tr);
+        try { await tween; }
+        finally { _activeTweens.Remove(tr); }
     }
 
     private static void StopTween(Transform tr)

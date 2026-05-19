@@ -86,7 +86,7 @@ public sealed class UIManager_PopupLayer
         if (pCanvas != null)
         {
             pCanvas.overrideSorting = true;
-            SetupNestedCanvas(instance);
+            instance.SetupAsNestedCanvas();
         }
 
         instance.Open();
@@ -132,7 +132,7 @@ public sealed class UIManager_PopupLayer
         StopPanelTween();
         _popups.RemoveAll(p => p.Popup == null);
 
-        int topActiveIdx = _popups.FindLastIndex(p => !p.IsClosing && p.IsClickGuard);
+        int topActiveIdx = _popups.FindLastIndex(p => !p.IsClosing && p.IsClickGuard && p.Canvas != null);
 
         for (int i = 0; i < _popups.Count; i++)
             if (_popups[i].Canvas != null)
@@ -189,17 +189,6 @@ public sealed class UIManager_PopupLayer
             if (instant) Close(data.Popup);
             else         RequestClose(data.Popup);
         }
-    }
-
-    private static void SetupNestedCanvas(UI ui)
-    {
-        if (ui.TryGetComponent<CanvasScaler>(out var scaler))
-            scaler.enabled = false;
-        ui.transform.localScale = Vector3.one;
-        ui.Rect.anchorMin        = Vector2.zero;
-        ui.Rect.anchorMax        = Vector2.one;
-        ui.Rect.sizeDelta        = Vector2.zero;
-        ui.Rect.anchoredPosition = Vector2.zero;
     }
 
     private async UniTaskVoid StartCloseTimeout(UI_Popup popup, CancellationToken ct)

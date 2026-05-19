@@ -20,6 +20,21 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 8c67a0e220d3cab498f84fbe32c74fa9
+    m_Address: CFXR Hit A (Red)
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: b9e3352958d4d52409da2cd516d0ee06
+    m_Address: CFXR Hit D 3D (Yellow)
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: e419d17ccc2698242b8011899ac95f56
+    m_Address: CFXR3 Hit Fire B (Air)
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: f491bd12ba7d5244ca5b8c1eddaf5e6b
     m_Address: Player
     m_ReadOnly: 0

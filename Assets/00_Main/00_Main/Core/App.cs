@@ -52,6 +52,12 @@ public static class App
         where T2 : InputActions
         => Main.Input.SetInput<T1, T2>();
 
+    public static void SetInput<T1, T2, T3>()
+        where T1 : InputActions
+        where T2 : InputActions
+        where T3 : InputActions
+        => Main.Input.SetInput<T1, T2, T3>();
+
     public static void AddInput<T>() where T : InputActions
         => Main.Input.AddInput<T>();
 
@@ -80,6 +86,12 @@ public static class App
 
     public static void ClearCameraFollow(Transform target)
         => Main.Camera?.ClearFollowTarget(target);
+
+    public static void SetCombatCameraMode(CombatCameraMode mode, bool snap = false)
+        => Main.Camera?.SetMode(mode, snap);
+
+    public static void ToggleCombatCameraMode()
+        => Main.Camera?.ToggleMode();
 
     #endregion
 
