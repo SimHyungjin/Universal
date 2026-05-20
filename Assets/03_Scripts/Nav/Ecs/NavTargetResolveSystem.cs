@@ -57,8 +57,9 @@ namespace MapNav.Ecs
                 }
 
                 float tol = math.max(0f, settings.ValueRO.BoundaryTolerance);
-                if (!ResolveOrProject(in ctx, startWorld, tol, out startWorld)
-                    || !ResolveOrProject(in ctx, targetWorld, tol, out targetWorld))
+                float radius = math.max(0f, settings.ValueRO.AgentRadius);
+                if (!ResolveOrProject(in ctx, startWorld, tol, radius, out startWorld)
+                    || !ResolveOrProject(in ctx, targetWorld, tol, radius, out targetWorld))
                 {
                     target.ValueRW.Dirty = 0;
                     request.ValueRW.Pending = 0;
@@ -82,22 +83,36 @@ namespace MapNav.Ecs
             }
         }
 
-        private static bool ResolveOrProject(in NavContext ctx, float3 worldPos, float tolerance, out float3 resolved)
+        private static bool ResolveOrProject(in NavContext ctx, float3 worldPos, float tolerance, float agentRadius, out float3 resolved)
         {
             if (NavQuery.TryClassify(in ctx, worldPos, tolerance, out _))
             {
                 resolved = worldPos;
+                TryProjectToClearPosition(in ctx, tolerance, agentRadius, ref resolved);
                 return true;
             }
 
             if (NavQuery.TryProjectToNearestSpace(in ctx, worldPos, out float3 projected, out _))
             {
                 resolved = projected;
+                TryProjectToClearPosition(in ctx, tolerance, agentRadius, ref resolved);
                 return true;
             }
 
             resolved = worldPos;
             return false;
+        }
+
+        private static void TryProjectToClearPosition(in NavContext ctx, float tolerance, float agentRadius, ref float3 position)
+        {
+            if (agentRadius <= 0f)
+                return;
+
+            if (!NavQuery.TryProjectOutOfObstacle(in ctx, position, agentRadius, out float3 projected))
+                return;
+
+            if (NavQuery.TryClassify(in ctx, projected, tolerance, out _))
+                position = projected;
         }
     }
 }

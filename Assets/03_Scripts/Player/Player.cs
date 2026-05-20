@@ -15,7 +15,10 @@ public class Player : MonoBehaviour
 
     private void Start()
     {
-        App.SetCameraFollow(transform);
+        Vector3 offset = new Vector3(5f, 11f, -5f);
+
+        App.SetCameraView( transform.position + offset, new Vector3(55f, -45f, 0f), orthographicSize: 3f);
+        App.SetCameraFollow(transform, offset, snap: true);
         App.SetCombatCameraMode(CombatCameraMode.Tactical, true);
     }
 

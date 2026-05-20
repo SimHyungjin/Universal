@@ -16,7 +16,7 @@ MonoBehaviour:
   heavyStateName: Hit_1
   heavyThreshold: 70
   transition: 0.05
-  lockClipRatio: 1
-  postAnimationHold: 0.2
+  lockClipRatio: 0.9
+  postAnimationHold: 0.05
   maxLockDuration: 2
   fallbackLockDuration: 0.05

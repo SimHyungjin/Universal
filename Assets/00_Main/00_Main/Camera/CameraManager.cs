@@ -25,15 +25,13 @@ public class CameraManager : CoreManager
 
     // Spring-back
     private float _springBackTimer;
+    private float _thirdPersonAttackAlignTimer;
     private const float SpringBackDelay = 0.5f;
     private const float SpringBackSpeed = 1.5f;
 
     // Tactical
     private Vector3 _offset = new(5, 9f, -5f);
     private Quaternion _tacticalRotation = Quaternion.identity;
-    private bool _tacticalHeightFixed;
-    private float _tacticalHeight;
-    private float _tacticalTargetHeight;
     private float _tacticalOrthographicSize = -1f;
 
     // ThirdPerson
@@ -140,6 +138,14 @@ public class CameraManager : CoreManager
             : CombatCameraMode.ThirdPerson);
     }
 
+    public void AlignThirdPersonToTargetYaw(float duration)
+    {
+        if (_mode != CombatCameraMode.ThirdPerson || _target == null) return;
+
+        _thirdPersonAttackAlignTimer = Mathf.Max(_thirdPersonAttackAlignTimer, duration);
+        _springBackTimer = Mathf.Max(_springBackTimer, SpringBackDelay);
+    }
+
     private void LateUpdate(float deltaTime)
     {
         UpdateCamera(deltaTime, false);
@@ -162,13 +168,8 @@ public class CameraManager : CoreManager
     private void CaptureTacticalState(Camera cam)
     {
         _tacticalRotation = cam.transform.rotation;
-        _tacticalHeightFixed = true;
-        _tacticalHeight = cam.transform.position.y;
         if (_target != null)
-        {
             _offset = cam.transform.position - _target.position;
-            _tacticalTargetHeight = _target.position.y;
-        }
         if (cam.orthographic)
             _tacticalOrthographicSize = cam.orthographicSize;
     }
@@ -206,8 +207,12 @@ public class CameraManager : CoreManager
 
         if (!snap && deltaTime > 0f)
         {
+            bool attackAligning = _thirdPersonAttackAlignTimer > 0f;
+            if (attackAligning)
+                _thirdPersonAttackAlignTimer = Mathf.Max(0f, _thirdPersonAttackAlignTimer - deltaTime);
+
             bool isMoving = InputProvider.Move.Direction.sqrMagnitude > 0.01f;
-            if (isMoving)
+            if (isMoving && !attackAligning)
                 _springBackTimer = 0f;
             else
                 _springBackTimer += deltaTime;
@@ -237,10 +242,6 @@ public class CameraManager : CoreManager
         RefreshProjection(cam);
 
         Vector3 targetPosition = _target.position + _offset;
-        if (_tacticalHeightFixed)
-            targetPosition.y = _tacticalHeight;
-        else
-            targetPosition.y -= _target.position.y - _tacticalTargetHeight;
 
         cam.transform.position = snap || _followSpeed <= 0f
             ? targetPosition

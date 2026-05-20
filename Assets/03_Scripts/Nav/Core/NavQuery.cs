@@ -183,14 +183,16 @@ namespace MapNav.Core
                 ref NavObstacle obs = ref blob.Obstacles[i];
                 if (!NavMath.BoundsContains(obs.BoundsMin, obs.BoundsMax, obs.HasBounds, local, radius))
                     continue;
-                if (!NavMath.PolygonContains(ref blob.Points, obs.PointStart, obs.PointCount, local))
+                bool inside = NavMath.PolygonContains(ref blob.Points, obs.PointStart, obs.PointCount, local);
+                float2 closest = NavMath.ClosestPointOnPolygon(ref blob.Points, obs.PointStart, obs.PointCount, local, out float sqrToEdge);
+                float clearance = radius + obs.CornerPadding;
+                if (!inside && sqrToEdge >= clearance * clearance)
                     continue;
 
-                float2 closest = NavMath.ClosestPointOnPolygon(ref blob.Points, obs.PointStart, obs.PointCount, local, out float sqr);
-                float2 toClosest = closest - local;
-                float lenSq = math.lengthsq(toClosest);
-                float2 outward = lenSq > NavMath.Epsilon ? toClosest / math.sqrt(lenSq) : new float2(1f, 0f);
-                float push = math.max(radius + obs.CornerPadding, math.sqrt(lenSq) + NavMath.Epsilon);
+                float2 away = inside ? closest - local : local - closest;
+                float lenSq = math.lengthsq(away);
+                float2 outward = lenSq > NavMath.Epsilon ? away / math.sqrt(lenSq) : new float2(1f, 0f);
+                float push = math.max(clearance + NavMath.Epsilon, math.sqrt(sqrToEdge) + NavMath.Epsilon);
                 float2 candidate = closest + outward * push;
                 float candidateSqr = math.lengthsq(candidate - local);
                 if (candidateSqr < bestSqr)

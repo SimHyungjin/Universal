@@ -37,7 +37,9 @@ public static class MapNavigationRegionLinkUtility
 
                 GetClosestPointsOnSegments(a0, a1, b0, b1, out Vector2 closestA, out Vector2 closestB);
                 float sqrDistance = (closestA - closestB).sqrMagnitude;
-                if (sqrDistance > LineTolerance * LineTolerance || sqrDistance >= bestSqrDistance)
+                if (sqrDistance < MinimumPortalLength * MinimumPortalLength
+                    || sqrDistance > LineTolerance * LineTolerance
+                    || sqrDistance >= bestSqrDistance)
                     continue;
 
                 bestSqrDistance = sqrDistance;

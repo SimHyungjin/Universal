@@ -53,6 +53,10 @@ PrefabInstance:
       value: Unit
       objectReference: {fileID: 0}
     - target: {fileID: 2775862123970177323, guid: f1e8e1bfafe7fa241ba6b4181f3eba85, type: 3}
+      propertyPath: m_RenderingLayerMask
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 2775862123970177323, guid: f1e8e1bfafe7fa241ba6b4181f3eba85, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
       objectReference: {fileID: 2100000, guid: f4fb8c083a36ec44294f9eabd63bd1f1, type: 2}
@@ -104,6 +108,8 @@ MonoBehaviour:
   animationMode: 0
   visualProfile: {fileID: 11400000, guid: d2c85d71a10445e2ac973761f89e269a, type: 2}
   hitReactionProfile: {fileID: 11400000, guid: 115af62e90e1458486c020936960ce20, type: 2}
+  syncPosition: 1
+  syncRotation: 1
   idleStateName: Idle
   runStateName: Run
   startRunTransition: 0.05
@@ -112,8 +118,6 @@ MonoBehaviour:
   minRunDuration: 0.18
   speedParameter: Speed
   movingParameter: Moving
-  syncPosition: 1
-  syncRotation: 1
   positionSharpness: 40
   rotationSharpness: 40
   hitLightStateName: Hit_0

@@ -734,7 +734,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MapNav.Ecs.NavRuntimeBootstrap
   map: {fileID: 1674693950}
   spawnAgents: 1
-  agentCount: 100
+  agentCount: 400
   onlyNavLayerId: -1
   maxSampleAttempts: 64
   agentRadius: 0.2
@@ -3914,7 +3914,7 @@ Transform:
   m_GameObject: {fileID: 1629692209}
   serializedVersion: 2
   m_LocalRotation: {x: 0.4266001, y: -0.3394444, z: 0.17670357, w: 0.81949115}
-  m_LocalPosition: {x: 5, y: 11, z: -5}
+  m_LocalPosition: {x: 5, y: 13, z: -5}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

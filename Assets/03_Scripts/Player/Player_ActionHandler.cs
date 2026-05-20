@@ -70,13 +70,14 @@ public class Player_ActionHandler : LoopMonoBehaviour, IDamageable
             ? Player_Movecontroller.GetCameraRelativeInput(InputProvider.Move.Direction)
             : Vector3.zero;
 
+        _attackController?.UpdateLookDirection(worldInput);
+
         bool attackPressed = combatActive && InputProvider.ConsumeAttack();
         if (attackPressed && _attackController != null && (_state == PlayerActionState.Normal || _attackController.IsInCombo))
             _attackController.RequestAttack();
 
         if (_attackController != null && _attackController.IsInCombo)
         {
-            _attackController.UpdateLookDirection(worldInput);
             _moveController.MoveVertical(gdt);
             return;
         }

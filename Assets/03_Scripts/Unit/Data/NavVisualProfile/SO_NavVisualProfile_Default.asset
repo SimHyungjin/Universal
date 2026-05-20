@@ -16,7 +16,7 @@ MonoBehaviour:
   runStateName: Run
   startRunTransition: 0.05
   stopRunTransition: 0.18
-  runEnterDelay: 0.06
+  runEnterDelay: 0.05
   minRunDuration: 0.18
   speedParameter: Speed
   movingParameter: Moving

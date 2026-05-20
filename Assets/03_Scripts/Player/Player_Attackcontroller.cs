@@ -17,6 +17,7 @@ public class Player_Attackcontroller : LoopMonoBehaviour
     private Player_Movecontroller _moveController;
     private SO_AttackData[] _attacks;
     private float _comboWindow = 0.35f;
+    private const float ExplicitLookInputSqrThreshold = 0.04f;
     private int   _comboCount;
     private float _attackTimer;
     private float _comboTimer;
@@ -102,11 +103,15 @@ public class Player_Attackcontroller : LoopMonoBehaviour
             return;
         }
 
-        Vector3 autoAim = FindAutoAimDirection(attack);
-        Vector3 lookDir = autoAim.sqrMagnitude > 0.0001f ? autoAim : _pendingLookDirection;
+        Vector3 inputAim = _pendingLookDirection;
+        bool hasExplicitInput = inputAim.sqrMagnitude > ExplicitLookInputSqrThreshold;
+        Vector3 autoAim = hasExplicitInput ? Vector3.zero : FindAutoAimDirection(attack);
+        Vector3 lookDir = hasExplicitInput ? inputAim : autoAim;
 
         if (lookDir.sqrMagnitude > 0.0001f)
             transform.rotation = Quaternion.LookRotation(lookDir);
+
+        App.AlignThirdPersonCameraToTargetYaw(attack.Duration);
 
         _pendingLookDirection = Vector3.zero;
         _currentData = attack;
@@ -173,8 +178,7 @@ public class Player_Attackcontroller : LoopMonoBehaviour
 
     public void UpdateLookDirection(Vector3 worldInput)
     {
-        if (worldInput.sqrMagnitude > 0.0001f)
-            _pendingLookDirection = worldInput;
+        _pendingLookDirection = worldInput;
     }
 
     private Vector3 FindAutoAimDirection(SO_AttackData data)

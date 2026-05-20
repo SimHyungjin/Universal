@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: SO_ApplicationSetting
   m_EditorClassIdentifier: 
   _vsyncCount: 0
-  _targetFrameRate: 60
+  _targetFrameRate: 144
   _bgmVolume: 1
   _sfxVolume: 1
   _language: ko

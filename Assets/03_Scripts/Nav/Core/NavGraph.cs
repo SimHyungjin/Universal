@@ -163,10 +163,7 @@ namespace MapNav.Core
             {
                 if (edge.ToKind == NavSpaceKind.Transition)
                 {
-                    if (TryMeasureRegionToDetachedPortal(in ctx, ref blob, current.Id, fromLocal, edge, agentRadius, out cost, out fromAccess, out neighborArrival))
-                        return true;
-
-                    return TryApproximateRegionToDetachedPortal(ref blob, current.Id, fromLocal, edge, out cost, out fromAccess, out neighborArrival);
+                    return TryMeasureRegionToDetachedPortal(in ctx, ref blob, current.Id, fromLocal, edge, agentRadius, out cost, out fromAccess, out neighborArrival);
                 }
 
                 fromAccess = neighborArrival;
@@ -245,40 +242,6 @@ namespace MapNav.Core
                 return false;
 
             if (hasA && (!hasB || costA <= costB))
-            {
-                cost = costA;
-                fromAccess = regionA;
-                neighborArrival = edge.PortalLocalA;
-                return true;
-            }
-
-            cost = costB;
-            fromAccess = regionB;
-            neighborArrival = edge.PortalLocalB;
-            return true;
-        }
-
-        private static bool TryApproximateRegionToDetachedPortal(
-            ref NavBlob blob,
-            int regionId,
-            float2 fromLocal,
-            NavEdge edge,
-            out float cost,
-            out float2 fromAccess,
-            out float2 neighborArrival)
-        {
-            cost = 0f;
-            fromAccess = edge.PortalLocalA;
-            neighborArrival = edge.PortalLocalA;
-
-            bool hasA = TryGetRegionAccessPointLocal(ref blob, regionId, edge.PortalLocalA, out float2 regionA);
-            bool hasB = TryGetRegionAccessPointLocal(ref blob, regionId, edge.PortalLocalB, out float2 regionB);
-            if (!hasA && !hasB)
-                return false;
-
-            float costA = hasA ? math.distance(fromLocal, regionA) + math.distance(regionA, edge.PortalLocalA) : float.PositiveInfinity;
-            float costB = hasB ? math.distance(fromLocal, regionB) + math.distance(regionB, edge.PortalLocalB) : float.PositiveInfinity;
-            if (costA <= costB)
             {
                 cost = costA;
                 fromAccess = regionA;

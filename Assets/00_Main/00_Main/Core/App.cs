@@ -93,6 +93,9 @@ public static class App
     public static void ToggleCombatCameraMode()
         => Main.Camera?.ToggleMode();
 
+    public static void AlignThirdPersonCameraToTargetYaw(float duration)
+        => Main.Camera?.AlignThirdPersonToTargetYaw(duration);
+
     #endregion
 
     #region Resource

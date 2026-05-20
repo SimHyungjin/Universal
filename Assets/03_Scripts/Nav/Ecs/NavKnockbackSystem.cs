@@ -57,11 +57,13 @@ namespace MapNav.Ecs
                             NavQuery.TryProjectToNearestSpace(in ctx, cur, out float3 snapped, out _))
                             cur = snapped;
 
+                        cur = ProjectToClearPosition(in ctx, cur, agentRadius, tolerance);
+
                         float3 next = cur + new float3(vel.x * dt, 0f, vel.z * dt);
                         if (!TryMoveKnockback(in ctx, cur, next, agentRadius, tolerance, out next))
                             hitBoundary = true;
 
-                        transform.ValueRW.Position = next;
+                        transform.ValueRW.Position = ProjectToClearPosition(in ctx, next, agentRadius, tolerance);
                     }
                     else
                     {
@@ -89,14 +91,29 @@ namespace MapNav.Ecs
                     {
                         float3 pos       = transform.ValueRO.Position;
                         float  tolerance = settings.ValueRO.BoundaryTolerance;
+                        float  agentRadius = math.max(0f, settings.ValueRO.AgentRadius);
                         if (!NavQuery.TryClassify(in ctx, pos, tolerance, out _) &&
                             NavQuery.TryProjectToNearestSpace(in ctx, pos, out float3 snapped, out _))
-                            transform.ValueRW.Position = snapped;
+                            pos = snapped;
+                        transform.ValueRW.Position = ProjectToClearPosition(in ctx, pos, agentRadius, tolerance);
                     }
                     waypoints.Clear();
                     target.ValueRW.Dirty = 1;
                 }
             }
+        }
+
+        private static float3 ProjectToClearPosition(in NavContext ctx, float3 position, float agentRadius, float tolerance)
+        {
+            if (agentRadius <= 0f)
+                return position;
+
+            if (!NavQuery.TryProjectOutOfObstacle(in ctx, position, agentRadius, out float3 projected))
+                return position;
+
+            return NavQuery.TryClassify(in ctx, projected, tolerance, out _)
+                ? projected
+                : position;
         }
 
         private static bool TryMoveKnockback(
@@ -107,15 +124,58 @@ namespace MapNav.Ecs
             float tolerance,
             out float3 safePosition)
         {
-            safePosition = from;
-
             bool fromValid = NavQuery.TryClassify(in ctx, from, tolerance, out _);
             if (!fromValid && !NavQuery.TryProjectToNearestSpace(in ctx, from, out _, out _))
+            {
+                safePosition = from;
                 return false;
+            }
 
             float3 delta = to - from;
             delta.y = 0f;
 
+            float distance = math.length(delta);
+            if (distance <= 1e-4f)
+            {
+                safePosition = to;
+                return true;
+            }
+
+            if (TryMoveStraight(in ctx, from, to, agentRadius, tolerance, out safePosition))
+                return true;
+
+            float3 direction = delta / distance;
+            float3 sideA = new float3(-direction.z, 0f, direction.x);
+            float3 sideB = new float3(direction.z, 0f, -direction.x);
+            float slideDistance = distance * 0.85f;
+
+            bool movedA = TryMoveStraight(in ctx, from, from + sideA * slideDistance, agentRadius, tolerance, out float3 slideA);
+            bool movedB = TryMoveStraight(in ctx, from, from + sideB * slideDistance, agentRadius, tolerance, out float3 slideB);
+
+            if (movedA || movedB)
+            {
+                float movedASq = math.lengthsq((slideA - from).xz);
+                float movedBSq = math.lengthsq((slideB - from).xz);
+                safePosition = movedA && (!movedB || movedASq >= movedBSq) ? slideA : slideB;
+                return math.lengthsq((safePosition - from).xz) > 1e-6f;
+            }
+
+            safePosition = from;
+            return false;
+        }
+
+        private static bool TryMoveStraight(
+            in NavContext ctx,
+            float3 from,
+            float3 to,
+            float agentRadius,
+            float tolerance,
+            out float3 safePosition)
+        {
+            safePosition = from;
+
+            float3 delta = to - from;
+            delta.y = 0f;
             float distance = math.length(delta);
             if (distance <= 1e-4f)
             {
