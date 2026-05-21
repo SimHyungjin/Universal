@@ -26,27 +26,11 @@ namespace MapNav.Core
             outWaypoints.Clear();
             if (!ctx.IsValid) return false;
 
-            if (!NavQuery.TryClassify(in ctx, startWorld, boundaryTolerance, out NavSpaceRef startSpace))
-            {
-                if (!NavQuery.TryProjectToNearestSpace(in ctx, startWorld, out float3 projectedStart, out startSpace))
-                    return false;
-                startWorld = projectedStart;
-            }
-            else
-            {
-                startWorld = ProjectIntoSpace(in ctx, startSpace, startWorld);
-            }
+            if (!TryResolvePoint(in ctx, startWorld, agentRadius, boundaryTolerance, out startWorld, out NavSpaceRef startSpace))
+                return false;
 
-            if (!NavQuery.TryClassify(in ctx, endWorld, boundaryTolerance, out NavSpaceRef endSpace))
-            {
-                if (!NavQuery.TryProjectToNearestSpace(in ctx, endWorld, out float3 projectedEnd, out endSpace))
-                    return false;
-                endWorld = projectedEnd;
-            }
-            else
-            {
-                endWorld = ProjectIntoSpace(in ctx, endSpace, endWorld);
-            }
+            if (!TryResolvePoint(in ctx, endWorld, agentRadius, boundaryTolerance, out endWorld, out NavSpaceRef endSpace))
+                return false;
 
             return TryBuildFromSpaces(in ctx, startSpace, startWorld, endSpace, endWorld, agentRadius, ref scratch, ref tmpNodes, ref tmpPortals, ref outWaypoints);
         }
@@ -70,32 +54,16 @@ namespace MapNav.Core
                 return false;
             }
 
-            if (!NavQuery.TryClassify(in ctx, startWorld, boundaryTolerance, out NavSpaceRef startSpace))
+            if (!TryResolvePoint(in ctx, startWorld, agentRadius, boundaryTolerance, out startWorld, out NavSpaceRef startSpace))
             {
-                if (!NavQuery.TryProjectToNearestSpace(in ctx, startWorld, out float3 projectedStart, out startSpace))
-                {
-                    log.Append("start classify/project failed");
-                    return false;
-                }
-                startWorld = projectedStart;
-            }
-            else
-            {
-                startWorld = ProjectIntoSpace(in ctx, startSpace, startWorld);
+                log.Append("start classify/project failed");
+                return false;
             }
 
-            if (!NavQuery.TryClassify(in ctx, endWorld, boundaryTolerance, out NavSpaceRef endSpace))
+            if (!TryResolvePoint(in ctx, endWorld, agentRadius, boundaryTolerance, out endWorld, out NavSpaceRef endSpace))
             {
-                if (!NavQuery.TryProjectToNearestSpace(in ctx, endWorld, out float3 projectedEnd, out endSpace))
-                {
-                    log.Append("end classify/project failed");
-                    return false;
-                }
-                endWorld = projectedEnd;
-            }
-            else
-            {
-                endWorld = ProjectIntoSpace(in ctx, endSpace, endWorld);
+                log.Append("end classify/project failed");
+                return false;
             }
 
             if (CanTravelDirect(in ctx, startWorld, endWorld, agentRadius))
@@ -136,7 +104,11 @@ namespace MapNav.Core
             if (!NavGraph.TryFindPath(in ctx, startSpace, startWorld, endSpace, endWorld, agentRadius, ref scratch, ref tmpNodes, ref tmpPortals))
                 return false;
 
-            return AssemblePath(in ctx, startWorld, ref tmpNodes, ref tmpPortals, endWorld, agentRadius, ref outWaypoints);
+            if (!AssemblePath(in ctx, startWorld, ref tmpNodes, ref tmpPortals, endWorld, agentRadius, ref outWaypoints))
+                return false;
+
+            StringPull(in ctx, agentRadius, ref outWaypoints);
+            return true;
         }
 
         private static bool AssemblePath(
@@ -404,7 +376,7 @@ namespace MapNav.Core
                     return false;
                 }
 
-                AppendCornersFunnelSmoothed(from, to, agentRadius, ref corners, ref outWaypoints);
+                AppendInRegionCorners(ref corners, ref outWaypoints);
                 corners.Dispose();
             }
 
@@ -412,32 +384,54 @@ namespace MapNav.Core
             return true;
         }
 
-        // The visibility-graph corners are LOS-reachable from each other but not necessarily
-        // a tight string-pull. Run NavFunnel over them (each corner as a zero-width portal)
-        // to drop redundant intermediate corners and pull the path against obstacle edges.
-        private static void AppendCornersFunnelSmoothed(
-            float3 from,
-            float3 to,
-            float agentRadius,
+        // The visibility-graph corners from NavInRegion already form the shortest taut path
+        // through the region's obstacles (visibility-graph A* is optimal), so they need no
+        // further smoothing. Cross-segment straightening is handled once at the end of the
+        // build by StringPull.
+        private static void AppendInRegionCorners(
             ref NativeList<float3> corners,
             ref NativeList<float3> outWaypoints)
         {
-            if (corners.Length == 0) return;
-
-            NativeList<NavPortal> innerPortals = new NativeList<NavPortal>(corners.Length, Allocator.Temp);
             for (int i = 0; i < corners.Length; i++)
-                innerPortals.Add(new NavPortal { A = corners[i], B = corners[i] });
+                AddIfSeparated(corners[i], ref outWaypoints);
+        }
 
-            NativeList<float3> smoothed = new NativeList<float3>(corners.Length + 2, Allocator.Temp);
-            NavFunnel.Smooth(from, ref innerPortals, to, agentRadius, ref smoothed);
+        // Greedy line-of-sight string pull over the assembled path: drop any waypoint whose
+        // surrounding waypoints can travel directly to each other. CanTravelDirect is
+        // obstacle- and boundary-aware and refuses to shortcut across a transition or a
+        // layer change, so required transition waypoints survive automatically. Any kept
+        // consecutive pair is an original (already-valid) segment.
+        private static void StringPull(
+            in NavContext ctx,
+            float agentRadius,
+            ref NativeList<float3> waypoints)
+        {
+            if (waypoints.Length <= 2)
+                return;
 
-            // smoothed[0] is `from` (already last in outWaypoints) and smoothed[last] is `to`
-            // (caller appends it). Emit only the interior corners.
-            for (int i = 1; i < smoothed.Length - 1; i++)
-                AddIfSeparated(smoothed[i], ref outWaypoints);
+            NativeList<float3> pulled = new NativeList<float3>(waypoints.Length, Allocator.Temp);
+            pulled.Add(waypoints[0]);
 
-            innerPortals.Dispose();
-            smoothed.Dispose();
+            int anchor = 0;
+            for (int i = 1; i < waypoints.Length - 1; i++)
+            {
+                if (CanTravelDirect(in ctx, waypoints[anchor], waypoints[i + 1], agentRadius))
+                    continue;
+
+                pulled.Add(waypoints[i]);
+                anchor = i;
+            }
+
+            pulled.Add(waypoints[waypoints.Length - 1]);
+
+            if (pulled.Length < waypoints.Length)
+            {
+                waypoints.Clear();
+                for (int i = 0; i < pulled.Length; i++)
+                    waypoints.Add(pulled[i]);
+            }
+
+            pulled.Dispose();
         }
 
         private static bool TryGetRegionAccessPoint(
@@ -540,6 +534,65 @@ namespace MapNav.Core
                 || NavMath.IsNearEdge(ref blob.Points, region.PointStart, region.PointCount, point, 1e-3f);
         }
 
+        // Resolves a raw world point to a navigable position: classifies it (or projects to
+        // the nearest nav space if off-mesh), then pushes it clear of any obstacle it sits
+        // inside or within agent-radius clearance of. Without the obstacle step a start/end
+        // point inside an obstacle makes every in-region segment fail and the build aborts.
+        private static bool TryResolvePoint(
+            in NavContext ctx,
+            float3 world,
+            float agentRadius,
+            float boundaryTolerance,
+            out float3 resolved,
+            out NavSpaceRef space)
+        {
+            if (NavQuery.TryClassify(in ctx, world, boundaryTolerance, out space))
+            {
+                resolved = ProjectIntoSpace(in ctx, space, world);
+                ApplyObstacleClearance(in ctx, agentRadius, boundaryTolerance, ref resolved, ref space);
+                return true;
+            }
+
+            // Off-mesh — may be sitting inside an obstacle; push out before falling back to
+            // the (possibly distant) nearest-space projection.
+            if (agentRadius > 0f
+                && NavQuery.TryProjectOutOfObstacle(in ctx, world, agentRadius, out float3 cleared)
+                && NavQuery.TryClassify(in ctx, cleared, boundaryTolerance, out space))
+            {
+                resolved = ProjectIntoSpace(in ctx, space, cleared);
+                return true;
+            }
+
+            if (NavQuery.TryProjectToNearestSpace(in ctx, world, out float3 projected, out space))
+            {
+                resolved = projected;
+                ApplyObstacleClearance(in ctx, agentRadius, boundaryTolerance, ref resolved, ref space);
+                return true;
+            }
+
+            resolved = world;
+            space = default;
+            return false;
+        }
+
+        private static void ApplyObstacleClearance(
+            in NavContext ctx,
+            float agentRadius,
+            float boundaryTolerance,
+            ref float3 position,
+            ref NavSpaceRef space)
+        {
+            if (agentRadius <= 0f)
+                return;
+
+            if (NavQuery.TryProjectOutOfObstacle(in ctx, position, agentRadius, out float3 cleared)
+                && NavQuery.TryClassify(in ctx, cleared, boundaryTolerance, out NavSpaceRef clearedSpace))
+            {
+                position = ProjectIntoSpace(in ctx, clearedSpace, cleared);
+                space = clearedSpace;
+            }
+        }
+
         private static float3 ProjectIntoSpace(in NavContext ctx, NavSpaceRef space, float3 world)
         {
             ref NavBlob blob = ref ctx.Blob.Value;
@@ -611,7 +664,7 @@ namespace MapNav.Core
 
             ref NavBlob blob = ref ctx.Blob.Value;
             NavQuery.TryFindRegion(ref blob, fromSpace.Id, out int fromRegionIndex);
-            int layerId = blob.Regions[fromRegionIndex].LayerId;
+            float fromHeight = blob.Regions[fromRegionIndex].Height;
             float2 fromLocal = NavMath.ToLocal2D(ctx.WorldToLocal, from);
             float2 toLocal = NavMath.ToLocal2D(ctx.WorldToLocal, to);
 
@@ -625,7 +678,7 @@ namespace MapNav.Core
                     return false;
 
                 if (!NavQuery.TryFindRegion(ref blob, sampled.Id, out int sampledRegionIndex)
-                    || blob.Regions[sampledRegionIndex].LayerId != layerId)
+                    || math.abs(blob.Regions[sampledRegionIndex].Height - fromHeight) > DirectTravelTolerance)
                     return false;
 
                 if (NavInRegion.SegmentCrossesObstacleLocal(in ctx, sampled.Id, fromLocal, toLocal))
@@ -645,7 +698,7 @@ namespace MapNav.Core
                 || !NavQuery.TryFindRegion(ref blob, b.Id, out int bIndex))
                 return false;
 
-            return blob.Regions[aIndex].LayerId == blob.Regions[bIndex].LayerId;
+            return math.abs(blob.Regions[aIndex].Height - blob.Regions[bIndex].Height) <= DirectTravelTolerance;
         }
 
         private static bool SegmentSamplesStayInSameSpace(

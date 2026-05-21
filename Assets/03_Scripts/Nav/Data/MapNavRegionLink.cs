@@ -7,10 +7,9 @@ public static class MapNavigationRegionLinkUtility
     public const float LineTolerance = 0.08f;
     public const float MinimumPortalLength = 0.05f;
 
-    public static bool CanLink(int navLayerA, float heightA, int navLayerB, float heightB)
+    public static bool CanLink(float heightA, float heightB)
     {
-        return navLayerA == navLayerB
-            && Mathf.Abs(heightA - heightB) <= HeightTolerance;
+        return Mathf.Abs(heightA - heightB) <= HeightTolerance;
     }
 
     public static bool TryFindSharedPortal(IReadOnlyList<Vector2> pointsA, IReadOnlyList<Vector2> pointsB, out Vector2 portalA, out Vector2 portalB)
@@ -50,6 +49,57 @@ public static class MapNavigationRegionLinkUtility
         }
 
         return foundNearbyPortal;
+    }
+
+    // Two polygons of the same region often overlap (composing a non-convex area) rather than
+    // share a clean edge — and TryFindSharedPortal skips coincident/crossing edges (distance 0
+    // is treated as "too close"). This finds a point lying inside both polygons to use as a
+    // connecting portal so the region does not fragment into isolated graph nodes.
+    public static bool TryFindOverlapPortal(
+        IReadOnlyList<Vector2> pointsA,
+        IReadOnlyList<Vector2> pointsB,
+        out Vector2 portalA,
+        out Vector2 portalB)
+    {
+        portalA = default;
+        portalB = default;
+        if (pointsA == null || pointsB == null || pointsA.Count < 3 || pointsB.Count < 3)
+            return false;
+
+        // A vertex of one polygon lying inside the other is a point in the overlap.
+        for (int i = 0; i < pointsA.Count; i++)
+        {
+            if (MapNavGeometry.ContainsPoint(pointsB, pointsA[i]))
+            {
+                portalA = portalB = pointsA[i];
+                return true;
+            }
+        }
+
+        for (int i = 0; i < pointsB.Count; i++)
+        {
+            if (MapNavGeometry.ContainsPoint(pointsA, pointsB[i]))
+            {
+                portalA = portalB = pointsB[i];
+                return true;
+            }
+        }
+
+        // No vertex containment, but edges may still cross (e.g. a plus-shaped overlap).
+        for (int a = 0, previousA = pointsA.Count - 1; a < pointsA.Count; previousA = a++)
+        {
+            for (int b = 0, previousB = pointsB.Count - 1; b < pointsB.Count; previousB = b++)
+            {
+                if (MapNavGeometry.TryLineSegmentIntersection(
+                        pointsA[previousA], pointsA[a], pointsB[previousB], pointsB[b], out Vector2 hit))
+                {
+                    portalA = portalB = hit;
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static bool TryGetCollinearOverlap(Vector2 a0, Vector2 a1, Vector2 b0, Vector2 b1, out Vector2 overlapA, out Vector2 overlapB)

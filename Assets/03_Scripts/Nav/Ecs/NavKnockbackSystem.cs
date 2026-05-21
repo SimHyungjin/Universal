@@ -190,14 +190,14 @@ namespace MapNav.Ecs
             for (int i = 1; i <= steps; i++)
             {
                 float3 candidate = math.lerp(from, to, i / (float)steps);
-                if (NavQuery.TryClassify(in ctx, candidate, tolerance, out _))
+                if (IsKnockbackPositionSafe(in ctx, candidate, agentRadius, tolerance))
                 {
                     safePosition = candidate;
                     previous = candidate;
                     continue;
                 }
 
-                safePosition = FindLastSafeEndpoint(in ctx, previous, candidate, tolerance);
+                safePosition = FindLastSafeEndpoint(in ctx, previous, candidate, agentRadius, tolerance);
                 return false;
             }
 
@@ -208,6 +208,7 @@ namespace MapNav.Ecs
             in NavContext ctx,
             float3 from,
             float3 to,
+            float agentRadius,
             float tolerance)
         {
             float3 safe = from;
@@ -218,7 +219,7 @@ namespace MapNav.Ecs
             {
                 float mid = (min + max) * 0.5f;
                 float3 candidate = math.lerp(from, to, mid);
-                if (NavQuery.TryClassify(in ctx, candidate, tolerance, out _))
+                if (IsKnockbackPositionSafe(in ctx, candidate, agentRadius, tolerance))
                 {
                     min = mid;
                     safe = candidate;
@@ -230,6 +231,15 @@ namespace MapNav.Ecs
             }
 
             return safe;
+        }
+
+        // A knockback step is safe only if the agent's body (not just its centre point) clears
+        // obstacles — TryClassify alone accepts a point whose centre is just outside an obstacle
+        // polygon while the agent radius is still buried in the wall.
+        private static bool IsKnockbackPositionSafe(in NavContext ctx, float3 position, float agentRadius, float tolerance)
+        {
+            return NavQuery.TryClassify(in ctx, position, tolerance, out _)
+                && NavQuery.IsClearOfObstacles(in ctx, position, agentRadius);
         }
     }
 }

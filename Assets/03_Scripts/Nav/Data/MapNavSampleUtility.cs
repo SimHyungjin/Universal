@@ -9,16 +9,17 @@ public static class MapNavSampleUtility
     // here are reachable from neighboring nav-mesh space without immediate clearance fail.
     public static bool HasClearance(MapNavRegion region, Vector2 local, float agentRadius)
     {
-        if (region == null || region.Points == null || region.Points.Count < 3)
+        if (region == null || region.Shapes == null || region.Shapes.Count == 0)
             return false;
 
-        if (!region.Contains(local))
+        MapNavPolygon containingShape = region.FindContainingShape(local);
+        if (containingShape == null)
             return false;
 
         if (IsInsideOrTooCloseToObstacle(region, local, agentRadius))
             return false;
 
-        if (agentRadius > 0f && IsTooCloseToRegionEdge(region.Points, local, agentRadius))
+        if (agentRadius > 0f && IsTooCloseToRegionEdge(containingShape.Points, local, agentRadius))
             return false;
 
         return true;

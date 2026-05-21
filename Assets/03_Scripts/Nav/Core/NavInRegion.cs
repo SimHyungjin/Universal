@@ -243,9 +243,12 @@ namespace MapNav.Core
                 return false;
 
             ref NavRegion region = ref blob.Regions[regionIdx];
+
+            // region.Cost is a per-distance traversal multiplier (clamped >= 1 at bake time,
+            // so the straight-line A* heuristic in NavGraph stays admissible).
             if (!SegmentBlockedByNavigation(ref blob, in region, a, b, agentRadius))
             {
-                cost = math.distance(a, b);
+                cost = math.distance(a, b) * region.Cost;
                 return true;
             }
 
@@ -261,6 +264,7 @@ namespace MapNav.Core
                     previous = corner;
                 }
                 cost += math.distance(previous, b);
+                cost *= region.Cost;
             }
 
             corners.Dispose();
@@ -358,7 +362,19 @@ namespace MapNav.Core
             if (EndpointMovesIntoPolygon(ref blob, pointStart, pointCount, a, b)) return true;
             if (EndpointMovesIntoPolygon(ref blob, pointStart, pointCount, b, a)) return true;
 
-            float clearanceSq = clearance * clearance;
+            // If an endpoint already sits within `clearance` of this obstacle (e.g. an agent
+            // shoved against it by knockback), don't demand more clearance than it already has
+            // — otherwise every segment from that point is blocked and it can never escape.
+            // The crossing checks still apply, so the path can never pass through the obstacle.
+            float effectiveClearance = clearance;
+            if (clearance > 0f)
+            {
+                NavMath.ClosestPointOnPolygon(ref blob.Points, pointStart, pointCount, a, out float aSqr);
+                NavMath.ClosestPointOnPolygon(ref blob.Points, pointStart, pointCount, b, out float bSqr);
+                effectiveClearance = math.min(clearance, math.sqrt(math.min(aSqr, bSqr)));
+            }
+
+            float clearanceSq = effectiveClearance * effectiveClearance;
             int j = pointCount - 1;
             for (int i = 0; i < pointCount; j = i++)
             {
@@ -373,7 +389,7 @@ namespace MapNav.Core
                     return true;
                 }
 
-                if (clearance > 0f && SegmentDistanceSq(a, b, p1, p2) < clearanceSq)
+                if (effectiveClearance > 0f && SegmentDistanceSq(a, b, p1, p2) < clearanceSq)
                     return true;
             }
             return false;

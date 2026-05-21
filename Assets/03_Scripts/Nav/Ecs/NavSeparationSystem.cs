@@ -36,11 +36,25 @@ namespace MapNav.Ecs
             NativeArray<LocalTransform> transforms = _query.ToComponentDataArray<LocalTransform>(Allocator.TempJob);
             NativeArray<NavAgentSettings> settings = _query.ToComponentDataArray<NavAgentSettings>(Allocator.TempJob);
 
+            // Cell size = largest separation radius, so every neighbour within an agent's
+            // radius falls inside the 3x3 cells around its own — turning the O(n^2) all-pairs
+            // scan into a local lookup.
+            float cellSize = 0.01f;
+            for (int i = 0; i < count; i++)
+                cellSize = math.max(cellSize, settings[i].SeparationRadius);
+
+            NativeParallelMultiHashMap<int2, int> grid =
+                new NativeParallelMultiHashMap<int2, int>(count, Allocator.TempJob);
+            for (int i = 0; i < count; i++)
+                grid.Add(CellOf(transforms[i].Position, cellSize), i);
+
             NavSeparationJob job = new NavSeparationJob
             {
                 Entities = entities,
                 Transforms = transforms,
                 Settings = settings,
+                Grid = grid,
+                CellSize = cellSize,
                 SeparationLookup = SystemAPI.GetComponentLookup<NavAgentSeparation>()
             };
 
@@ -48,6 +62,14 @@ namespace MapNav.Ecs
             state.Dependency = entities.Dispose(state.Dependency);
             state.Dependency = transforms.Dispose(state.Dependency);
             state.Dependency = settings.Dispose(state.Dependency);
+            state.Dependency = grid.Dispose(state.Dependency);
+        }
+
+        private static int2 CellOf(float3 position, float cellSize)
+        {
+            return new int2(
+                (int)math.floor(position.x / cellSize),
+                (int)math.floor(position.z / cellSize));
         }
 
         [BurstCompile]
@@ -56,6 +78,8 @@ namespace MapNav.Ecs
             [ReadOnly] public NativeArray<Entity> Entities;
             [ReadOnly] public NativeArray<LocalTransform> Transforms;
             [ReadOnly] public NativeArray<NavAgentSettings> Settings;
+            [ReadOnly] public NativeParallelMultiHashMap<int2, int> Grid;
+            public float CellSize;
 
             [NativeDisableParallelForRestriction]
             public ComponentLookup<NavAgentSeparation> SeparationLookup;
@@ -78,29 +102,42 @@ namespace MapNav.Ecs
                 float3 steering = float3.zero;
                 int neighbors = 0;
 
-                for (int other = 0; other < Transforms.Length; other++)
+                int2 baseCell = CellOf(selfPos, CellSize);
+
+                for (int dz = -1; dz <= 1 && neighbors < maxNeighbors; dz++)
                 {
-                    if (other == index)
-                        continue;
+                    for (int dx = -1; dx <= 1 && neighbors < maxNeighbors; dx++)
+                    {
+                        int2 cell = new int2(baseCell.x + dx, baseCell.y + dz);
+                        if (!Grid.TryGetFirstValue(cell, out int other, out NativeParallelMultiHashMapIterator<int2> iterator))
+                            continue;
 
-                    float3 away = selfPos - Transforms[other].Position;
-                    away.y = 0f;
+                        do
+                        {
+                            if (other == index)
+                                continue;
 
-                    float distSq = math.lengthsq(away);
-                    if (distSq > radiusSq)
-                        continue;
+                            float3 away = selfPos - Transforms[other].Position;
+                            away.y = 0f;
 
-                    float2 fallback = UnitFromIndex(index);
-                    float dist = math.sqrt(math.max(distSq, 1e-8f));
-                    float3 dir = distSq > 1e-8f
-                        ? away / dist
-                        : new float3(fallback.x, 0f, fallback.y);
-                    float weight = 1f - math.saturate(dist / radius);
-                    steering += dir * weight;
-                    neighbors++;
+                            float distSq = math.lengthsq(away);
+                            if (distSq > radiusSq)
+                                continue;
 
-                    if (neighbors >= maxNeighbors)
-                        break;
+                            float2 fallback = UnitFromIndex(index);
+                            float dist = math.sqrt(math.max(distSq, 1e-8f));
+                            float3 dir = distSq > 1e-8f
+                                ? away / dist
+                                : new float3(fallback.x, 0f, fallback.y);
+                            float weight = 1f - math.saturate(dist / radius);
+                            steering += dir * weight;
+                            neighbors++;
+
+                            if (neighbors >= maxNeighbors)
+                                break;
+                        }
+                        while (Grid.TryGetNextValue(out other, ref iterator));
+                    }
                 }
 
                 if (neighbors > 0)

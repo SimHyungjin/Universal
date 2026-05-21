@@ -117,12 +117,7 @@ namespace MapNav.Ecs
         }
 
         private static byte IsTransitionWaypoint(in NavContext ctx, float3 waypoint, float tolerance)
-        {
-            return NavQuery.TryClassify(in ctx, waypoint, tolerance, out NavSpaceRef space)
-                && space.Kind == NavSpaceKind.Transition
-                    ? (byte)1
-                    : (byte)0;
-        }
+            => NavAgentCore.IsTransitionWaypoint(in ctx, waypoint, tolerance) ? (byte)1 : (byte)0;
 
     }
 }

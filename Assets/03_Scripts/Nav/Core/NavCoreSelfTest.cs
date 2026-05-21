@@ -171,7 +171,7 @@ public sealed class NavCoreSelfTest : MonoBehaviour
             if (!NavQuery.TryProjectToNearestSpace(in ctx, new float3(10f, 0f, 0f), out float3 projected, out NavSpaceRef s))
                 return "expected project true";
             if (s.Kind != NavSpaceKind.Region) return $"expected Region, got {s.Kind}";
-            if (math.abs(projected.x - 5f) > 0.1f) return $"expected projected.x??, got {projected.x}";
+            if (math.abs(projected.x - 5f) > 0.1f) return $"expected projected.x near 5, got {projected.x}";
             return null;
         }
         finally { blob.Dispose(); }
@@ -290,7 +290,7 @@ public sealed class NavCoreSelfTest : MonoBehaviour
         try
         {
             NavFunnel.Smooth(new float3(0f, 0f, 0f), ref portals, new float3(10f, 0f, 0f), 0f, ref output);
-            if (output.Length < 2) return $"expected ?? waypoints, got {output.Length}";
+            if (output.Length < 2) return $"expected at least 2 waypoints, got {output.Length}";
             if (math.distance(output[0].xz, float2.zero) > Tolerance) return "first should be start";
             if (math.distance(output[output.Length - 1].xz, new float2(10f, 0f)) > Tolerance) return "last should be goal";
             return null;
@@ -321,7 +321,7 @@ public sealed class NavCoreSelfTest : MonoBehaviour
     private static string Test_PathAvoidsObstacle()
     {
         // Region [-5,5]x[-5,5], obstacle [-1,1]x[-1,1] in middle.
-        // Path from (-4, 0, 0) to (4, 0, 0) ??straight line crosses obstacle.
+        // Path from (-4, 0, 0) to (4, 0, 0) -- straight line crosses obstacle.
         var blob = BuildRegionWithObstacle();
         var scratch = new NavScratch(16, Allocator.Temp);
         var nodes = new NativeList<NavSpaceRef>(8, Allocator.Temp);
@@ -335,7 +335,7 @@ public sealed class NavCoreSelfTest : MonoBehaviour
             if (!NavPath.TryBuild(in ctx, start, end, agentRadius: 0.3f, boundaryTolerance: 0f, ref scratch, ref nodes, ref portals, ref waypoints))
                 return "expected build true";
             if (waypoints.Length < 3)
-                return $"expected ?? waypoints (corners around obstacle), got {waypoints.Length}";
+                return $"expected at least 3 waypoints (corners around obstacle), got {waypoints.Length}";
             // Verify no waypoint sits inside the obstacle
             for (int i = 0; i < waypoints.Length; i++)
             {
@@ -361,7 +361,7 @@ public sealed class NavCoreSelfTest : MonoBehaviour
             var ctx = new NavContext(blob, float4x4.identity, float4x4.identity);
             if (!NavPath.TryBuild(in ctx, start, end, 0f, 0f, ref scratch, ref nodes, ref portals, ref waypoints))
                 return "expected build true";
-            if (waypoints.Length < 2) return $"expected ?? waypoints, got {waypoints.Length}";
+            if (waypoints.Length < 2) return $"expected at least 2 waypoints, got {waypoints.Length}";
             if (math.distance(waypoints[0].xz, start.xz) > Tolerance) return "first waypoint should be start";
             if (math.distance(waypoints[waypoints.Length - 1].xz, end.xz) > Tolerance) return "last waypoint should be goal";
             return null;
@@ -376,35 +376,35 @@ public sealed class NavCoreSelfTest : MonoBehaviour
 
     private static BlobAssetReference<NavBlob> BuildSingleRegion(float height = 0f)
     {
-        var regions = new List<MapNavRegion> { Square(0, 0, height, -5f, -5f, 5f, 5f) };
+        var regions = new List<MapNavRegion> { Square(0, height, -5f, -5f, 5f, 5f) };
         return MapNavBaker.Build(regions, new List<MapNavTransition>(), Allocator.Persistent);
     }
 
     private static BlobAssetReference<NavBlob> BuildRegionWithObstacle()
     {
-        var r = Square(0, 0, 0f, -5f, -5f, 5f, 5f);
+        var r = Square(0, 0f, -5f, -5f, 5f, 5f);
         r.Obstacles.Add(SquareObstacle(-1f, -1f, 1f, 1f));
         return MapNavBaker.Build(new List<MapNavRegion> { r }, new List<MapNavTransition>(), Allocator.Persistent);
     }
 
     private static BlobAssetReference<NavBlob> BuildTwoAdjacentRegions()
     {
-        var r0 = Square(0, 0, 0f, -5f, -5f, 5f, 5f);
-        var r1 = Square(1, 0, 0f, 5f, -5f, 15f, 5f);
+        var r0 = Square(0, 0f, -5f, -5f, 5f, 5f);
+        var r1 = Square(1, 0f, 5f, -5f, 15f, 5f);
         return MapNavBaker.Build(new List<MapNavRegion> { r0, r1 }, new List<MapNavTransition>(), Allocator.Persistent);
     }
 
     private static BlobAssetReference<NavBlob> BuildTwoDisjointRegions()
     {
-        var r0 = Square(0, 0, 0f, -5f, -5f, 5f, 5f);
-        var r1 = Square(1, 0, 0f, 30f, -5f, 40f, 5f);
+        var r0 = Square(0, 0f, -5f, -5f, 5f, 5f);
+        var r1 = Square(1, 0f, 30f, -5f, 40f, 5f);
         return MapNavBaker.Build(new List<MapNavRegion> { r0, r1 }, new List<MapNavTransition>(), Allocator.Persistent);
     }
 
     private static BlobAssetReference<NavBlob> BuildTwoRegionsViaTransition()
     {
-        var r0 = Square(0, 0, 0f, -5f, -5f, 5f, 5f);
-        var r1 = Square(1, 0, 0f, 15f, -5f, 25f, 5f);
+        var r0 = Square(0, 0f, -5f, -5f, 5f, 5f);
+        var r1 = Square(1, 0f, 15f, -5f, 25f, 5f);
         var t = new MapNavTransition
         {
             Id = 0,
@@ -423,13 +423,15 @@ public sealed class NavCoreSelfTest : MonoBehaviour
         return MapNavBaker.Build(new List<MapNavRegion> { r0, r1 }, new List<MapNavTransition> { t }, Allocator.Persistent);
     }
 
-    private static MapNavRegion Square(int id, int layer, float height, float minX, float minZ, float maxX, float maxZ)
+    private static MapNavRegion Square(int id, float height, float minX, float minZ, float maxX, float maxZ)
     {
-        var r = new MapNavRegion { Id = id, NavLayerId = layer, Height = height };
-        r.Points.Add(new Vector2(minX, minZ));
-        r.Points.Add(new Vector2(minX, maxZ));
-        r.Points.Add(new Vector2(maxX, maxZ));
-        r.Points.Add(new Vector2(maxX, minZ));
+        var shape = new MapNavPolygon();
+        shape.Points.Add(new Vector2(minX, minZ));
+        shape.Points.Add(new Vector2(minX, maxZ));
+        shape.Points.Add(new Vector2(maxX, maxZ));
+        shape.Points.Add(new Vector2(maxX, minZ));
+        var r = new MapNavRegion { Id = id, Height = height };
+        r.Shapes.Add(shape);
         return r;
     }
 

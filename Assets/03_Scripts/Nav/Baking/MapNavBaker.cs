@@ -9,6 +9,8 @@ namespace MapNav.Baking
 {
     public static class MapNavBaker
     {
+        private const int ExtraShapeIdBase = 100000;
+
         public static BlobAssetReference<NavBlob> Build(MapNavigationAuthoring authoring, Allocator allocator)
         {
             if (authoring == null)
@@ -25,15 +27,17 @@ namespace MapNav.Baking
             List<MapNavRegion> regions = SortById(sourceRegions, r => r.Id);
             List<MapNavTransition> transitions = SortById(sourceTransitions, t => t.Id);
 
+            List<ShapeEntry> shapeEntries = ExpandShapeEntries(regions);
+
             List<float2> points = new();
-            NavRegion[] regionData = new NavRegion[regions.Count];
+            NavRegion[] regionData = new NavRegion[shapeEntries.Count];
             NavTransition[] transitionData = new NavTransition[transitions.Count];
             List<NavObstacle> obstacleData = new();
 
-            BuildRegions(regions, regionData, obstacleData, points);
+            BuildRegions(shapeEntries, regionData, obstacleData, points);
             BuildTransitions(transitions, transitionData, points);
 
-            List<NavEdge>[] regionEdges = BuildRegionEdgeBuckets(regionData, points);
+            List<NavEdge>[] regionEdges = BuildRegionEdgeBuckets(shapeEntries, regionData, points);
             List<NavEdge>[] transitionEdges = new List<NavEdge>[transitionData.Length];
             for (int i = 0; i < transitionEdges.Length; i++)
                 transitionEdges[i] = new List<NavEdge>();
@@ -60,6 +64,45 @@ namespace MapNav.Baking
             return builder.CreateBlobAssetReference<NavBlob>(allocator);
         }
 
+        // ────────────────────────────────────────────────────────────────
+
+        private readonly struct ShapeEntry
+        {
+            public readonly MapNavRegion Region;
+            public readonly MapNavPolygon Shape;
+            public readonly int Id;
+
+            public ShapeEntry(MapNavRegion region, MapNavPolygon shape, int id)
+            {
+                Region = region;
+                Shape = shape;
+                Id = id;
+            }
+        }
+
+        private static List<ShapeEntry> ExpandShapeEntries(List<MapNavRegion> regions)
+        {
+            var entries = new List<ShapeEntry>();
+            int extraIdx = 0;
+
+            foreach (MapNavRegion r in regions)
+            {
+                if (r?.Shapes == null || r.Shapes.Count == 0) continue;
+                for (int s = 0; s < r.Shapes.Count; s++)
+                {
+                    MapNavPolygon shape = r.Shapes[s];
+                    if (shape == null) continue;
+                    int id = s == 0 ? r.Id : ExtraShapeIdBase + extraIdx++;
+                    entries.Add(new ShapeEntry(r, shape, id));
+                }
+            }
+
+            entries.Sort((a, b) => a.Id.CompareTo(b.Id));
+            return entries;
+        }
+
+        // ────────────────────────────────────────────────────────────────
+
         private static List<T> SortById<T>(IReadOnlyList<T> source, System.Func<T, int> idSelector) where T : class
         {
             List<T> list = new();
@@ -77,36 +120,35 @@ namespace MapNav.Baking
         }
 
         private static void BuildRegions(
-            List<MapNavRegion> regions,
+            List<ShapeEntry> entries,
             NavRegion[] regionData,
             List<NavObstacle> obstacleData,
             List<float2> points)
         {
-            for (int i = 0; i < regions.Count; i++)
+            for (int i = 0; i < entries.Count; i++)
             {
-                MapNavRegion region = regions[i];
-                region.RecalculateBounds();
+                ShapeEntry entry = entries[i];
+                entry.Shape.RecalculateBounds();
 
                 int pointStart = points.Count;
-                AppendPoints(region.Points, points);
+                AppendPoints(entry.Shape.Points, points);
 
                 int obstacleStart = obstacleData.Count;
-                int obstacleCount = AppendObstacles(region.Id, region.Obstacles, obstacleData, points);
+                int obstacleCount = AppendObstaclesForShape(entry.Id, entry.Region.Obstacles, entry.Shape, obstacleData, points);
 
                 regionData[i] = new NavRegion
                 {
-                    Id = region.Id,
-                    LayerId = region.NavLayerId,
-                    Height = region.Height,
-                    Cost = math.max(0f, region.Cost),
+                    Id = entry.Id,
+                    Height = entry.Region.Height,
+                    Cost = math.max(1f, entry.Region.Cost),
                     PointStart = pointStart,
-                    PointCount = region.Points?.Count ?? 0,
+                    PointCount = entry.Shape.Points?.Count ?? 0,
                     ObstacleStart = obstacleStart,
                     ObstacleCount = obstacleCount,
-                    BoundsMin = ToFloat2(region.BoundsMin),
-                    BoundsMax = ToFloat2(region.BoundsMax),
-                    Center = ComputeCenter(region.Points),
-                    HasBounds = ToByte(region.HasBounds)
+                    BoundsMin = ToFloat2(entry.Shape.BoundsMin),
+                    BoundsMax = ToFloat2(entry.Shape.BoundsMax),
+                    Center = ComputeCenter(entry.Shape.Points),
+                    HasBounds = ToByte(entry.Shape.HasBounds)
                 };
             }
         }
@@ -149,9 +191,10 @@ namespace MapNav.Baking
             }
         }
 
-        private static int AppendObstacles(
-            int regionId,
+        private static int AppendObstaclesForShape(
+            int shapeId,
             IReadOnlyList<MapNavObstacle> sourceObstacles,
+            MapNavPolygon shape,
             List<NavObstacle> obstacleData,
             List<float2> points)
         {
@@ -162,8 +205,8 @@ namespace MapNav.Baking
             for (int i = 0; i < sourceObstacles.Count; i++)
             {
                 MapNavObstacle obstacle = sourceObstacles[i];
-                if (obstacle == null)
-                    continue;
+                if (obstacle?.Points == null || obstacle.Points.Count < 3) continue;
+                if (!ObstacleOverlapsShape(obstacle, shape)) continue;
 
                 obstacle.RecalculateBounds();
                 int pointStart = points.Count;
@@ -171,9 +214,9 @@ namespace MapNav.Baking
 
                 obstacleData.Add(new NavObstacle
                 {
-                    RegionId = regionId,
+                    RegionId = shapeId,
                     PointStart = pointStart,
-                    PointCount = obstacle.Points?.Count ?? 0,
+                    PointCount = obstacle.Points.Count,
                     CornerPadding = math.max(0f, obstacle.CornerPadding),
                     BoundsMin = ToFloat2(obstacle.BoundsMin),
                     BoundsMax = ToFloat2(obstacle.BoundsMax),
@@ -185,6 +228,14 @@ namespace MapNav.Baking
             return added;
         }
 
+        private static bool ObstacleOverlapsShape(MapNavObstacle obstacle, MapNavPolygon shape)
+        {
+            const float tol = 0.05f;
+            foreach (Vector2 p in obstacle.Points)
+                if (shape.Contains(p, tol)) return true;
+            return false;
+        }
+
         private static void AppendPoints(IReadOnlyList<Vector2> source, List<float2> target)
         {
             if (source == null)
@@ -194,7 +245,7 @@ namespace MapNav.Baking
                 target.Add(new float2(source[i].x, source[i].y));
         }
 
-        private static List<NavEdge>[] BuildRegionEdgeBuckets(NavRegion[] regionData, List<float2> points)
+        private static List<NavEdge>[] BuildRegionEdgeBuckets(List<ShapeEntry> entries, NavRegion[] regionData, List<float2> points)
         {
             List<NavEdge>[] buckets = new List<NavEdge>[regionData.Length];
             for (int i = 0; i < buckets.Length; i++)
@@ -213,11 +264,18 @@ namespace MapNav.Baking
                     if (regionB.PointCount < 3)
                         continue;
 
-                    if (!MapNavigationRegionLinkUtility.CanLink(regionA.LayerId, regionA.Height, regionB.LayerId, regionB.Height))
+                    if (!MapNavigationRegionLinkUtility.CanLink(regionA.Height, regionB.Height))
                         continue;
 
                     IReadOnlyList<Vector2> pointsB = ToVector2Slice(points, regionB.PointStart, regionB.PointCount);
-                    if (!MapNavigationRegionLinkUtility.TryFindSharedPortal(pointsA, pointsB, out Vector2 portalA, out Vector2 portalB))
+                    bool linked = MapNavigationRegionLinkUtility.TryFindSharedPortal(pointsA, pointsB, out Vector2 portalA, out Vector2 portalB);
+
+                    // Shapes of one region often overlap (composing a non-convex area) instead
+                    // of sharing a clean edge; link those so the region stays one graph component.
+                    if (!linked && entries[a].Region == entries[b].Region)
+                        linked = MapNavigationRegionLinkUtility.TryFindOverlapPortal(pointsA, pointsB, out portalA, out portalB);
+
+                    if (!linked)
                         continue;
 
                     float cost = math.max(0f, (regionA.Cost + regionB.Cost) * 0.5f);
@@ -477,7 +535,6 @@ namespace MapNav.Baking
             int cellsX = math.max(1, (int)math.ceil(size.x / cellSize));
             int cellsZ = math.max(1, (int)math.ceil(size.y / cellSize));
 
-            // Cap explosion in pathological maps: target ~4096 cells max, scale up cell size if needed
             const int MaxCells = 4096;
             while (cellsX * cellsZ > MaxCells)
             {

@@ -17,6 +17,13 @@ public sealed class MapNavMonoAgent : MonoBehaviour
     [SerializeField] private float cornerLookAheadDistance = 0.35f;
     [SerializeField] private float heightOffset;
     [SerializeField] private float boundaryTolerance = 0.05f;
+
+    [Header("Stuck recovery")]
+    [SerializeField] private float stuckRepathDelay = 0.75f;
+    [SerializeField] private float stuckRepathCooldown = 1.5f;
+    [SerializeField] private float stuckProgressDistance = 0.03f;
+    [SerializeField] private int stuckRetryLimit = 4;
+
     [SerializeField] private bool snapHeight = true;
     [SerializeField] private bool drawPath = true;
     [SerializeField] private Color pathColor = new(0.1f, 0.85f, 1f, 1f);
@@ -28,6 +35,11 @@ public sealed class MapNavMonoAgent : MonoBehaviour
     private Vector3 _target;
     private bool _hasPath;
     private bool _failed;
+
+    private float _stuckTimer;
+    private float _repathCooldownRemaining;
+    private float _lastDistanceToWaypoint;
+    private int _stuckRetryCount;
 
     private NavScratch _scratch;
     private NativeList<NavSpaceRef> _scratchNodes;
@@ -83,10 +95,11 @@ public sealed class MapNavMonoAgent : MonoBehaviour
 
     private void Update()
     {
+        _repathCooldownRemaining = Mathf.Max(0f, _repathCooldownRemaining - Time.deltaTime);
+
         if (!_hasPath || _waypoints.Count == 0)
         {
-            if (snapHeight)
-                SnapHeight();
+            ApplyHeightSnap();
             return;
         }
 
@@ -98,31 +111,36 @@ public sealed class MapNavMonoAgent : MonoBehaviour
         }
 
         Vector3 current = transform.position;
-        Vector3 waypoint = _waypoints[_waypointIndex].Position;
-        Vector3 planarDelta = waypoint - current;
+        Waypoint active = _waypoints[_waypointIndex];
+        Vector3 planarDelta = active.Position - current;
         planarDelta.y = 0f;
 
-        float reachDistance = GetReachDistance(_waypoints[_waypointIndex]);
+        float reachDistance = NavAgentCore.GetReachDistance(stopDistance, waypointAdvanceDistance, active.Required);
         if (planarDelta.sqrMagnitude <= reachDistance * reachDistance)
         {
-            _lastWaypointAnchor = waypoint;
+            _lastWaypointAnchor = active.Position;
             _waypointIndex++;
+            ResetStuckTracking();
             return;
         }
 
-        Vector3 steeringTarget = GetSteeringTarget(current);
-        Vector3 steering = steeringTarget - current;
-        steering.y = 0f;
-        if (steering.sqrMagnitude <= 0.0001f || Vector3.Dot(steering, planarDelta) < 0f)
-            steering = planarDelta;
+        if (UpdateStuckProgress(planarDelta.magnitude))
+            return;
+
+        bool hasNext = _waypointIndex + 1 < _waypoints.Count;
+        Vector3 nextWaypoint = hasNext ? _waypoints[_waypointIndex + 1].Position : current;
+        Vector3 steeringTarget = NavAgentCore.GetSteeringTarget(current, active.Position, nextWaypoint, hasNext, cornerLookAheadDistance);
+        Vector3 steering = NavAgentCore.ResolveSteering(steeringTarget, current, planarDelta);
 
         Vector3 direction = steering.normalized;
         float stepDistance = Mathf.Min(moveSpeed * Time.deltaTime, planarDelta.magnitude);
         Vector3 next = current + direction * stepDistance;
 
-        if (!CanMoveTo(next, waypoint, reachDistance))
+        NavContext ctx = CreateContext();
+        if (!NavAgentCore.CanMove(in ctx, current, next, active.Position, boundaryTolerance, reachDistance))
         {
-            RebuildPathToTarget();
+            AccumulateBlockedStuck();
+            ApplyHeightSnap();
             return;
         }
 
@@ -130,13 +148,13 @@ public sealed class MapNavMonoAgent : MonoBehaviour
         if (direction.sqrMagnitude > 0.0001f)
             transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
 
-        if (snapHeight)
-            SnapHeight();
+        ApplyHeightSnap();
     }
 
     public bool SetTarget(Vector3 worldTarget)
     {
         _target = worldTarget;
+        _stuckRetryCount = 0;
         return RebuildPathToTarget();
     }
 
@@ -147,6 +165,7 @@ public sealed class MapNavMonoAgent : MonoBehaviour
         _hasPath = false;
         _failed = failed;
         _lastWaypointAnchor = transform.position;
+        ResetStuckTracking();
     }
 
     private bool RebuildPathToTarget()
@@ -191,7 +210,7 @@ public sealed class MapNavMonoAgent : MonoBehaviour
                 _waypoints.Add(new Waypoint
                 {
                     Position = p,
-                    Required = false
+                    Required = NavAgentCore.IsTransitionWaypoint(in ctx, p, boundaryTolerance)
                 });
             }
         }
@@ -206,26 +225,29 @@ public sealed class MapNavMonoAgent : MonoBehaviour
         _lastWaypointAnchor = transform.position;
         _hasPath = true;
         _failed = false;
+        ResetStuckTracking();
         return true;
     }
 
     private void AdvancePastReachedWaypoints()
     {
         Vector3 current = transform.position;
+        int startIndex = _waypointIndex;
         while (_waypointIndex < _waypoints.Count)
         {
             Waypoint waypoint = _waypoints[_waypointIndex];
             Vector3 delta = waypoint.Position - current;
             delta.y = 0f;
 
-            if (delta.sqrMagnitude <= GetReachDistance(waypoint) * GetReachDistance(waypoint))
+            float reach = NavAgentCore.GetReachDistance(stopDistance, waypointAdvanceDistance, waypoint.Required);
+            if (delta.sqrMagnitude <= reach * reach)
             {
                 _lastWaypointAnchor = waypoint.Position;
                 _waypointIndex++;
                 continue;
             }
 
-            if (!waypoint.Required && HasPassedWaypoint(_lastWaypointAnchor, waypoint.Position, current))
+            if (!waypoint.Required && NavAgentCore.HasPassedWaypoint(_lastWaypointAnchor, waypoint.Position, current))
             {
                 _lastWaypointAnchor = waypoint.Position;
                 _waypointIndex++;
@@ -234,83 +256,65 @@ public sealed class MapNavMonoAgent : MonoBehaviour
 
             break;
         }
+
+        if (_waypointIndex != startIndex)
+            ResetStuckTracking();
     }
 
-    private Vector3 GetSteeringTarget(Vector3 current)
+    private void ResetStuckTracking()
     {
-        Vector3 waypoint = _waypoints[_waypointIndex].Position;
-        if (cornerLookAheadDistance <= 0f || _waypointIndex + 1 >= _waypoints.Count)
-            return waypoint;
-
-        Vector3 delta = waypoint - current;
-        delta.y = 0f;
-        float distance = delta.magnitude;
-        if (distance >= cornerLookAheadDistance)
-            return waypoint;
-
-        float blend = 1f - Mathf.Clamp01(distance / Mathf.Max(0.0001f, cornerLookAheadDistance));
-        return Vector3.Lerp(waypoint, _waypoints[_waypointIndex + 1].Position, blend);
+        _stuckTimer = 0f;
+        _lastDistanceToWaypoint = 0f;
     }
 
-    private bool CanMoveTo(Vector3 nextPosition, Vector3 waypoint, float reachDistance)
+    private bool UpdateStuckProgress(float distanceToWaypoint)
     {
-        if (map == null)
-            return true;
-
-        NavContext ctx = new NavContext(map.NavBlobData, map.transform.localToWorldMatrix, map.transform.worldToLocalMatrix);
-        if (!ctx.IsValid)
-            return true;
-
-        if (NavQuery.TryClassify(in ctx, nextPosition, boundaryTolerance, out _))
-            return true;
-
-        if (NavQuery.TryClassify(in ctx, waypoint, boundaryTolerance, out NavSpaceRef waypointSpace)
-            && waypointSpace.Kind == NavSpaceKind.Transition)
-        {
-            Vector3 delta = waypoint - nextPosition;
-            delta.y = 0f;
-            float enterDistance = Mathf.Max(reachDistance, 0.35f);
-            return delta.sqrMagnitude <= enterDistance * enterDistance;
-        }
+        if (NavAgentCore.EvaluateProgressStuck(
+                ref _stuckTimer, ref _lastDistanceToWaypoint, _repathCooldownRemaining,
+                distanceToWaypoint, stuckRepathDelay, stuckProgressDistance, moveSpeed, Time.deltaTime))
+            return TriggerStuckRepath();
 
         return false;
     }
 
-    private void SnapHeight()
+    private void AccumulateBlockedStuck()
     {
-        if (map == null)
-            return;
-
-        NavContext ctx = new NavContext(map.NavBlobData, map.transform.localToWorldMatrix, map.transform.worldToLocalMatrix);
-        if (!NavQuery.TryGetHeight(in ctx, transform.position, boundaryTolerance, out float worldHeight))
-            return;
-
-        Vector3 p = transform.position;
-        p.y = worldHeight + heightOffset;
-        transform.position = p;
+        if (NavAgentCore.EvaluateBlockedStuck(ref _stuckTimer, _repathCooldownRemaining, stuckRepathDelay, Time.deltaTime))
+            TriggerStuckRepath();
     }
 
-    private float GetReachDistance(Waypoint waypoint)
+    // Bumps the per-target retry counter and either repaths or, once stuckRetryLimit is hit,
+    // gives up (Failed). _stuckRetryCount is cleared only by SetTarget, so the limit bounds
+    // total stuck repaths per target and prevents an endless repath loop.
+    private bool TriggerStuckRepath()
     {
-        return waypoint.Required
-            ? Mathf.Max(0.0001f, stopDistance)
-            : Mathf.Max(stopDistance, waypointAdvanceDistance);
+        bool giveUp = NavAgentCore.CommitStuckRepath(
+            ref _stuckTimer, ref _repathCooldownRemaining, ref _stuckRetryCount,
+            stuckRepathCooldown, stuckRetryLimit);
+
+        if (giveUp)
+            ClearPath(true);
+        else
+            RebuildPathToTarget();
+
+        return true;
     }
 
-    private static bool HasPassedWaypoint(Vector3 anchor, Vector3 waypoint, Vector3 current)
+    private void ApplyHeightSnap()
     {
-        Vector3 segment = waypoint - anchor;
-        segment.y = 0f;
-        if (segment.sqrMagnitude <= 0.0001f) return false;
+        if (!snapHeight)
+            return;
 
-        Vector3 fromAnchor = current - anchor;
-        fromAnchor.y = 0f;
-        float t = Vector3.Dot(fromAnchor, segment) / segment.sqrMagnitude;
-        if (t < 1f - 0.0001f) return false;
+        NavContext ctx = CreateContext();
+        if (NavAgentCore.TrySnapHeight(in ctx, transform.position, boundaryTolerance, heightOffset, out float3 snapped))
+            transform.position = snapped;
+    }
 
-        Vector3 fromWaypoint = current - waypoint;
-        fromWaypoint.y = 0f;
-        return Vector3.Dot(fromWaypoint, segment) >= -0.0001f;
+    private NavContext CreateContext()
+    {
+        return map != null
+            ? new NavContext(map.NavBlobData, map.transform.localToWorldMatrix, map.transform.worldToLocalMatrix)
+            : default;
     }
 
     private void OnDrawGizmosSelected()

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEditorInternal;
 using UnityEngine;
 
 [CustomEditor(typeof(MapNavigationAuthoring))]
@@ -14,17 +15,16 @@ public sealed class MapNavigationAuthoringEditor : Editor
 
     private EditSpace _editSpace;
     private int _selectedSpaceIndex;
+    private int _selectedShapeIndex;
     private int _selectedObstacleIndex;
     private int _selectedPointIndex;
     private bool _showLayerOverview = true;
     private bool _filterSceneToSelectedLayer;
     private bool _hasSelectedLayer;
-    private int _selectedLayerId;
     private float _selectedLayerHeight;
 
     private sealed class LayerSummary
     {
-        public int LayerId;
         public float Height;
         public int RegionCount;
         public int ObstacleCount;
@@ -57,6 +57,25 @@ public sealed class MapNavigationAuthoringEditor : Editor
                 int nextSpaceIndex = EditorGUILayout.IntSlider("Space Index", Mathf.Clamp(_selectedSpaceIndex, 0, Mathf.Max(0, maxSpaceIndex)), 0, Mathf.Max(0, maxSpaceIndex));
                 if (nextSpaceIndex != _selectedSpaceIndex)
                     SelectSpace(nextSpaceIndex);
+
+                if (_editSpace == EditSpace.Region)
+                {
+                    int maxShapeIndex = GetMaxShapeIndex(map);
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        using (new EditorGUI.DisabledScope(maxShapeIndex < 0))
+                        {
+                            int nextShapeIndex = EditorGUILayout.IntSlider("Shape Index", Mathf.Clamp(_selectedShapeIndex, 0, Mathf.Max(0, maxShapeIndex)), 0, Mathf.Max(0, maxShapeIndex));
+                            if (nextShapeIndex != _selectedShapeIndex)
+                            {
+                                _selectedShapeIndex = nextShapeIndex;
+                                _selectedPointIndex = 0;
+                            }
+                        }
+                        if (GUILayout.Button("+", GUILayout.Width(28f)))
+                            AddShape(map);
+                    }
+                }
 
                 if (_editSpace == EditSpace.Obstacle)
                 {
@@ -95,6 +114,50 @@ public sealed class MapNavigationAuthoringEditor : Editor
 
         if (GUILayout.Button("Validate Navigation"))
             LogValidation(map);
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Obstacle Baking", EditorStyles.boldLabel);
+
+        EditorGUI.BeginChangeCheck();
+        LayerMask newMask = EditorGUILayout.MaskField(
+            "Obstacle Layer Mask",
+            InternalEditorUtility.LayerMaskToConcatenatedLayersMask(map.ObstacleLayerMask),
+            InternalEditorUtility.layers);
+        if (EditorGUI.EndChangeCheck())
+        {
+            Undo.RecordObject(map, "Set Obstacle Layer Mask");
+            map.ObstacleLayerMask = InternalEditorUtility.ConcatenatedLayersMaskToLayerMask(newMask);
+            EditorUtility.SetDirty(map);
+        }
+
+        EditorGUI.BeginChangeCheck();
+        float newTol = EditorGUILayout.FloatField("Height Tolerance", map.ObstacleHeightTolerance);
+        float newPad = EditorGUILayout.FloatField("Corner Padding", map.DefaultObstacleCornerPadding);
+        if (EditorGUI.EndChangeCheck())
+        {
+            Undo.RecordObject(map, "Set Obstacle Bake Settings");
+            map.ObstacleHeightTolerance = Mathf.Max(0f, newTol);
+            map.DefaultObstacleCornerPadding = Mathf.Max(0f, newPad);
+            EditorUtility.SetDirty(map);
+        }
+
+        using (new EditorGUI.DisabledScope(map.ObstacleLayerMask == 0))
+        {
+            if (GUILayout.Button("Bake Obstacles from Colliders"))
+            {
+                if (EditorUtility.DisplayDialog(
+                    "Bake Nav Obstacles",
+                    "기존 Obstacle이 모두 지워지고 콜라이더에서 재추출됩니다.\n계속하시겠습니까?",
+                    "Bake", "Cancel"))
+                {
+                    MapNavObstacleExtractor.Extract(map);
+                    SceneView.RepaintAll();
+                }
+            }
+        }
+
+        if (map.ObstacleLayerMask == 0)
+            EditorGUILayout.HelpBox("ObstacleLayerMask를 먼저 설정하세요.", MessageType.Info);
     }
 
     private void DrawLayerOverview(MapNavigationAuthoring map)
@@ -127,12 +190,11 @@ public sealed class MapNavigationAuthoringEditor : Editor
         {
             LayerSummary layer = layers[i];
             bool selected = _hasSelectedLayer
-                && layer.LayerId == _selectedLayerId
                 && Mathf.Abs(layer.Height - _selectedLayerHeight) <= 0.001f;
 
             using (new EditorGUILayout.HorizontalScope(EditorStyles.helpBox))
             {
-                string label = $"Layer {layer.LayerId} | H {layer.Height:0.##} | Regions {layer.RegionCount} | Obs {layer.ObstacleCount} | Trans {layer.TransitionCount}";
+                string label = $"H {layer.Height:0.##} | Regions {layer.RegionCount} | Obs {layer.ObstacleCount} | Trans {layer.TransitionCount}";
                 if (GUILayout.Toggle(selected, label, "Button"))
                     SelectLayer(layer);
 
@@ -156,14 +218,10 @@ public sealed class MapNavigationAuthoringEditor : Editor
             if (region == null)
                 continue;
 
-            LayerSummary layer = FindLayerSummary(layers, region.NavLayerId, region.Height);
+            LayerSummary layer = FindLayerSummary(layers, region.Height);
             if (layer == null)
             {
-                layer = new LayerSummary
-                {
-                    LayerId = region.NavLayerId,
-                    Height = region.Height
-                };
+                layer = new LayerSummary { Height = region.Height };
                 layers.Add(layer);
             }
 
@@ -185,21 +243,16 @@ public sealed class MapNavigationAuthoringEditor : Editor
             AddTransitionToLayer(layers, toRegion);
         }
 
-        layers.Sort((a, b) =>
-        {
-            int layerCompare = a.LayerId.CompareTo(b.LayerId);
-            return layerCompare != 0 ? layerCompare : a.Height.CompareTo(b.Height);
-        });
+        layers.Sort((a, b) => a.Height.CompareTo(b.Height));
         return layers;
     }
 
-    private static LayerSummary FindLayerSummary(List<LayerSummary> layers, int layerId, float height)
+    private static LayerSummary FindLayerSummary(List<LayerSummary> layers, float height)
     {
         for (int i = 0; i < layers.Count; i++)
         {
-            LayerSummary layer = layers[i];
-            if (layer.LayerId == layerId && Mathf.Abs(layer.Height - height) <= 0.001f)
-                return layer;
+            if (Mathf.Abs(layers[i].Height - height) <= 0.001f)
+                return layers[i];
         }
 
         return null;
@@ -210,7 +263,7 @@ public sealed class MapNavigationAuthoringEditor : Editor
         if (region == null)
             return;
 
-        LayerSummary layer = FindLayerSummary(layers, region.NavLayerId, region.Height);
+        LayerSummary layer = FindLayerSummary(layers, region.Height);
         if (layer != null)
             layer.TransitionCount++;
     }
@@ -218,7 +271,6 @@ public sealed class MapNavigationAuthoringEditor : Editor
     private void SelectLayer(LayerSummary layer)
     {
         _hasSelectedLayer = true;
-        _selectedLayerId = layer.LayerId;
         _selectedLayerHeight = layer.Height;
         SceneView.RepaintAll();
     }
@@ -253,8 +305,7 @@ public sealed class MapNavigationAuthoringEditor : Editor
         if (!_filterSceneToSelectedLayer || !_hasSelectedLayer)
             return true;
 
-        return region.NavLayerId == _selectedLayerId
-            && Mathf.Abs(region.Height - _selectedLayerHeight) <= 0.001f;
+        return Mathf.Abs(region.Height - _selectedLayerHeight) <= 0.001f;
     }
 
     private bool ShouldDrawTransition(MapNavigationAuthoring map, MapNavTransition transition)
@@ -274,19 +325,26 @@ public sealed class MapNavigationAuthoringEditor : Editor
         for (int i = 0; i < map.Regions.Count; i++)
         {
             MapNavRegion region = map.Regions[i];
-            if (region == null || region.Points.Count < 2)
+            if (region?.Shapes == null || region.Shapes.Count == 0)
                 continue;
             if (!ShouldDrawRegion(region))
                 continue;
 
-            Color color = _editSpace == EditSpace.Region && i == _selectedSpaceIndex ? Color.yellow : new Color(1f, 0.55f, 0.2f);
-            Handles.color = color;
+            bool isSelected = _editSpace == EditSpace.Region && i == _selectedSpaceIndex;
+            Color baseColor = isSelected ? Color.yellow : new Color(1f, 0.55f, 0.2f);
 
-            for (int p = 0; p < region.Points.Count; p++)
+            for (int si = 0; si < region.Shapes.Count; si++)
             {
-                Vector3 a = map.ToWorld(region, region.Points[p]);
-                Vector3 b = map.ToWorld(region, region.Points[(p + 1) % region.Points.Count]);
-                Handles.DrawLine(a, b, 3f);
+                MapNavPolygon shape = region.Shapes[si];
+                if (shape?.Points == null || shape.Points.Count < 2) continue;
+
+                Handles.color = (isSelected && si == _selectedShapeIndex) ? Color.yellow : baseColor;
+                for (int p = 0; p < shape.Points.Count; p++)
+                {
+                    Vector3 a = map.ToWorld(region, shape.Points[p]);
+                    Vector3 b = map.ToWorld(region, shape.Points[(p + 1) % shape.Points.Count]);
+                    Handles.DrawLine(a, b, 3f);
+                }
             }
 
             Bounds bounds = region.GetLocalBounds();
@@ -389,16 +447,19 @@ public sealed class MapNavigationAuthoringEditor : Editor
         if (region == null)
             return;
 
-        if (_selectedPointIndex < 0 || _selectedPointIndex >= region.Points.Count)
-            _selectedPointIndex = region.Points.Count > 0 ? 0 : -1;
+        MapNavPolygon shape = GetSelectedShape(region);
+        if (shape == null) return;
 
-        DrawPointSelectors(map, region);
-        DrawRegionEdgeHandles(map, region);
+        if (_selectedPointIndex < 0 || _selectedPointIndex >= shape.Points.Count)
+            _selectedPointIndex = shape.Points.Count > 0 ? 0 : -1;
 
-        if (_selectedPointIndex < 0 || _selectedPointIndex >= region.Points.Count)
+        DrawPointSelectors(map, region, shape);
+        DrawRegionEdgeHandles(map, region, shape);
+
+        if (_selectedPointIndex < 0 || _selectedPointIndex >= shape.Points.Count)
             return;
 
-        Vector3 worldPoint = map.ToWorld(region, region.Points[_selectedPointIndex]);
+        Vector3 worldPoint = map.ToWorld(region, shape.Points[_selectedPointIndex]);
 
         EditorGUI.BeginChangeCheck();
         Vector3 moved = Handles.PositionHandle(worldPoint, Quaternion.identity);
@@ -406,7 +467,7 @@ public sealed class MapNavigationAuthoringEditor : Editor
         {
             Undo.RecordObject(map, "Edit Map Navigation Region Point");
             Vector3 local = map.transform.InverseTransformPoint(moved);
-            region.Points[_selectedPointIndex] = new Vector2(local.x, local.z);
+            shape.Points[_selectedPointIndex] = new Vector2(local.x, local.z);
             map.RebuildRuntimeData();
             EditorUtility.SetDirty(map);
         }
@@ -585,6 +646,7 @@ public sealed class MapNavigationAuthoringEditor : Editor
             return;
 
         _selectedSpaceIndex = spaceIndex;
+        _selectedShapeIndex = 0;
         _selectedObstacleIndex = 0;
         _selectedPointIndex = 0;
         SceneView.RepaintAll();
@@ -600,11 +662,11 @@ public sealed class MapNavigationAuthoringEditor : Editor
         SceneView.RepaintAll();
     }
 
-    private void DrawPointSelectors(MapNavigationAuthoring map, MapNavRegion region)
+    private void DrawPointSelectors(MapNavigationAuthoring map, MapNavRegion region, MapNavPolygon shape)
     {
-        for (int i = 0; i < region.Points.Count; i++)
+        for (int i = 0; i < shape.Points.Count; i++)
         {
-            Vector3 worldPoint = map.ToWorld(region, region.Points[i]);
+            Vector3 worldPoint = map.ToWorld(region, shape.Points[i]);
             float size = HandleUtility.GetHandleSize(worldPoint) * 0.08f;
             Color previous = Handles.color;
             Handles.color = i == _selectedPointIndex ? Color.green : Color.white;
@@ -657,11 +719,11 @@ public sealed class MapNavigationAuthoringEditor : Editor
         }
     }
 
-    private static void DrawRegionEdgeHandles(MapNavigationAuthoring map, MapNavRegion region)
+    private static void DrawRegionEdgeHandles(MapNavigationAuthoring map, MapNavRegion region, MapNavPolygon shape)
     {
         DrawEdgeHandles(
             map,
-            region.Points,
+            shape.Points,
             point => map.ToWorld(region, point),
             "Move Map Navigation Region Edge",
             new Color(1f, 0.85f, 0.25f)
@@ -716,22 +778,24 @@ public sealed class MapNavigationAuthoringEditor : Editor
             Vector3 moved = Handles.FreeMoveHandle(
                 midpoint,
                 size,
-                Vector3.one * 0.05f,
+                Vector3.zero,
                 Handles.RectangleHandleCap
             );
 
             if (EditorGUI.EndChangeCheck())
             {
-                Undo.RecordObject(map, undoName);
                 Vector3 localMidpoint = map.transform.InverseTransformPoint(midpoint);
                 Vector3 localMoved = map.transform.InverseTransformPoint(moved);
                 Vector2 delta = new(localMoved.x - localMidpoint.x, localMoved.z - localMidpoint.z);
 
-                points[previousIndex] += delta;
-                points[i] += delta;
-
-                map.RebuildRuntimeData();
-                EditorUtility.SetDirty(map);
+                if (delta.sqrMagnitude > 1e-6f)
+                {
+                    Undo.RecordObject(map, undoName);
+                    points[previousIndex] += delta;
+                    points[i] += delta;
+                    map.RebuildRuntimeData();
+                    EditorUtility.SetDirty(map);
+                }
             }
         }
 
@@ -746,6 +810,20 @@ public sealed class MapNavigationAuthoringEditor : Editor
             EditSpace.Transition => map.Transitions.Count - 1,
             _ => map.Regions.Count - 1
         };
+    }
+
+    private int GetMaxShapeIndex(MapNavigationAuthoring map)
+    {
+        if (_selectedSpaceIndex < 0 || _selectedSpaceIndex >= map.Regions.Count) return -1;
+        MapNavRegion region = map.Regions[_selectedSpaceIndex];
+        return region?.Shapes != null ? region.Shapes.Count - 1 : -1;
+    }
+
+    private MapNavPolygon GetSelectedShape(MapNavRegion region)
+    {
+        if (region?.Shapes == null || region.Shapes.Count == 0) return null;
+        int idx = Mathf.Clamp(_selectedShapeIndex, 0, region.Shapes.Count - 1);
+        return region.Shapes[idx];
     }
 
     private int GetMaxObstacleIndex(MapNavigationAuthoring map)
@@ -765,7 +843,8 @@ public sealed class MapNavigationAuthoringEditor : Editor
                 return -1;
 
             MapNavRegion region = map.Regions[_selectedSpaceIndex];
-            return region != null ? region.Points.Count - 1 : -1;
+            MapNavPolygon shape = GetSelectedShape(region);
+            return shape != null ? shape.Points.Count - 1 : -1;
         }
 
         if (_editSpace == EditSpace.Transition)
@@ -806,21 +885,42 @@ public sealed class MapNavigationAuthoringEditor : Editor
     {
         Undo.RecordObject(map, "Add Map Navigation Region");
 
-        int id = map.GetNextRegionId();
+        var shape = new MapNavPolygon();
+        shape.Points.Add(new Vector2(-1f, -1f));
+        shape.Points.Add(new Vector2(-1f,  1f));
+        shape.Points.Add(new Vector2( 1f,  1f));
+        shape.Points.Add(new Vector2( 1f, -1f));
+
         map.AddRegion(new MapNavRegion
         {
-            Id = id,
-            NavLayerId = 0,
-            Points =
-            {
-                new Vector2(-1f, -1f),
-                new Vector2(-1f, 1f),
-                new Vector2(1f, 1f),
-                new Vector2(1f, -1f)
-            }
+            Id = map.GetNextRegionId(),
+            Shapes = { shape }
         });
 
         EditorUtility.SetDirty(map);
+    }
+
+    private void AddShape(MapNavigationAuthoring map)
+    {
+        if (_selectedSpaceIndex < 0 || _selectedSpaceIndex >= map.Regions.Count) return;
+
+        MapNavRegion region = map.Regions[_selectedSpaceIndex];
+        if (region == null) return;
+
+        Undo.RecordObject(map, "Add Shape to Region");
+
+        var shape = new MapNavPolygon();
+        shape.Points.Add(new Vector2(-1f, -1f));
+        shape.Points.Add(new Vector2(-1f,  1f));
+        shape.Points.Add(new Vector2( 1f,  1f));
+        shape.Points.Add(new Vector2( 1f, -1f));
+
+        region.Shapes.Add(shape);
+        _selectedShapeIndex = region.Shapes.Count - 1;
+        _selectedPointIndex = 0;
+        map.RebuildRuntimeData();
+        EditorUtility.SetDirty(map);
+        SceneView.RepaintAll();
     }
 
     private static void AddTransition(MapNavigationAuthoring map, MapNavTransitionType type)
@@ -903,8 +1003,13 @@ public sealed class MapNavigationAuthoringEditor : Editor
             if (region == null) { results.Add($"Region at index {i} is null."); continue; }
             if (region.Id < 0) results.Add($"{region.DisplayName} has invalid id {region.Id}.");
             if (!regionIds.Add(region.Id)) results.Add($"Region id {region.Id} is duplicated.");
-            if (region.Points == null || region.Points.Count < 3) results.Add($"Region {region.Id} needs at least 3 points.");
-            if (HasSelfIntersection(region.Points)) results.Add($"Region {region.Id} polygon has self intersection.");
+            if (region.Shapes == null || region.Shapes.Count == 0) results.Add($"Region {region.Id} needs at least one shape.");
+            else for (int si = 0; si < region.Shapes.Count; si++)
+            {
+                MapNavPolygon shape = region.Shapes[si];
+                if (shape == null || shape.Points.Count < 3) results.Add($"Region {region.Id} shape {si} needs at least 3 points.");
+                else if (HasSelfIntersection(shape.Points)) results.Add($"Region {region.Id} shape {si} has self intersection.");
+            }
             if (region.Cost < 0f) results.Add($"Region {region.Id} must not have negative cost.");
             if (region.Obstacles == null) continue;
 
@@ -1050,11 +1155,10 @@ public sealed class MapNavRegionPropertyDrawer : PropertyDrawer
     private static string GetLabel(SerializedProperty property)
     {
         int id = property.FindPropertyRelative("Id")?.intValue ?? -1;
-        int navLayerId = property.FindPropertyRelative("NavLayerId")?.intValue ?? -1;
         float height = property.FindPropertyRelative("Height")?.floatValue ?? 0f;
-        int pointCount = property.FindPropertyRelative("Points")?.arraySize ?? 0;
+        int shapeCount = property.FindPropertyRelative("Shapes")?.arraySize ?? 0;
         int obstacleCount = property.FindPropertyRelative("Obstacles")?.arraySize ?? 0;
-        return $"Region {id} | Layer {navLayerId} | H {height:0.##} | P {pointCount} | Obs {obstacleCount}";
+        return $"Region {id} | H {height:0.##} | Shapes {shapeCount} | Obs {obstacleCount}";
     }
 }
 

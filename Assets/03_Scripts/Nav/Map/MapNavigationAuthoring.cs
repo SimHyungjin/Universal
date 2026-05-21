@@ -11,6 +11,10 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
     [SerializeField] private List<MapNavRegion> regions = new();
     [SerializeField] private List<MapNavTransition> transitions = new();
 
+    [HideInInspector] public LayerMask ObstacleLayerMask;
+    [HideInInspector] public float ObstacleHeightTolerance = 1.5f;
+    [HideInInspector] public float DefaultObstacleCornerPadding = 0.25f;
+
     private BlobAssetReference<NavBlob> _navBlobData;
     private bool _blobDataDirty = true;
 
@@ -134,18 +138,17 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
         if (regions.Count > 0)
             return;
 
+        var shape = new MapNavPolygon();
+        shape.Points.Add(new Vector2(-2f, -2f));
+        shape.Points.Add(new Vector2(-2f,  2f));
+        shape.Points.Add(new Vector2( 2f,  2f));
+        shape.Points.Add(new Vector2( 2f, -2f));
+
         regions.Add(new MapNavRegion
         {
             Id = 0,
-            NavLayerId = 0,
             Height = 0f,
-            Points =
-            {
-                new Vector2(-2f, -2f),
-                new Vector2(-2f, 2f),
-                new Vector2(2f, 2f),
-                new Vector2(2f, -2f)
-            }
+            Shapes = { shape }
         });
     }
 }

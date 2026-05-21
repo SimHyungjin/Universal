@@ -167,6 +167,28 @@ namespace MapNav.Core
             return false;
         }
 
+        // True if worldPos is not inside any obstacle and is at least `clearance` away from
+        // every obstacle edge — i.e. an agent of that body radius would not clip a wall.
+        public static bool IsClearOfObstacles(in NavContext ctx, float3 worldPos, float clearance)
+        {
+            if (!ctx.IsValid || clearance <= 0f) return true;
+            ref NavBlob blob = ref ctx.Blob.Value;
+            float2 local = NavMath.ToLocal2D(ctx.WorldToLocal, worldPos);
+            float clearanceSq = clearance * clearance;
+            for (int i = 0; i < blob.Obstacles.Length; i++)
+            {
+                ref NavObstacle obs = ref blob.Obstacles[i];
+                if (!NavMath.BoundsContains(obs.BoundsMin, obs.BoundsMax, obs.HasBounds, local, clearance))
+                    continue;
+                if (NavMath.PolygonContains(ref blob.Points, obs.PointStart, obs.PointCount, local))
+                    return false;
+                NavMath.ClosestPointOnPolygon(ref blob.Points, obs.PointStart, obs.PointCount, local, out float sqr);
+                if (sqr < clearanceSq)
+                    return false;
+            }
+            return true;
+        }
+
         public static bool TryProjectOutOfObstacle(in NavContext ctx, float3 worldPos, float radius, out float3 projected)
         {
             projected = worldPos;

@@ -37,7 +37,6 @@ namespace MapNav.Data
     public struct NavRegion
     {
         public int Id;
-        public int LayerId;
         public float Height;
         public float Cost;
         public int PointStart;

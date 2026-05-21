@@ -166,12 +166,7 @@ namespace MapNav.Core
                     return TryMeasureRegionToDetachedPortal(in ctx, ref blob, current.Id, fromLocal, edge, agentRadius, out cost, out fromAccess, out neighborArrival);
                 }
 
-                fromAccess = neighborArrival;
-                if (NavInRegion.TryMeasurePathLocal(in ctx, current.Id, fromLocal, neighborArrival, agentRadius, out cost))
-                    return true;
-
-                cost = math.distance(fromLocal, neighborArrival);
-                return true;
+                return TryMeasureRegionToRegionPortal(in ctx, current.Id, fromLocal, edge, agentRadius, out cost, out fromAccess, out neighborArrival);
             }
 
             if (edge.ToKind == NavSpaceKind.Region)
@@ -208,12 +203,7 @@ namespace MapNav.Core
                 if (!TryGetRegionAccessPointLocal(ref blob, end.Id, fromLocal, out float2 regionFrom))
                     return false;
 
-                fromLocal = regionFrom;
-                if (NavInRegion.TryMeasurePathLocal(in ctx, end.Id, fromLocal, endLocal, agentRadius, out cost))
-                    return true;
-
-                cost = math.distance(fromLocal, endLocal);
-                return true;
+                return NavInRegion.TryMeasurePathLocal(in ctx, end.Id, regionFrom, endLocal, agentRadius, out cost);
             }
 
             cost = math.distance(fromLocal, endLocal);
@@ -275,6 +265,62 @@ namespace MapNav.Core
 
             cost += math.distance(regionPoint, portalEndpoint);
             return true;
+        }
+
+        // Region -> neighbouring Region across a shared portal. Samples the portal at its
+        // two endpoints and midpoint, keeping the cheapest one the agent can actually reach
+        // inside the region. Returns false when every sample is blocked so A* drops this
+        // edge and reroutes — instead of committing to a path NavPath would later fail to
+        // assemble (a straight-line fallback used to hide these dead ends).
+        private static bool TryMeasureRegionToRegionPortal(
+            in NavContext ctx,
+            int regionId,
+            float2 fromLocal,
+            NavEdge edge,
+            float agentRadius,
+            out float cost,
+            out float2 fromAccess,
+            out float2 neighborArrival)
+        {
+            cost = 0f;
+            fromAccess = edge.PortalLocalA;
+            neighborArrival = edge.PortalLocalA;
+
+            bool found = false;
+            float bestCost = float.PositiveInfinity;
+
+            ConsiderRegionPortalSample(in ctx, regionId, fromLocal, edge.PortalLocalA, agentRadius, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
+            ConsiderRegionPortalSample(in ctx, regionId, fromLocal, edge.PortalLocalB, agentRadius, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
+            ConsiderRegionPortalSample(in ctx, regionId, fromLocal, (edge.PortalLocalA + edge.PortalLocalB) * 0.5f, agentRadius, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
+
+            if (!found)
+                return false;
+
+            cost = bestCost;
+            return true;
+        }
+
+        private static void ConsiderRegionPortalSample(
+            in NavContext ctx,
+            int regionId,
+            float2 fromLocal,
+            float2 portalPoint,
+            float agentRadius,
+            ref bool found,
+            ref float bestCost,
+            ref float2 bestAccess,
+            ref float2 bestArrival)
+        {
+            if (!NavInRegion.TryMeasurePathLocal(in ctx, regionId, fromLocal, portalPoint, agentRadius, out float sampleCost))
+                return;
+
+            if (found && sampleCost >= bestCost)
+                return;
+
+            found = true;
+            bestCost = sampleCost;
+            bestAccess = portalPoint;
+            bestArrival = portalPoint;
         }
 
         private static bool TrySelectTransitionToRegionAccess(

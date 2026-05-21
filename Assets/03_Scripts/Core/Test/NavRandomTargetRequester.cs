@@ -20,7 +20,6 @@ namespace MapNav.Ecs
         [SerializeField] private int maxSampleAttempts = 32;
         [SerializeField] private int maxTargetWritesPerFrame = 32;
         [SerializeField] private float minTargetChangeDistance = 0.25f;
-        [SerializeField] private int onlyNavLayerId = -1;
         [SerializeField] private float sampleClearance = 0.35f;
         [SerializeField] private bool validateReachabilityBeforeRequest;
         [SerializeField] private int maxReachabilityChecksPerAgent = 4;
@@ -290,8 +289,7 @@ namespace MapNav.Ecs
             for (int i = 0; i < regions.Count; i++)
             {
                 MapNavRegion r = regions[i];
-                if (r == null || r.Points == null || r.Points.Count < 3) continue;
-                if (onlyNavLayerId >= 0 && r.NavLayerId != onlyNavLayerId) continue;
+                if (r == null || r.Shapes == null || r.Shapes.Count == 0) continue;
                 if (!r.HasBounds) r.RecalculateBounds();
                 if (r.HasBounds) _candidateRegions.Add(r);
             }

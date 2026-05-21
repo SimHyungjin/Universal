@@ -16,7 +16,6 @@ namespace MapNav.Ecs
         [SerializeField] private MapNavigationAuthoring map;
         [SerializeField] private bool spawnAgents = true;
         [SerializeField] private int agentCount = 25;
-        [SerializeField] private int onlyNavLayerId = -1;
         [SerializeField] private int maxSampleAttempts = 64;
 
         [Header("Agent settings")]
@@ -48,6 +47,8 @@ namespace MapNav.Ecs
 
         private void Start() => Bootstrap();
 
+        private void LateUpdate() => RefreshSingletonTransform();
+
         private void OnDestroy()
         {
             DestroySingleton();
@@ -64,6 +65,24 @@ namespace MapNav.Ecs
             }
             _singleton = Entity.Null;
             _ownedWorld = null;
+        }
+
+        // Keep the ECS singleton's transform in sync with the live map GameObject so a
+        // moving/rotating nav map doesn't invalidate every classify/path query. The matrices
+        // were otherwise captured once at bootstrap. Only the bootstrap that created the
+        // singleton (_singleton != Null) refreshes it; non-owners leave it untouched.
+        private void RefreshSingletonTransform()
+        {
+            if (_singleton == Entity.Null || map == null) return;
+            if (_ownedWorld == null || !_ownedWorld.IsCreated) return;
+
+            EntityManager em = _ownedWorld.EntityManager;
+            if (!em.Exists(_singleton)) return;
+
+            NavBlobReference navRef = em.GetComponentData<NavBlobReference>(_singleton);
+            navRef.LocalToWorld = map.transform.localToWorldMatrix;
+            navRef.WorldToLocal = map.transform.worldToLocalMatrix;
+            em.SetComponentData(_singleton, navRef);
         }
 
         [ContextMenu("Bootstrap Nav ECS")]
@@ -275,7 +294,7 @@ namespace MapNav.Ecs
             {
                 NavRegion r = b.Regions[i];
                 int outEdges = b.RegionEdgeRange[i].y;
-                //Debug.Log($"  Region id={r.Id} layer={r.LayerId} h={r.Height:F2} obstacles={r.ObstacleCount} outEdges={outEdges}", this);
+                //Debug.Log($"  Region id={r.Id} h={r.Height:F2} obstacles={r.ObstacleCount} outEdges={outEdges}", this);
             }
             for (int i = 0; i < b.Transitions.Length; i++)
             {
@@ -368,8 +387,7 @@ namespace MapNav.Ecs
             for (int i = 0; i < regions.Count; i++)
             {
                 MapNavRegion r = regions[i];
-                if (r == null || r.Points == null || r.Points.Count < 3) continue;
-                if (onlyNavLayerId >= 0 && r.NavLayerId != onlyNavLayerId) continue;
+                if (r == null || r.Shapes == null || r.Shapes.Count == 0) continue;
                 if (!r.HasBounds) r.RecalculateBounds();
                 if (r.HasBounds) _candidateRegions.Add(r);
             }

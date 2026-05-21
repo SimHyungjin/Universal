@@ -112,7 +112,7 @@ namespace MapNav.Ecs
             }
 
             UpdateStuckState(ref motion, ref target, ref request, ref status, in settings, distance);
-            if (target.Dirty != 0)
+            if (target.Dirty != 0 || status.HasPath == 0)
             {
                 status.HasPath = 0;
                 waypoints.Clear();
@@ -122,10 +122,7 @@ namespace MapNav.Ecs
             }
 
             float moveDistance = math.min(settings.MoveSpeed * DeltaTime, distance);
-            float3 steering = steeringTarget - current;
-            steering.y = 0f;
-            if (math.lengthsq(steering) < 1e-4f || math.dot(steering, planarDelta) < 0f)
-                steering = planarDelta;
+            float3 steering = NavAgentCore.ResolveSteering(steeringTarget, current, planarDelta);
             steering = ApplySeparationSteering(in settings, in separation, steering, planarDelta, waypoints[index].Required != 0);
 
             float3 direction = math.normalizesafe(steering, planarDelta / distance);
@@ -165,12 +162,8 @@ namespace MapNav.Ecs
 
         private void ApplyHeightSnap(ref LocalTransform transform, in NavAgentSettings settings)
         {
-            if (NavQuery.TryGetHeight(in Ctx, transform.Position, settings.BoundaryTolerance, out float worldHeight))
-            {
-                float3 p = transform.Position;
-                p.y = worldHeight + settings.HeightOffset;
-                transform.Position = p;
-            }
+            if (NavAgentCore.TrySnapHeight(in Ctx, transform.Position, settings.BoundaryTolerance, settings.HeightOffset, out float3 snapped))
+                transform.Position = snapped;
         }
 
         private static void AdvancePastStaleWaypoints(
@@ -206,28 +199,10 @@ namespace MapNav.Ecs
         }
 
         private static bool HasPassedCurrentWaypoint(float3 anchor, float3 waypoint, float3 current)
-        {
-            float3 segment = waypoint - anchor;
-            segment.y = 0f;
-            float lenSq = math.lengthsq(segment);
-            if (lenSq <= 1e-4f) return false;
-
-            float3 fromAnchor = current - anchor;
-            fromAnchor.y = 0f;
-            float t = math.dot(fromAnchor, segment) / lenSq;
-            if (t < 1f - 1e-4f) return false;
-
-            float3 fromWp = current - waypoint;
-            fromWp.y = 0f;
-            return math.dot(fromWp, segment) >= -1e-4f;
-        }
+            => NavAgentCore.HasPassedWaypoint(anchor, waypoint, current);
 
         private static float GetReachDistance(in NavAgentSettings settings, in NavAgentWaypoint waypoint)
-        {
-            return waypoint.Required != 0
-                ? math.max(1e-4f, settings.StopDistance)
-                : math.max(settings.StopDistance, settings.WaypointAdvanceDistance);
-        }
+            => NavAgentCore.GetReachDistance(settings.StopDistance, settings.WaypointAdvanceDistance, waypoint.Required != 0);
 
         private static float3 GetSteeringTarget(
             in NavAgentSettings settings,
@@ -235,17 +210,9 @@ namespace MapNav.Ecs
             int index,
             DynamicBuffer<NavAgentWaypoint> waypoints)
         {
-            if (settings.CornerLookAheadDistance <= 0f || index + 1 >= waypoints.Length)
-                return waypoints[index].Position;
-
-            float3 toCurrent = waypoints[index].Position - current;
-            toCurrent.y = 0f;
-            float distance = math.length(toCurrent);
-            if (distance >= settings.CornerLookAheadDistance)
-                return waypoints[index].Position;
-
-            float blend = 1f - math.clamp(distance / math.max(1e-4f, settings.CornerLookAheadDistance), 0f, 1f);
-            return math.lerp(waypoints[index].Position, waypoints[index + 1].Position, blend);
+            bool hasNext = index + 1 < waypoints.Length;
+            float3 nextWaypoint = hasNext ? waypoints[index + 1].Position : current;
+            return NavAgentCore.GetSteeringTarget(current, waypoints[index].Position, nextWaypoint, hasNext, settings.CornerLookAheadDistance);
         }
 
         private static float3 ApplySeparationSteering(
@@ -290,21 +257,10 @@ namespace MapNav.Ecs
                 return;
             }
 
-            float progress = motion.LastDistanceToWaypoint - distanceToWaypoint;
-            float expectedProgress = math.max(settings.StuckProgressDistance, settings.MoveSpeed * DeltaTime * 0.25f);
-            if (motion.LastDistanceToWaypoint <= 0f || progress > expectedProgress)
-            {
-                motion.StuckTimer = 0f;
-                motion.LastDistanceToWaypoint = distanceToWaypoint;
-                return;
-            }
-
-            motion.StuckTimer += DeltaTime;
-            motion.LastDistanceToWaypoint = distanceToWaypoint;
-            if (motion.StuckTimer < settings.StuckRepathDelay || motion.RepathCooldownRemaining > 0f)
-                return;
-
-            TriggerStuckRepath(ref motion, ref target, ref request, ref status, in settings);
+            if (NavAgentCore.EvaluateProgressStuck(
+                    ref motion.StuckTimer, ref motion.LastDistanceToWaypoint, motion.RepathCooldownRemaining,
+                    distanceToWaypoint, settings.StuckRepathDelay, settings.StuckProgressDistance, settings.MoveSpeed, DeltaTime))
+                TriggerStuckRepath(ref motion, ref target, ref request, ref status, in settings);
         }
 
         private void AccumulateBlockedRepath(
@@ -317,11 +273,8 @@ namespace MapNav.Ecs
             if (settings.StuckRepathDelay <= 0f || request.Pending != 0 || status.Waiting != 0)
                 return;
 
-            motion.StuckTimer += DeltaTime;
-            if (motion.StuckTimer < settings.StuckRepathDelay || motion.RepathCooldownRemaining > 0f)
-                return;
-
-            TriggerStuckRepath(ref motion, ref target, ref request, ref status, in settings);
+            if (NavAgentCore.EvaluateBlockedStuck(ref motion.StuckTimer, motion.RepathCooldownRemaining, settings.StuckRepathDelay, DeltaTime))
+                TriggerStuckRepath(ref motion, ref target, ref request, ref status, in settings);
         }
 
         private static void TriggerStuckRepath(
@@ -331,11 +284,11 @@ namespace MapNav.Ecs
             ref NavAgentPathStatus status,
             in NavAgentSettings settings)
         {
-            motion.StuckRetryCount++;
-            motion.StuckTimer = 0f;
-            motion.RepathCooldownRemaining = settings.StuckRepathCooldown;
+            bool giveUp = NavAgentCore.CommitStuckRepath(
+                ref motion.StuckTimer, ref motion.RepathCooldownRemaining, ref motion.StuckRetryCount,
+                settings.StuckRepathCooldown, settings.StuckRetryLimit);
 
-            if (settings.StuckRetryLimit > 0 && motion.StuckRetryCount >= settings.StuckRetryLimit)
+            if (giveUp)
             {
                 request.Pending = 0;
                 status.HasPath = 0;
@@ -362,49 +315,6 @@ namespace MapNav.Ecs
             float3 waypoint,
             float tolerance,
             float waypointReachDistance)
-        {
-            if (!ctx.IsValid)
-                return true;
-
-            if (NavQuery.TryClassify(in ctx, nextPosition, tolerance, out _))
-                return true;
-
-            if (NavQuery.TryClassify(in ctx, waypoint, tolerance, out NavSpaceRef waypointSpace)
-                && waypointSpace.Kind == NavSpaceKind.Transition
-                && IsMovingTowardWaypoint(current, nextPosition, waypoint)
-                && IsCloseEnoughToEnterTransition(nextPosition, waypoint, waypointReachDistance))
-            {
-                return true;
-            }
-
-            if (NavQuery.TryClassify(in ctx, current, tolerance, out _))
-                return false;
-
-            if (!NavQuery.TryProjectToNearestSpace(in ctx, current, out float3 projected, out _))
-                return false;
-
-            float3 currentDelta = projected - current;
-            float3 nextDelta = projected - nextPosition;
-            currentDelta.y = 0f;
-            nextDelta.y = 0f;
-            return math.lengthsq(nextDelta) < math.lengthsq(currentDelta);
-        }
-
-        private static bool IsMovingTowardWaypoint(float3 current, float3 nextPosition, float3 waypoint)
-        {
-            float3 currentDelta = waypoint - current;
-            float3 nextDelta = waypoint - nextPosition;
-            currentDelta.y = 0f;
-            nextDelta.y = 0f;
-            return math.lengthsq(nextDelta) < math.lengthsq(currentDelta);
-        }
-
-        private static bool IsCloseEnoughToEnterTransition(float3 position, float3 waypoint, float waypointReachDistance)
-        {
-            float3 delta = waypoint - position;
-            delta.y = 0f;
-            float enterDistance = math.max(waypointReachDistance, 0.35f);
-            return math.lengthsq(delta) <= enterDistance * enterDistance;
-        }
+            => NavAgentCore.CanMove(in ctx, current, nextPosition, waypoint, tolerance, waypointReachDistance);
     }
 }
