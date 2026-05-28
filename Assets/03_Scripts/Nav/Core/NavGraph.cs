@@ -227,22 +227,46 @@ namespace MapNav.Core
 
             bool hasA = TryMeasureRegionToPortalEndpoint(in ctx, ref blob, regionId, fromLocal, edge.PortalLocalA, agentRadius, out float costA, out float2 regionA);
             bool hasB = TryMeasureRegionToPortalEndpoint(in ctx, ref blob, regionId, fromLocal, edge.PortalLocalB, agentRadius, out float costB, out float2 regionB);
+            float2 portalMid = (edge.PortalLocalA + edge.PortalLocalB) * 0.5f;
+            bool hasMid = TryMeasureRegionToPortalEndpoint(in ctx, ref blob, regionId, fromLocal, portalMid, agentRadius, out float costMid, out float2 regionMid);
+            float2 portalClosest = NavMath.ClosestPointOnSegment(fromLocal, edge.PortalLocalA, edge.PortalLocalB);
+            float costClosest = 0f;
+            float2 regionClosest = default;
+            bool hasClosest = math.lengthsq(portalClosest - edge.PortalLocalA) > 1e-6f
+                && math.lengthsq(portalClosest - edge.PortalLocalB) > 1e-6f
+                && math.lengthsq(portalClosest - portalMid) > 1e-6f
+                && TryMeasureRegionToPortalEndpoint(in ctx, ref blob, regionId, fromLocal, portalClosest, agentRadius, out costClosest, out regionClosest);
 
-            if (!hasA && !hasB)
+            if (!hasA && !hasB && !hasMid && !hasClosest)
                 return false;
 
-            if (hasA && (!hasB || costA <= costB))
-            {
-                cost = costA;
-                fromAccess = regionA;
-                neighborArrival = edge.PortalLocalA;
-                return true;
-            }
-
-            cost = costB;
-            fromAccess = regionB;
-            neighborArrival = edge.PortalLocalB;
+            bool found = false;
+            float bestCost = float.PositiveInfinity;
+            ConsiderPortalChoice(hasA, costA, regionA, edge.PortalLocalA, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
+            ConsiderPortalChoice(hasB, costB, regionB, edge.PortalLocalB, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
+            ConsiderPortalChoice(hasMid, costMid, regionMid, portalMid, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
+            ConsiderPortalChoice(hasClosest, costClosest, regionClosest, portalClosest, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
+            cost = bestCost;
             return true;
+        }
+
+        private static void ConsiderPortalChoice(
+            bool valid,
+            float candidateCost,
+            float2 candidateAccess,
+            float2 candidateArrival,
+            ref bool found,
+            ref float bestCost,
+            ref float2 bestAccess,
+            ref float2 bestArrival)
+        {
+            if (!valid || (found && candidateCost >= bestCost))
+                return;
+
+            found = true;
+            bestCost = candidateCost;
+            bestAccess = candidateAccess;
+            bestArrival = candidateArrival;
         }
 
         private static bool TryMeasureRegionToPortalEndpoint(
@@ -291,7 +315,13 @@ namespace MapNav.Core
 
             ConsiderRegionPortalSample(in ctx, regionId, fromLocal, edge.PortalLocalA, agentRadius, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
             ConsiderRegionPortalSample(in ctx, regionId, fromLocal, edge.PortalLocalB, agentRadius, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
-            ConsiderRegionPortalSample(in ctx, regionId, fromLocal, (edge.PortalLocalA + edge.PortalLocalB) * 0.5f, agentRadius, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
+            float2 portalMid = (edge.PortalLocalA + edge.PortalLocalB) * 0.5f;
+            ConsiderRegionPortalSample(in ctx, regionId, fromLocal, portalMid, agentRadius, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
+            float2 portalClosest = NavMath.ClosestPointOnSegment(fromLocal, edge.PortalLocalA, edge.PortalLocalB);
+            if (math.lengthsq(portalClosest - edge.PortalLocalA) > 1e-6f
+                && math.lengthsq(portalClosest - edge.PortalLocalB) > 1e-6f
+                && math.lengthsq(portalClosest - portalMid) > 1e-6f)
+                ConsiderRegionPortalSample(in ctx, regionId, fromLocal, portalClosest, agentRadius, ref found, ref bestCost, ref fromAccess, ref neighborArrival);
 
             if (!found)
                 return false;
@@ -341,6 +371,12 @@ namespace MapNav.Core
             TryConsiderTransitionAccess(in ctx, ref blob, regionId, fromLocal, edge.PortalLocalA, agentRadius, ref found, ref bestCost, ref endpoint, ref regionPoint);
             TryConsiderTransitionAccess(in ctx, ref blob, regionId, fromLocal, edge.PortalLocalB, agentRadius, ref found, ref bestCost, ref endpoint, ref regionPoint);
             TryConsiderTransitionAccess(in ctx, ref blob, regionId, fromLocal, (edge.PortalLocalA + edge.PortalLocalB) * 0.5f, agentRadius, ref found, ref bestCost, ref endpoint, ref regionPoint);
+            // from을 포털 선분에 투영한 점도 후보로 — 양 끝/중점만으로는 from에 가장 자연스러운 진입점을 표현 못 함.
+            float2 portalClosest = NavMath.ClosestPointOnSegment(fromLocal, edge.PortalLocalA, edge.PortalLocalB);
+            if (math.lengthsq(portalClosest - edge.PortalLocalA) > 1e-6f
+                && math.lengthsq(portalClosest - edge.PortalLocalB) > 1e-6f
+                && math.lengthsq(portalClosest - (edge.PortalLocalA + edge.PortalLocalB) * 0.5f) > 1e-6f)
+                TryConsiderTransitionAccess(in ctx, ref blob, regionId, fromLocal, portalClosest, agentRadius, ref found, ref bestCost, ref endpoint, ref regionPoint);
             return found;
         }
 
@@ -448,10 +484,12 @@ namespace MapNav.Core
             float2 fromAccess,
             float2 toArrival)
         {
+            // NavPortal.A/B = portal segment 양 끝(world). NavFunnel/교차 계산이 segment를 필요로 함.
+            // fromAccess/toArrival(비용 측정용으로 선택된 통과점)은 더 이상 lift하지 않음.
             return new NavPortal
             {
-                A = NavMath.ToWorld(ctx.LocalToWorld, fromAccess, GetAccessHeight(ref blob, from, edge.PortalHeight, fromAccess)),
-                B = NavMath.ToWorld(ctx.LocalToWorld, toArrival, GetAccessHeight(ref blob, to, edge.PortalHeight, toArrival))
+                A = NavMath.ToWorld(ctx.LocalToWorld, edge.PortalLocalA, GetAccessHeight(ref blob, from, edge.PortalHeight, edge.PortalLocalA)),
+                B = NavMath.ToWorld(ctx.LocalToWorld, edge.PortalLocalB, GetAccessHeight(ref blob, to, edge.PortalHeight, edge.PortalLocalB))
             };
         }
 

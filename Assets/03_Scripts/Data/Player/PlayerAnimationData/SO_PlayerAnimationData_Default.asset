@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 79cee8f6c1fe460a9a411cface9bd95b, type: 3}
+  m_Name: SO_PlayerAnimationData_Default
+  m_EditorClassIdentifier: 
+  idleStateName: Idle
+  runStateName: Run
+  startRunTransition: 0.05
+  stopRunTransition: 0.3
+  runEnterDelay: 0.06
+  minRunDuration: 0.18
+  moveThreshold: 0.01
+  jumpStartStateName: Jump_Start
+  jumpIdleStateName: Jump_Idle
+  jumpEndStateName: Jump_End
+  dashStateName: Dash
+  hitStateName: Hit_0
+  downStateName: Hit_1
+  wakeupStateName: 
+  deathStateName: Death
+  actionTransition: 0.05

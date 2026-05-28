@@ -979,7 +979,7 @@ GameObject:
   - component: {fileID: 387206963}
   - component: {fileID: 387206962}
   m_Layer: 0
-  m_Name: Test (1)
+  m_Name: Boostrap
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -999,24 +999,25 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MapNav.Ecs.NavRuntimeBootstrap
   map: {fileID: 1674693950}
   spawnAgents: 1
-  agentCount: 100
-  maxSampleAttempts: 64
-  agentRadius: 0.2
-  stopDistance: 0.08
-  moveSpeed: 3
-  waypointAdvanceDistance: 0.05
-  cornerLookAheadDistance: 0
+  enemyAgentCount: 200
+  allyAgentCount: 100
+  maxSampleAttempts: 100
+  unitStats: {fileID: 11400000, guid: 253d347fa95d0a54ea4d1dddf1cc8aeb, type: 2}
+  attackRangeRandomMin: 1
+  attackRangeRandomMax: 1
+  waypointAdvanceDistance: 0.15
+  cornerLookAheadDistance: 0.25
   heightOffset: 0
   boundaryTolerance: 0.1
-  targetRepathDistance: 0.15
-  stuckRepathDelay: 0.75
-  stuckRepathCooldown: 1.5
-  stuckProgressDistance: 0.03
+  targetRepathDistance: 1
+  stuckRepathDelay: 0.5
+  stuckRepathCooldown: 1
+  stuckProgressDistance: 0.05
   stuckRetryLimit: 4
-  separationRadius: 0.6
-  separationStrength: 1
-  separationMaxNeighbors: 8
-  maxPathsPerFrame: 200
+  separationRadius: 10
+  separationStrength: 10
+  separationMaxNeighbors: 10
+  maxPathsPerFrame: 256
 --- !u!4 &387206963
 Transform:
   m_ObjectHideFlags: 0
@@ -2938,7 +2939,7 @@ GameObject:
   - component: {fileID: 1031176744}
   - component: {fileID: 1031176743}
   m_Layer: 0
-  m_Name: Test (3)
+  m_Name: ShellPool
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -2956,7 +2957,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0697f878cb19a3d4dafe04ee4a85edfd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MapNav.Ecs.NavVisualShellPool
-  prefab: {fileID: 268108290394739926, guid: f38a4dd274e84f44a81f3626935dad78, type: 3}
+  enemyPrefab: {fileID: 268108290394739926, guid: f38a4dd274e84f44a81f3626935dad78, type: 3}
+  allyPrefab: {fileID: 268108290394739926, guid: f86941387364c7142b883407bbe485d1, type: 3}
   poolRoot: {fileID: 1031176744}
 --- !u!4 &1031176744
 Transform:
@@ -5244,7 +5246,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1630737199
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5447,7 +5449,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1668387497
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5537,16 +5539,22 @@ MonoBehaviour:
       - {x: 2.5, y: -24}
     Obstacles:
     - Points:
+      - {x: -15, y: -17.19}
+      - {x: -0.5, y: -17.19}
+      - {x: -0.5, y: -16.19}
+      - {x: -15, y: -16.19}
+      CornerPadding: 0.25
+    - Points:
       - {x: -12, y: -24.5}
       - {x: -6, y: -24.5}
       - {x: -6, y: -21.5}
       - {x: -12, y: -21.5}
       CornerPadding: 0.25
     - Points:
-      - {x: -14.91, y: -25.03}
-      - {x: -13.91, y: -25.03}
-      - {x: -13.91, y: -20.03}
-      - {x: -14.91, y: -20.03}
+      - {x: -10.405, y: -24}
+      - {x: -7.5950003, y: -24}
+      - {x: -7.5950003, y: -20}
+      - {x: -10.405, y: -20}
       CornerPadding: 0.25
     - Points:
       - {x: 2.446, y: -20.82}
@@ -5555,16 +5563,10 @@ MonoBehaviour:
       - {x: 2.446, y: -16.3}
       CornerPadding: 0.25
     - Points:
-      - {x: -15, y: -17.19}
-      - {x: -0.5, y: -17.19}
-      - {x: -0.5, y: -16.19}
-      - {x: -15, y: -16.19}
-      CornerPadding: 0.25
-    - Points:
-      - {x: -10.405, y: -24}
-      - {x: -7.5950003, y: -24}
-      - {x: -7.5950003, y: -20}
-      - {x: -10.405, y: -20}
+      - {x: -14.91, y: -25.03}
+      - {x: -13.91, y: -25.03}
+      - {x: -13.91, y: -20.03}
+      - {x: -14.91, y: -20.03}
       CornerPadding: 0.25
   - Id: 1
     Height: 1.25
@@ -5661,30 +5663,6 @@ MonoBehaviour:
       - {x: 6.2, y: -12.4}
     Obstacles:
     - Points:
-      - {x: -22.48, y: 8.99}
-      - {x: -19.52, y: 8.99}
-      - {x: -19.52, y: 15.389999}
-      - {x: -22.48, y: 15.389999}
-      CornerPadding: 0.25
-    - Points:
-      - {x: -13.5, y: 19.5}
-      - {x: -10.5, y: 19.5}
-      - {x: -10.5, y: 22.5}
-      - {x: -13.5, y: 22.5}
-      CornerPadding: 0.25
-    - Points:
-      - {x: -13.77, y: 20.88}
-      - {x: -2.7700005, y: 20.88}
-      - {x: -2.7700005, y: 23.88}
-      - {x: -13.77, y: 23.88}
-      CornerPadding: 0.25
-    - Points:
-      - {x: -24.34, y: 10.44}
-      - {x: -15.200001, y: 10.44}
-      - {x: -15.200001, y: 13.94}
-      - {x: -24.34, y: 13.94}
-      CornerPadding: 0.25
-    - Points:
       - {x: -3.11, y: 14.655001}
       - {x: -2.61, y: 14.655001}
       - {x: -2.61, y: 25.025}
@@ -5697,40 +5675,22 @@ MonoBehaviour:
       - {x: -14.52, y: 1.52}
       CornerPadding: 0.25
     - Points:
-      - {x: -3.54, y: -9.35}
-      - {x: -3.04, y: -9.35}
-      - {x: -3.04, y: 4.15}
-      - {x: -3.54, y: 4.15}
-      CornerPadding: 0.25
-    - Points:
-      - {x: -1.5799999, y: -9.92}
-      - {x: 6.42, y: -9.92}
-      - {x: 6.42, y: -9.42}
-      - {x: -1.5799999, y: -9.42}
-      CornerPadding: 0.25
-    - Points:
-      - {x: -7.945, y: 14.76}
-      - {x: -2.815, y: 14.76}
-      - {x: -2.815, y: 15.26}
-      - {x: -7.945, y: 15.26}
-      CornerPadding: 0.25
-    - Points:
-      - {x: -7.27, y: 15.700001}
-      - {x: -4.27, y: 15.700001}
-      - {x: -4.27, y: 18.7}
-      - {x: -7.27, y: 18.7}
-      CornerPadding: 0.25
-    - Points:
       - {x: -7, y: 19.5}
       - {x: -5, y: 19.5}
       - {x: -5, y: 22.5}
       - {x: -7, y: 22.5}
       CornerPadding: 0.25
     - Points:
-      - {x: -3.56, y: 3.94}
-      - {x: 6.44, y: 3.94}
-      - {x: 6.44, y: 4.44}
-      - {x: -3.56, y: 4.44}
+      - {x: -22.48, y: 8.99}
+      - {x: -19.52, y: 8.99}
+      - {x: -19.52, y: 15.389999}
+      - {x: -22.48, y: 15.389999}
+      CornerPadding: 0.25
+    - Points:
+      - {x: -13.5, y: 19.5}
+      - {x: -10.5, y: 19.5}
+      - {x: -10.5, y: 22.5}
+      - {x: -13.5, y: 22.5}
       CornerPadding: 0.25
     - Points:
       - {x: -13.5, y: -14.5}
@@ -5739,10 +5699,52 @@ MonoBehaviour:
       - {x: -13.5, y: -11.5}
       CornerPadding: 0.25
     - Points:
+      - {x: -3.54, y: -9.35}
+      - {x: -3.04, y: -9.35}
+      - {x: -3.04, y: 4.15}
+      - {x: -3.54, y: 4.15}
+      CornerPadding: 0.25
+    - Points:
+      - {x: -13.77, y: 20.88}
+      - {x: -2.7700005, y: 20.88}
+      - {x: -2.7700005, y: 23.88}
+      - {x: -13.77, y: 23.88}
+      CornerPadding: 0.25
+    - Points:
+      - {x: -7.27, y: 15.700001}
+      - {x: -4.27, y: 15.700001}
+      - {x: -4.27, y: 18.7}
+      - {x: -7.27, y: 18.7}
+      CornerPadding: 0.25
+    - Points:
+      - {x: -7.945, y: 14.76}
+      - {x: -2.815, y: 14.76}
+      - {x: -2.815, y: 15.26}
+      - {x: -7.945, y: 15.26}
+      CornerPadding: 0.25
+    - Points:
+      - {x: -3.56, y: 3.94}
+      - {x: 6.44, y: 3.94}
+      - {x: 6.44, y: 4.44}
+      - {x: -3.56, y: 4.44}
+      CornerPadding: 0.25
+    - Points:
+      - {x: -1.5799999, y: -9.92}
+      - {x: 6.42, y: -9.92}
+      - {x: 6.42, y: -9.42}
+      - {x: -1.5799999, y: -9.42}
+      CornerPadding: 0.25
+    - Points:
       - {x: -22.72, y: 3.23}
       - {x: -19.22, y: 3.23}
       - {x: -19.22, y: 6.73}
       - {x: -22.72, y: 6.73}
+      CornerPadding: 0.25
+    - Points:
+      - {x: -24.34, y: 10.44}
+      - {x: -15.200001, y: 10.44}
+      - {x: -15.200001, y: 13.94}
+      - {x: -24.34, y: 13.94}
       CornerPadding: 0.25
   - Id: 3
     Height: 3.75
@@ -5852,9 +5854,9 @@ MonoBehaviour:
     CanFightInside: 1
     Bidirectional: 1
     Enabled: 1
-  - Id: 0
+  - Id: 4
     FromRegionId: 2
-    ToRegionId: 5
+    ToRegionId: 4
     Type: 1
     FromHeight: 2.5
     ToHeight: 5
@@ -5874,7 +5876,7 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 4294967295
   ObstacleHeightTolerance: 1.5
-  DefaultObstacleCornerPadding: 0.25
+  DefaultObstacleCornerPadding: 0
 --- !u!4 &1674693951
 Transform:
   m_ObjectHideFlags: 0
@@ -7302,7 +7304,7 @@ SceneRoots:
   - {fileID: 832575519}
   - {fileID: 1629692213}
   - {fileID: 1674693951}
-  - {fileID: 1630737200}
   - {fileID: 387206963}
-  - {fileID: 1668387498}
   - {fileID: 1031176744}
+  - {fileID: 1630737200}
+  - {fileID: 1668387498}

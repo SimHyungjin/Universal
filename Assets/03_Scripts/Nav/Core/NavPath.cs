@@ -80,7 +80,19 @@ namespace MapNav.Core
                 return false;
             }
 
-            return DiagnoseAssemblePath(in ctx, startWorld, ref tmpNodes, ref tmpPortals, endWorld, agentRadius, ref outWaypoints, log);
+            NativeList<float3> funnelWaypoints = new NativeList<float3>(16, Allocator.Temp);
+            NavFunnel.Smooth(startWorld, ref tmpPortals, endWorld, agentRadius, ref funnelWaypoints);
+            bool ok = RefineWithInRegionCorners(in ctx, agentRadius, ref funnelWaypoints, ref outWaypoints);
+            funnelWaypoints.Dispose();
+            if (!ok)
+            {
+                log.Append("refine failed");
+                return false;
+            }
+
+            StringPull(in ctx, agentRadius, ref outWaypoints);
+            log.Append($"funnel ok ({outWaypoints.Length} waypoints)");
+            return true;
         }
 
         public static bool TryBuildFromSpaces(
@@ -104,303 +116,102 @@ namespace MapNav.Core
             if (!NavGraph.TryFindPath(in ctx, startSpace, startWorld, endSpace, endWorld, agentRadius, ref scratch, ref tmpNodes, ref tmpPortals))
                 return false;
 
-            if (!AssemblePath(in ctx, startWorld, ref tmpNodes, ref tmpPortals, endWorld, agentRadius, ref outWaypoints))
-                return false;
+            // NavFunnel: portal segment 양 끝(NavPortal.A/B)을 funnel로 풀어 꺾이는 점만 박는다.
+            // portal endpoint를 강제 waypoint로 두지 않으므로 polygon vertex 경유 꺾임이 사라짐.
+            NativeList<float3> funnelWaypoints = new NativeList<float3>(16, Allocator.Temp);
+            NavFunnel.Smooth(startWorld, ref tmpPortals, endWorld, agentRadius, ref funnelWaypoints);
+
+            bool ok = RefineWithInRegionCorners(in ctx, agentRadius, ref funnelWaypoints, ref outWaypoints);
+            funnelWaypoints.Dispose();
+            if (!ok) return false;
 
             StringPull(in ctx, agentRadius, ref outWaypoints);
             return true;
         }
 
-        private static bool AssemblePath(
+        // funnel은 portal segment 사이 직선 단순화만 함 — region 안 obstacle은 모른다.
+        // 각 segment에 대해 region 측 부분(들)을 NavInRegion 가시그래프로 풀어 corner 보강.
+        // segment가 두 region을 가로지르면 양쪽 모두 처리 — segment를 polygon 경계로 clamp해서
+        // 각 region 내부의 a→exit / enter→b 부분만 가시그래프에 넘긴다.
+        private static bool RefineWithInRegionCorners(
             in NavContext ctx,
-            float3 startWorld,
-            ref NativeList<NavSpaceRef> nodes,
-            ref NativeList<NavPortal> portals,
-            float3 endWorld,
             float agentRadius,
+            ref NativeList<float3> funnelWaypoints,
             ref NativeList<float3> outWaypoints)
         {
             outWaypoints.Clear();
-            AddIfSeparated(startWorld, ref outWaypoints);
+            if (funnelWaypoints.Length == 0) return false;
 
-            for (int i = 0; i < portals.Length; i++)
+            AddIfSeparated(funnelWaypoints[0], ref outWaypoints);
+
+            NativeList<float3> corners = new NativeList<float3>(8, Allocator.Temp);
+            for (int i = 0; i < funnelWaypoints.Length - 1; i++)
             {
-                NavSpaceRef from = i < nodes.Length ? nodes[i] : default;
-                NavSpaceRef to = i + 1 < nodes.Length ? nodes[i + 1] : default;
-                NavSpaceRef after = i + 2 < nodes.Length ? nodes[i + 2] : default;
-                if (from.Kind == NavSpaceKind.Region
-                    && to.Kind == NavSpaceKind.Transition
-                    && after.Kind == NavSpaceKind.Region
-                    && TryAppendTransitionPass(in ctx, from, to, after, outWaypoints[outWaypoints.Length - 1], endWorld, agentRadius, ref outWaypoints))
+                float3 from = funnelWaypoints[i];
+                float3 to = funnelWaypoints[i + 1];
+
+                NavQuery.TryClassify(in ctx, from, DirectTravelTolerance, out NavSpaceRef fromSpace);
+                NavQuery.TryClassify(in ctx, to, DirectTravelTolerance, out NavSpaceRef toSpace);
+
+                bool sameRegion = fromSpace.Kind == NavSpaceKind.Region
+                                  && toSpace.Kind == NavSpaceKind.Region
+                                  && fromSpace == toSpace;
+
+                if (fromSpace.Kind == NavSpaceKind.Region)
                 {
-                    i++;
-                    continue;
+                    float3 toForFromRegion = sameRegion ? to : ClampToRegion(in ctx, fromSpace.Id, to);
+                    AppendInRegionCorners(in ctx, fromSpace.Id, from, toForFromRegion, agentRadius, ref corners, ref outWaypoints);
                 }
 
-                if (!AppendPortalCrossing(in ctx, from, to, portals[i], endWorld, agentRadius, ref outWaypoints))
-                    return false;
-            }
+                if (!sameRegion && toSpace.Kind == NavSpaceKind.Region)
+                {
+                    float3 fromForToRegion = ClampToRegion(in ctx, toSpace.Id, from);
+                    AppendInRegionCorners(in ctx, toSpace.Id, fromForToRegion, to, agentRadius, ref corners, ref outWaypoints);
+                }
 
-            NavSpaceRef last = nodes.Length > 0 ? nodes[nodes.Length - 1] : default;
-            float3 current = outWaypoints[outWaypoints.Length - 1];
-            if (CanTravelDirect(in ctx, current, endWorld, agentRadius))
-            {
-                AddIfSeparated(endWorld, ref outWaypoints);
+                AddIfSeparated(to, ref outWaypoints);
             }
-            else if (!AppendSegment(in ctx, last, current, endWorld, agentRadius, ref outWaypoints))
-            {
-                return false;
-            }
+            corners.Dispose();
 
             return true;
         }
 
-        private static bool DiagnoseAssemblePath(
-            in NavContext ctx,
-            float3 startWorld,
-            ref NativeList<NavSpaceRef> nodes,
-            ref NativeList<NavPortal> portals,
-            float3 endWorld,
-            float agentRadius,
-            ref NativeList<float3> outWaypoints,
-            StringBuilder log)
-        {
-            outWaypoints.Clear();
-            AddIfSeparated(startWorld, ref outWaypoints);
-
-            for (int i = 0; i < portals.Length; i++)
-            {
-                NavSpaceRef from = i < nodes.Length ? nodes[i] : default;
-                NavSpaceRef to = i + 1 < nodes.Length ? nodes[i + 1] : default;
-                NavSpaceRef after = i + 2 < nodes.Length ? nodes[i + 2] : default;
-                if (from.Kind == NavSpaceKind.Region
-                    && to.Kind == NavSpaceKind.Transition
-                    && after.Kind == NavSpaceKind.Region)
-                {
-                    bool passed = TryAppendTransitionPass(in ctx, from, to, after, outWaypoints[outWaypoints.Length - 1], endWorld, agentRadius, ref outWaypoints);
-                    if (passed)
-                    {
-                        i++;
-                        continue;
-                    }
-
-                    log.Append($"transition pass failed i={i} {FormatSpace(from)} -> {FormatSpace(to)} -> {FormatSpace(after)} current={FormatPoint(outWaypoints[outWaypoints.Length - 1])}");
-                    return false;
-                }
-
-                if (!AppendPortalCrossing(in ctx, from, to, portals[i], endWorld, agentRadius, ref outWaypoints))
-                {
-                    log.Append($"portal crossing failed i={i} {FormatSpace(from)} -> {FormatSpace(to)} current={FormatPoint(outWaypoints[outWaypoints.Length - 1])} portalA={FormatPoint(portals[i].A)} portalB={FormatPoint(portals[i].B)}");
-                    return false;
-                }
-            }
-
-            NavSpaceRef last = nodes.Length > 0 ? nodes[nodes.Length - 1] : default;
-            float3 current = outWaypoints[outWaypoints.Length - 1];
-            if (CanTravelDirect(in ctx, current, endWorld, agentRadius))
-            {
-                AddIfSeparated(endWorld, ref outWaypoints);
-                log.Append("assembled ok via final direct");
-                return true;
-            }
-
-            if (!AppendSegment(in ctx, last, current, endWorld, agentRadius, ref outWaypoints))
-            {
-                log.Append($"final segment failed {FormatSpace(last)} current={FormatPoint(current)} end={FormatPoint(endWorld)}");
-                return false;
-            }
-
-            log.Append("assembled ok");
-            return true;
-        }
-
-        private static bool TryAppendTransitionPass(
-            in NavContext ctx,
-            NavSpaceRef fromRegion,
-            NavSpaceRef transition,
-            NavSpaceRef toRegion,
-            float3 current,
-            float3 endWorld,
-            float agentRadius,
-            ref NativeList<float3> outWaypoints)
-        {
-            if (!TryFindEdge(in ctx, fromRegion, transition, out NavEdge enterEdge)
-                || !TryFindEdge(in ctx, transition, toRegion, out NavEdge exitEdge))
-                return false;
-
-            float best = float.PositiveInfinity;
-            float3 bestEnterRegion = default;
-            float3 bestEnterTransition = default;
-            float3 bestExitTransition = default;
-            float3 bestExitRegion = default;
-            bool found = false;
-
-            for (int enterIndex = 0; enterIndex < 3; enterIndex++)
-            {
-                float2 enterLocal = GetPortalCandidate(enterEdge, enterIndex);
-                float3 enterTransitionWorld = NavMath.ToWorld(ctx.LocalToWorld, enterLocal, enterEdge.PortalHeight);
-                if (!TryGetRegionAccessPoint(in ctx, fromRegion.Id, enterTransitionWorld, out float3 enterRegionWorld))
-                    continue;
-
-                float enterRegionCost = MeasureRegionSegment(in ctx, fromRegion.Id, current, enterRegionWorld, agentRadius);
-                if (float.IsPositiveInfinity(enterRegionCost))
-                    continue;
-
-                for (int exitIndex = 0; exitIndex < 3; exitIndex++)
-                {
-                    float2 exitLocal = GetPortalCandidate(exitEdge, exitIndex);
-                    float3 exitTransitionWorld = NavMath.ToWorld(ctx.LocalToWorld, exitLocal, exitEdge.PortalHeight);
-                    if (!TryGetRegionAccessPoint(in ctx, toRegion.Id, exitTransitionWorld, out float3 exitRegionWorld))
-                        continue;
-
-                    if (float.IsPositiveInfinity(MeasureRegionSegment(in ctx, toRegion.Id, exitRegionWorld, exitRegionWorld, agentRadius)))
-                        continue;
-
-                    float score = enterRegionCost
-                        + PlanarDistance(enterRegionWorld, enterTransitionWorld)
-                        + PlanarDistance(enterTransitionWorld, exitTransitionWorld)
-                        + PlanarDistance(exitTransitionWorld, exitRegionWorld)
-                        + PlanarDistance(exitRegionWorld, endWorld);
-
-                    if (score >= best)
-                        continue;
-
-                    best = score;
-                    bestEnterRegion = enterRegionWorld;
-                    bestEnterTransition = enterTransitionWorld;
-                    bestExitTransition = exitTransitionWorld;
-                    bestExitRegion = exitRegionWorld;
-                    found = true;
-                }
-            }
-
-            if (!found)
-                return false;
-
-            if (!AppendSegment(in ctx, fromRegion, current, bestEnterRegion, agentRadius, ref outWaypoints))
-                return false;
-
-            AddIfSeparated(bestEnterTransition, ref outWaypoints);
-            AddIfSeparated(bestExitTransition, ref outWaypoints);
-            AddIfSeparated(bestExitRegion, ref outWaypoints);
-            return true;
-        }
-
-        private static float2 GetPortalCandidate(NavEdge edge, int index)
-        {
-            return index == 0
-                ? edge.PortalLocalA
-                : index == 1
-                    ? edge.PortalLocalB
-                    : (edge.PortalLocalA + edge.PortalLocalB) * 0.5f;
-        }
-
-        private static bool AppendPortalCrossing(
-            in NavContext ctx,
-            NavSpaceRef fromSpace,
-            NavSpaceRef toSpace,
-            NavPortal portal,
-            float3 endWorld,
-            float agentRadius,
-            ref NativeList<float3> outWaypoints)
-        {
-            if (AreSameLayerRegions(in ctx, fromSpace, toSpace))
-                return AppendSameLayerRegionCrossing(in ctx, fromSpace, portal, agentRadius, ref outWaypoints);
-
-            float3 current = outWaypoints[outWaypoints.Length - 1];
-
-            if (fromSpace.Kind == NavSpaceKind.Region)
-            {
-                if (!AppendSegment(in ctx, fromSpace, current, portal.A, agentRadius, ref outWaypoints))
-                    return false;
-            }
-            else
-            {
-                AddIfSeparated(portal.A, ref outWaypoints);
-            }
-
-            AddIfSeparated(portal.B, ref outWaypoints);
-
-            return true;
-        }
-
-        private static bool AppendSameLayerRegionCrossing(
-            in NavContext ctx,
-            NavSpaceRef fromSpace,
-            NavPortal portal,
-            float agentRadius,
-            ref NativeList<float3> outWaypoints)
-        {
-            if (fromSpace.Kind != NavSpaceKind.Region)
-                return false;
-
-            float3 current = outWaypoints[outWaypoints.Length - 1];
-            float3 crossing = (portal.A + portal.B) * 0.5f;
-            return AppendSegment(in ctx, fromSpace, current, crossing, agentRadius, ref outWaypoints);
-        }
-
-        private static bool AppendSegment(
-            in NavContext ctx,
-            NavSpaceRef fromSpace,
-            float3 from,
-            float3 to,
-            float agentRadius,
-            ref NativeList<float3> outWaypoints)
-        {
-            if (fromSpace.Kind == NavSpaceKind.Region)
-            {
-                ref NavBlob blob = ref ctx.Blob.Value;
-                if (!NavQuery.TryFindRegion(ref blob, fromSpace.Id, out int regionIndex))
-                    return false;
-
-                ref NavRegion region = ref blob.Regions[regionIndex];
-                float2 fromLocal = NavMath.ToLocal2D(ctx.WorldToLocal, from);
-                float2 toLocal = NavMath.ToLocal2D(ctx.WorldToLocal, to);
-
-                if (!ContainsRegionPoint(ref blob, in region, fromLocal)
-                    || !ContainsRegionPoint(ref blob, in region, toLocal))
-                    return false;
-
-                NativeList<float3> corners = new NativeList<float3>(8, Allocator.Temp);
-                bool reachable = NavInRegion.TryAppendCornerWaypointsLocal(
-                    in ctx,
-                    in region,
-                    fromLocal,
-                    toLocal,
-                    agentRadius,
-                    ref corners);
-
-                if (!reachable)
-                {
-                    corners.Dispose();
-                    return false;
-                }
-
-                AppendInRegionCorners(ref corners, ref outWaypoints);
-                corners.Dispose();
-            }
-
-            AddIfSeparated(to, ref outWaypoints);
-            return true;
-        }
-
-        // The visibility-graph corners from NavInRegion already form the shortest taut path
-        // through the region's obstacles (visibility-graph A* is optimal), so they need no
-        // further smoothing. Cross-segment straightening is handled once at the end of the
-        // build by StringPull.
         private static void AppendInRegionCorners(
-            ref NativeList<float3> corners,
+            in NavContext ctx,
+            int regionId,
+            float3 a,
+            float3 b,
+            float agentRadius,
+            ref NativeList<float3> cornersScratch,
             ref NativeList<float3> outWaypoints)
         {
-            for (int i = 0; i < corners.Length; i++)
-                AddIfSeparated(corners[i], ref outWaypoints);
+            cornersScratch.Clear();
+            if (!NavInRegion.TryAppendCornerWaypoints(in ctx, regionId, a, b, agentRadius, ref cornersScratch))
+                return;
+
+            for (int i = 0; i < cornersScratch.Length; i++)
+                AddIfSeparated(cornersScratch[i], ref outWaypoints);
         }
 
-        // Greedy line-of-sight string pull over the assembled path: drop any waypoint whose
-        // surrounding waypoints can travel directly to each other. CanTravelDirect is
-        // obstacle- and boundary-aware and refuses to shortcut across a transition or a
-        // layer change, so required transition waypoints survive automatically. Any kept
-        // consecutive pair is an original (already-valid) segment.
+        // 점을 region polygon 안으로 clamp — 안에 있으면 그대로, 밖이면 closest edge point로.
+        // segment가 region 경계를 넘는 지점을 정확히 알 수 없을 때 in-region 가시그래프 호출용 fallback.
+        private static float3 ClampToRegion(in NavContext ctx, int regionId, float3 world)
+        {
+            ref NavBlob blob = ref ctx.Blob.Value;
+            if (!NavQuery.TryFindRegion(ref blob, regionId, out int regionIndex))
+                return world;
+
+            ref NavRegion region = ref blob.Regions[regionIndex];
+            float2 local = NavMath.ToLocal2D(ctx.WorldToLocal, world);
+            if (NavMath.PolygonContains(ref blob.Points, region.PointStart, region.PointCount, local))
+                return world;
+
+            float2 clamped = NavMath.ClosestPointOnPolygon(ref blob.Points, region.PointStart, region.PointCount, local, out _);
+            return NavMath.ToWorld(ctx.LocalToWorld, clamped, region.Height);
+        }
+
+        // Greedy line-of-sight string pull: drop any waypoint whose surrounding waypoints can
+        // travel directly to each other. funnel + in-region refine 후의 추가 정리용.
         private static void StringPull(
             in NavContext ctx,
             float agentRadius,
@@ -432,106 +243,6 @@ namespace MapNav.Core
             }
 
             pulled.Dispose();
-        }
-
-        private static bool TryGetRegionAccessPoint(
-            in NavContext ctx,
-            int regionId,
-            float3 target,
-            out float3 regionPoint)
-        {
-            regionPoint = target;
-            ref NavBlob blob = ref ctx.Blob.Value;
-            if (!NavQuery.TryFindRegion(ref blob, regionId, out int regionIndex))
-                return false;
-
-            ref NavRegion region = ref blob.Regions[regionIndex];
-            float2 local = NavMath.ToLocal2D(ctx.WorldToLocal, target);
-            if (ContainsRegionPoint(ref blob, in region, local))
-            {
-                regionPoint = NavMath.ToWorld(ctx.LocalToWorld, local, region.Height);
-                return true;
-            }
-
-            float2 closest = NavMath.ClosestPointOnPolygon(ref blob.Points, region.PointStart, region.PointCount, local, out _);
-            regionPoint = NavMath.ToWorld(ctx.LocalToWorld, closest, region.Height);
-            return true;
-        }
-
-        private static float MeasureRegionSegment(
-            in NavContext ctx,
-            int regionId,
-            float3 from,
-            float3 to,
-            float agentRadius)
-        {
-            float2 fromLocal = NavMath.ToLocal2D(ctx.WorldToLocal, from);
-            float2 toLocal = NavMath.ToLocal2D(ctx.WorldToLocal, to);
-            return NavInRegion.TryMeasurePathLocal(in ctx, regionId, fromLocal, toLocal, agentRadius, out float cost)
-                ? cost
-                : float.PositiveInfinity;
-        }
-
-        private static bool TryFindEdge(in NavContext ctx, NavSpaceRef from, NavSpaceRef to, out NavEdge edge)
-        {
-            edge = default;
-            ref NavBlob blob = ref ctx.Blob.Value;
-            if (!TryGetEdgeRange(ref blob, from, out int edgeStart, out int edgeCount))
-                return false;
-
-            for (int i = 0; i < edgeCount; i++)
-            {
-                NavEdge candidate = from.Kind == NavSpaceKind.Region
-                    ? blob.RegionEdges[edgeStart + i]
-                    : blob.TransitionEdges[edgeStart + i];
-                if (candidate.ToKind == to.Kind && candidate.ToId == to.Id)
-                {
-                    edge = candidate;
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static bool TryGetEdgeRange(ref NavBlob blob, NavSpaceRef space, out int edgeStart, out int edgeCount)
-        {
-            edgeStart = 0;
-            edgeCount = 0;
-            if (space.Kind == NavSpaceKind.Region)
-            {
-                if (!NavQuery.TryFindRegion(ref blob, space.Id, out int regionIndex))
-                    return false;
-                int2 range = blob.RegionEdgeRange[regionIndex];
-                edgeStart = range.x;
-                edgeCount = range.y;
-                return true;
-            }
-
-            if (space.Kind == NavSpaceKind.Transition)
-            {
-                if (!NavQuery.TryFindTransition(ref blob, space.Id, out int transitionIndex))
-                    return false;
-                int2 range = blob.TransitionEdgeRange[transitionIndex];
-                edgeStart = range.x;
-                edgeCount = range.y;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static float PlanarDistance(float3 a, float3 b)
-        {
-            float3 delta = a - b;
-            delta.y = 0f;
-            return math.length(delta);
-        }
-
-        private static bool ContainsRegionPoint(ref NavBlob blob, in NavRegion region, float2 point)
-        {
-            return NavMath.PolygonContains(ref blob.Points, region.PointStart, region.PointCount, point)
-                || NavMath.IsNearEdge(ref blob.Points, region.PointStart, region.PointCount, point, 1e-3f);
         }
 
         // Resolves a raw world point to a navigable position: classifies it (or projects to
@@ -649,7 +360,46 @@ namespace MapNav.Core
                 return SegmentSamplesStayInSameSpace(in ctx, from, to, fromSpace);
             }
 
-            return CanTravelDirectOnSameLayer(in ctx, from, to, fromSpace, toSpace);
+            if (fromSpace.Kind == NavSpaceKind.Region && toSpace.Kind == NavSpaceKind.Region)
+                return CanTravelDirectOnSameLayer(in ctx, from, to, fromSpace, toSpace);
+
+            return CanTravelDirectAcrossPortal(in ctx, from, to, fromSpace, toSpace);
+        }
+
+        // transition↔region 직선 LOS. region 측 obstacle 통과만 차단하고, 모든 샘플이 from/to
+        // 둘 중 하나로 분류돼야 — 제3의 영역으로 새는 직선은 거부.
+        private static bool CanTravelDirectAcrossPortal(
+            in NavContext ctx,
+            float3 from,
+            float3 to,
+            NavSpaceRef fromSpace,
+            NavSpaceRef toSpace)
+        {
+            bool oneRegion = (fromSpace.Kind == NavSpaceKind.Region) ^ (toSpace.Kind == NavSpaceKind.Region);
+            bool oneTransition = (fromSpace.Kind == NavSpaceKind.Transition) ^ (toSpace.Kind == NavSpaceKind.Transition);
+            if (!oneRegion || !oneTransition)
+                return false;
+
+            NavSpaceRef regionSpace = fromSpace.Kind == NavSpaceKind.Region ? fromSpace : toSpace;
+
+            float2 fromLocal = NavMath.ToLocal2D(ctx.WorldToLocal, from);
+            float2 toLocal = NavMath.ToLocal2D(ctx.WorldToLocal, to);
+
+            if (NavInRegion.SegmentCrossesObstacleLocal(in ctx, regionSpace.Id, fromLocal, toLocal))
+                return false;
+
+            const int Samples = 16;
+            for (int i = 1; i < Samples; i++)
+            {
+                float t = i / (float)Samples;
+                float3 p = math.lerp(from, to, t);
+                if (!NavQuery.TryClassify(in ctx, p, DirectTravelTolerance, out NavSpaceRef sampled))
+                    return false;
+                if (sampled != fromSpace && sampled != toSpace)
+                    return false;
+            }
+
+            return true;
         }
 
         private static bool CanTravelDirectOnSameLayer(
@@ -741,11 +491,5 @@ namespace MapNav.Core
         {
             return $"{space.Kind}:{space.Id}";
         }
-
-        private static string FormatPoint(float3 point)
-        {
-            return $"({point.x:F1},{point.z:F1})";
-        }
-
     }
 }

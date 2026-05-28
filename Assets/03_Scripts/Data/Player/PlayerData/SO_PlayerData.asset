@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6cdea557b60023f4e980f3b61458dfa3, type: 3}
+  m_Name: SO_PlayerData
+  m_EditorClassIdentifier: Assembly-CSharp::SO_CharacterData
+  statsData: {fileID: 11400000, guid: 3cb2bc067c08ce94b832c4bd7d1bdbca, type: 2}
+  animationData: {fileID: 11400000, guid: c81410fa52b445159267cc666da98ca9, type: 2}
+  _attackCombo: {fileID: 11400000, guid: 7ad18502b41c40248abaf079558fdf65, type: 2}
+  skills:
+  - {fileID: 11400000, guid: 56902cf4100195b42a31f2f918ffa4be, type: 2}
+  - {fileID: 11400000, guid: aeaf77ed07744294c909ae26e9110ef4, type: 2}
+  - {fileID: 11400000, guid: 2449bcfdc09ea334daee456db7504a6e, type: 2}
+  locomotionFeel: {fileID: 11400000, guid: ef22eb0c1e38a144ea2b92bd85f84daf, type: 2}
+  worldPhysics: {fileID: 11400000, guid: cd089d2e62f3a9b4fb2d2e3211c36987, type: 2}
+  inputBuffering: {fileID: 11400000, guid: 62b7f124778aadb4cb55f12fcf8fe206, type: 2}
+  jumpFeel: {fileID: 11400000, guid: 51ac0b1897685ea4da8139d6dd0da15d, type: 2}
+  dashRule: {fileID: 11400000, guid: db0b5f77f8806a74da3d2e81539b94b9, type: 2}
+  actionRecovery: {fileID: 11400000, guid: b5ab2f8a3a9049a46a1547219c344ccc, type: 2}

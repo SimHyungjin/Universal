@@ -189,6 +189,26 @@ namespace MapNav.Core
             return true;
         }
 
+        public static bool IsClearOfObstaclePadding(in NavContext ctx, float3 worldPos, float radius)
+        {
+            if (!ctx.IsValid || radius <= 0f) return true;
+            ref NavBlob blob = ref ctx.Blob.Value;
+            float2 local = NavMath.ToLocal2D(ctx.WorldToLocal, worldPos);
+            for (int i = 0; i < blob.Obstacles.Length; i++)
+            {
+                ref NavObstacle obs = ref blob.Obstacles[i];
+                float clearance = radius + math.max(0f, obs.CornerPadding);
+                if (!NavMath.BoundsContains(obs.BoundsMin, obs.BoundsMax, obs.HasBounds, local, clearance))
+                    continue;
+                if (NavMath.PolygonContains(ref blob.Points, obs.PointStart, obs.PointCount, local))
+                    return false;
+                NavMath.ClosestPointOnPolygon(ref blob.Points, obs.PointStart, obs.PointCount, local, out float sqr);
+                if (sqr < clearance * clearance)
+                    return false;
+            }
+            return true;
+        }
+
         public static bool TryProjectOutOfObstacle(in NavContext ctx, float3 worldPos, float radius, out float3 projected)
         {
             projected = worldPos;

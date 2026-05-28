@@ -9,7 +9,7 @@ public enum CombatCameraMode
 
 public class CameraManager : CoreManager
 {
-    private const float MinPerspectiveNearClip = 0.05f;
+    private const float MinNearClip = 0.05f;
 
     private Transform _target;
     private Camera _camera;
@@ -28,6 +28,14 @@ public class CameraManager : CoreManager
     private float _thirdPersonAttackAlignTimer;
     private const float SpringBackDelay = 0.5f;
     private const float SpringBackSpeed = 1.5f;
+
+    // Camera shake. unscaled time을 쓰므로 hitstop 중에도 흔들려 임팩트가 강조된다.
+    private float _shakeTimer;
+    private float _shakeDuration;
+    private float _shakeAmplitude;
+    private float _shakeFrequency;
+    private float _shakeSeedX, _shakeSeedY;
+    private Vector3 _shakeOffset;
 
     // Tactical
     private Vector3 _offset = new(5, 9f, -5f);
@@ -97,6 +105,7 @@ public class CameraManager : CoreManager
 
         cam.transform.SetPositionAndRotation(position, Quaternion.Euler(eulerAngles));
         cam.orthographic = orthographic;
+        ClampNearClip(cam);
         if (orthographic) cam.orthographicSize = orthographicSize;
 
         if (orthographic)
@@ -146,6 +155,24 @@ public class CameraManager : CoreManager
         _springBackTimer = Mathf.Max(_springBackTimer, SpringBackDelay);
     }
 
+    public void Shake(float amplitude, float duration, float frequency = 25f)
+    {
+        if (amplitude <= 0f || duration <= 0f) return;
+
+        // 진행 중인 셰이크보다 약하면 무시. 강한 임팩트가 더 약한 잔존 셰이크에 덮이지 않도록.
+        float remainingAmplitude = _shakeTimer > 0f && _shakeDuration > 0f
+            ? _shakeAmplitude * (_shakeTimer / _shakeDuration)
+            : 0f;
+        if (amplitude < remainingAmplitude) return;
+
+        _shakeAmplitude = amplitude;
+        _shakeDuration = duration;
+        _shakeTimer = duration;
+        _shakeFrequency = frequency > 0f ? frequency : 25f;
+        _shakeSeedX = Random.value * 1000f;
+        _shakeSeedY = Random.value * 1000f;
+    }
+
     private void LateUpdate(float deltaTime)
     {
         UpdateCamera(deltaTime, false);
@@ -179,6 +206,10 @@ public class CameraManager : CoreManager
         Camera cam = MainCamera;
         if (cam == null || _target == null) return;
 
+        // 직전 프레임 셰이크 오프셋을 제거해 base 위치에서 보간이 시작되도록 한다.
+        cam.transform.position -= _shakeOffset;
+        _shakeOffset = Vector3.zero;
+
         bool transitioning = !snap && _transitionProgress < 1f;
 
         if (_mode == CombatCameraMode.ThirdPerson)
@@ -194,14 +225,34 @@ public class CameraManager : CoreManager
                 Vector3.Lerp(_transitionFromPos, cam.transform.position, t),
                 Quaternion.Slerp(_transitionFromRot, cam.transform.rotation, t));
         }
+
+        ApplyShake(cam);
+    }
+
+    private void ApplyShake(Camera cam)
+    {
+        if (_shakeTimer <= 0f) return;
+
+        float udt = Time.unscaledDeltaTime;
+        _shakeTimer = Mathf.Max(0f, _shakeTimer - udt);
+
+        float t = _shakeDuration > 0f ? _shakeTimer / _shakeDuration : 0f;
+        float decay = t * t;
+        float time = Time.unscaledTime * _shakeFrequency;
+        float nx = (Mathf.PerlinNoise(_shakeSeedX, time) - 0.5f) * 2f;
+        float ny = (Mathf.PerlinNoise(_shakeSeedY, time) - 0.5f) * 2f;
+        float amp = _shakeAmplitude * decay;
+
+        // 카메라 로컬 축 기준이라 어떤 시점에서도 화면 좌우/상하로 흔들린다.
+        _shakeOffset = (cam.transform.right * nx + cam.transform.up * ny) * amp;
+        cam.transform.position += _shakeOffset;
     }
 
     private void UpdateThirdPerson(Camera cam, float deltaTime, bool snap)
     {
         cam.usePhysicalProperties = false;
         cam.orthographic = false;
-        if (cam.nearClipPlane < MinPerspectiveNearClip)
-            cam.nearClipPlane = MinPerspectiveNearClip;
+        ClampNearClip(cam);
         cam.fieldOfView = _thirdPersonFov;
         RefreshProjection(cam);
 
@@ -237,6 +288,7 @@ public class CameraManager : CoreManager
     private void UpdateTactical(Camera cam, float deltaTime, bool snap)
     {
         cam.orthographic = true;
+        ClampNearClip(cam);
         if (_tacticalOrthographicSize > 0f)
             cam.orthographicSize = _tacticalOrthographicSize;
         RefreshProjection(cam);
@@ -259,6 +311,12 @@ public class CameraManager : CoreManager
     {
         cam.ResetProjectionMatrix();
         cam.ResetCullingMatrix();
+    }
+
+    private static void ClampNearClip(Camera cam)
+    {
+        if (cam.nearClipPlane < MinNearClip)
+            cam.nearClipPlane = MinNearClip;
     }
 
     private static float GetCameraYaw(Camera cam, float fallbackYaw)

@@ -11,6 +11,11 @@ public class SafeArea : MonoBehaviour
     [SerializeField] private RectTransform _topFiller;
     [SerializeField] private RectTransform _bottomFiller;
 
+    private Rect _lastSafeArea;
+    private int _lastScreenWidth;
+    private int _lastScreenHeight;
+    private bool _hasScreenState;
+
     private void Awake()
     {
         if (_safeAreaPanel == null) _safeAreaPanel = GetComponent<RectTransform>();
@@ -18,17 +23,50 @@ public class SafeArea : MonoBehaviour
 
     private void OnEnable()
     {
+#if UNITY_ANDROID || UNITY_IOS || UNITY_EDITOR
         if (Main.Safe != null)
         {
             Main.Safe.OnSafeAreaChanged += Apply;
-            Apply(Main.Safe.GetCurrentData());
+            RequestSafeAreaUpdate(true);
         }
+#endif
     }
 
     private void OnDisable()
     {
+#if UNITY_ANDROID || UNITY_IOS || UNITY_EDITOR
         if (Main.Instance != null && Main.Safe != null)
             Main.Safe.OnSafeAreaChanged -= Apply;
+#endif
+    }
+
+    private void OnRectTransformDimensionsChange()
+    {
+#if UNITY_ANDROID || UNITY_IOS || UNITY_EDITOR
+        RequestSafeAreaUpdate(false);
+#endif
+    }
+
+    private void RequestSafeAreaUpdate(bool force)
+    {
+        Rect safeArea = Screen.safeArea;
+        int width = Screen.width;
+        int height = Screen.height;
+
+        if (!force
+            && _hasScreenState
+            && safeArea == _lastSafeArea
+            && width == _lastScreenWidth
+            && height == _lastScreenHeight)
+            return;
+
+        _lastSafeArea = safeArea;
+        _lastScreenWidth = width;
+        _lastScreenHeight = height;
+        _hasScreenState = true;
+
+        if (Main.Safe != null)
+            Main.Safe.UpdateSafeArea();
     }
 
     private void Apply(SafeAreaManager.SafeAreaData data)

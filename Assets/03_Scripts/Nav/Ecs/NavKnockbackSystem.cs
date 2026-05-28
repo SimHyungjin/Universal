@@ -108,11 +108,24 @@ namespace MapNav.Ecs
             if (agentRadius <= 0f)
                 return position;
 
-            if (!NavQuery.TryProjectOutOfObstacle(in ctx, position, agentRadius, out float3 projected))
-                return position;
+            float3 current = position;
+            for (int i = 0; i < 3; i++)
+            {
+                if (NavQuery.TryClassify(in ctx, current, tolerance, out _)
+                    && NavQuery.IsClearOfObstaclePadding(in ctx, current, agentRadius))
+                    return current;
 
-            return NavQuery.TryClassify(in ctx, projected, tolerance, out _)
-                ? projected
+                if (!NavQuery.TryProjectOutOfObstacle(in ctx, current, agentRadius, out float3 projected))
+                    break;
+
+                if (!NavQuery.TryClassify(in ctx, projected, tolerance, out _))
+                    break;
+
+                current = projected;
+            }
+
+            return NavQuery.TryClassify(in ctx, current, tolerance, out _)
+                ? current
                 : position;
         }
 
@@ -239,7 +252,7 @@ namespace MapNav.Ecs
         private static bool IsKnockbackPositionSafe(in NavContext ctx, float3 position, float agentRadius, float tolerance)
         {
             return NavQuery.TryClassify(in ctx, position, tolerance, out _)
-                && NavQuery.IsClearOfObstacles(in ctx, position, agentRadius);
+                && NavQuery.IsClearOfObstaclePadding(in ctx, position, agentRadius);
         }
     }
 }

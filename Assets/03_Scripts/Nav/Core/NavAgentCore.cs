@@ -89,13 +89,18 @@ namespace MapNav.Core
         // step only if it moves closer to the nearest nav space.
         public static bool CanMove(
             in NavContext ctx, float3 current, float3 next, float3 waypoint,
-            float boundaryTolerance, float waypointReachDistance)
+            float agentRadius, float boundaryTolerance, float waypointReachDistance)
         {
             if (!ctx.IsValid)
                 return true;
 
             if (NavQuery.TryClassify(in ctx, next, boundaryTolerance, out _))
-                return true;
+            {
+                if (NavQuery.IsClearOfObstaclePadding(in ctx, next, agentRadius))
+                    return true;
+
+                return IsRecoveringOutOfObstaclePadding(in ctx, current, next, agentRadius);
+            }
 
             if (NavQuery.TryClassify(in ctx, waypoint, boundaryTolerance, out NavSpaceRef waypointSpace)
                 && waypointSpace.Kind == NavSpaceKind.Transition
@@ -107,6 +112,25 @@ namespace MapNav.Core
                 return false;
 
             if (!NavQuery.TryProjectToNearestSpace(in ctx, current, out float3 projected, out _))
+                return false;
+
+            float3 currentDelta = projected - current;
+            float3 nextDelta = projected - next;
+            currentDelta.y = 0f;
+            nextDelta.y = 0f;
+            return math.lengthsq(nextDelta) < math.lengthsq(currentDelta);
+        }
+
+        private static bool IsRecoveringOutOfObstaclePadding(
+            in NavContext ctx,
+            float3 current,
+            float3 next,
+            float agentRadius)
+        {
+            if (NavQuery.IsClearOfObstaclePadding(in ctx, current, agentRadius))
+                return false;
+
+            if (!NavQuery.TryProjectOutOfObstacle(in ctx, current, agentRadius, out float3 projected))
                 return false;
 
             float3 currentDelta = projected - current;

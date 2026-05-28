@@ -137,7 +137,7 @@ public sealed class MapNavMonoAgent : MonoBehaviour
         Vector3 next = current + direction * stepDistance;
 
         NavContext ctx = CreateContext();
-        if (!NavAgentCore.CanMove(in ctx, current, next, active.Position, boundaryTolerance, reachDistance))
+        if (!NavAgentCore.CanMove(in ctx, current, next, active.Position, agentRadius, boundaryTolerance, reachDistance))
         {
             AccumulateBlockedStuck();
             ApplyHeightSnap();

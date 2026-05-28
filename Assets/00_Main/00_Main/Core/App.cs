@@ -66,6 +66,9 @@ public static class App
 
     public static void RemoveAllInputs() => Main.Input.RemoveAllInputs();
 
+    public static bool IsInputActive<T>() where T : InputActions
+        => Main.Input.IsActive<T>();
+
     #endregion
 
     #region Camera
@@ -95,6 +98,9 @@ public static class App
 
     public static void AlignThirdPersonCameraToTargetYaw(float duration)
         => Main.Camera?.AlignThirdPersonToTargetYaw(duration);
+
+    public static void ShakeCamera(float amplitude, float duration, float frequency = 25f)
+        => Main.Camera?.Shake(amplitude, duration, frequency);
 
     #endregion
 

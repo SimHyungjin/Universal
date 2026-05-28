@@ -44,11 +44,20 @@ namespace MapNav.Ecs
             ref LocalTransform transform,
             in NavAgentSeparation separation,
             in NavAgentKnockback knockback,
+            in NavAgentAttack attack,
             DynamicBuffer<NavAgentWaypoint> waypoints)
         {
             motion.RepathCooldownRemaining = math.max(0f, motion.RepathCooldownRemaining - DeltaTime);
 
             if (knockback.Timer > 0f || knockback.MotionLockTimer > 0f)
+            {
+                Stop(ref motion);
+                ApplyHeightSnap(ref transform, in settings);
+                return;
+            }
+
+            // 공격 동작(선딜·쿨다운) 중에는 제자리에 멈춘다.
+            if (attack.Phase != NavAttackPhase.Idle)
             {
                 Stop(ref motion);
                 ApplyHeightSnap(ref transform, in settings);
@@ -132,7 +141,15 @@ namespace MapNav.Ecs
 
             float3 nextPosition = current + step;
 
-            if (!CanMoveToConstrainedPosition(in Ctx, current, nextPosition, wp, settings.BoundaryTolerance, reachDistance))
+            if (!TryResolveConstrainedPosition(
+                    in Ctx,
+                    current,
+                    nextPosition,
+                    wp,
+                    settings.AgentRadius,
+                    settings.BoundaryTolerance,
+                    reachDistance,
+                    out nextPosition))
             {
                 AccumulateBlockedRepath(ref motion, ref target, ref request, ref status, in settings);
                 ApplyHeightSnap(ref transform, in settings);
@@ -187,7 +204,17 @@ namespace MapNav.Ecs
                     continue;
                 }
 
-                if (wp.Required == 0 && HasPassedCurrentWaypoint(motion.LastWaypointAnchor, wp.Position, current))
+                bool passedWaypoint = HasPassedCurrentWaypoint(motion.LastWaypointAnchor, wp.Position, current);
+                if (wp.Required == 0 && passedWaypoint)
+                {
+                    motion.LastWaypointAnchor = wp.Position;
+                    motion.WaypointIndex++;
+                    continue;
+                }
+
+                if (wp.Required != 0
+                    && passedWaypoint
+                    && IsCloserToNextWaypoint(current, motion.WaypointIndex, waypoints))
                 {
                     motion.LastWaypointAnchor = wp.Position;
                     motion.WaypointIndex++;
@@ -200,6 +227,22 @@ namespace MapNav.Ecs
 
         private static bool HasPassedCurrentWaypoint(float3 anchor, float3 waypoint, float3 current)
             => NavAgentCore.HasPassedWaypoint(anchor, waypoint, current);
+
+        private static bool IsCloserToNextWaypoint(
+            float3 current,
+            int index,
+            DynamicBuffer<NavAgentWaypoint> waypoints)
+        {
+            int nextIndex = index + 1;
+            if (nextIndex >= waypoints.Length)
+                return false;
+
+            float3 toCurrent = waypoints[index].Position - current;
+            float3 toNext = waypoints[nextIndex].Position - current;
+            toCurrent.y = 0f;
+            toNext.y = 0f;
+            return math.lengthsq(toNext) < math.lengthsq(toCurrent);
+        }
 
         private static float GetReachDistance(in NavAgentSettings settings, in NavAgentWaypoint waypoint)
             => NavAgentCore.GetReachDistance(settings.StopDistance, settings.WaypointAdvanceDistance, waypoint.Required != 0);
@@ -313,8 +356,88 @@ namespace MapNav.Ecs
             float3 current,
             float3 nextPosition,
             float3 waypoint,
+            float agentRadius,
             float tolerance,
             float waypointReachDistance)
-            => NavAgentCore.CanMove(in ctx, current, nextPosition, waypoint, tolerance, waypointReachDistance);
+            => NavAgentCore.CanMove(in ctx, current, nextPosition, waypoint, agentRadius, tolerance, waypointReachDistance);
+
+        private static bool TryResolveConstrainedPosition(
+            in NavContext ctx,
+            float3 current,
+            float3 desired,
+            float3 waypoint,
+            float agentRadius,
+            float tolerance,
+            float waypointReachDistance,
+            out float3 resolved)
+        {
+            resolved = desired;
+            if (CanMoveToConstrainedPosition(in ctx, current, desired, waypoint, agentRadius, tolerance, waypointReachDistance))
+                return true;
+
+            float3 delta = desired - current;
+            delta.y = 0f;
+            float distance = math.length(delta);
+            if (distance <= 1e-4f)
+                return false;
+
+            float3 forward = delta / distance;
+            float3 sideA = new float3(-forward.z, 0f, forward.x);
+            float3 sideB = new float3(forward.z, 0f, -forward.x);
+            float3 progressDir = waypoint - current;
+            progressDir.y = 0f;
+            progressDir = math.normalizesafe(progressDir, forward);
+
+            bool found = false;
+            float bestScore = float.NegativeInfinity;
+            resolved = current;
+
+            ConsiderSlideCandidate(in ctx, current, forward + sideA * 0.8f, distance, progressDir, waypoint,
+                agentRadius, tolerance, waypointReachDistance, ref found, ref bestScore, ref resolved);
+            ConsiderSlideCandidate(in ctx, current, forward + sideB * 0.8f, distance, progressDir, waypoint,
+                agentRadius, tolerance, waypointReachDistance, ref found, ref bestScore, ref resolved);
+            ConsiderSlideCandidate(in ctx, current, sideA, distance * 0.75f, progressDir, waypoint,
+                agentRadius, tolerance, waypointReachDistance, ref found, ref bestScore, ref resolved);
+            ConsiderSlideCandidate(in ctx, current, sideB, distance * 0.75f, progressDir, waypoint,
+                agentRadius, tolerance, waypointReachDistance, ref found, ref bestScore, ref resolved);
+            ConsiderSlideCandidate(in ctx, current, forward, distance * 0.5f, progressDir, waypoint,
+                agentRadius, tolerance, waypointReachDistance, ref found, ref bestScore, ref resolved);
+
+            return found;
+        }
+
+        private static void ConsiderSlideCandidate(
+            in NavContext ctx,
+            float3 current,
+            float3 direction,
+            float distance,
+            float3 progressDir,
+            float3 waypoint,
+            float agentRadius,
+            float tolerance,
+            float waypointReachDistance,
+            ref bool found,
+            ref float bestScore,
+            ref float3 bestPosition)
+        {
+            direction.y = 0f;
+            direction = math.normalizesafe(direction);
+            if (math.lengthsq(direction) <= 1e-6f || distance <= 1e-4f)
+                return;
+
+            float3 candidate = current + direction * distance;
+            if (!CanMoveToConstrainedPosition(in ctx, current, candidate, waypoint, agentRadius, tolerance, waypointReachDistance))
+                return;
+
+            float3 moved = candidate - current;
+            moved.y = 0f;
+            float score = math.dot(moved, progressDir) - math.lengthsq(moved - progressDir * math.dot(moved, progressDir)) * 0.15f;
+            if (found && score <= bestScore)
+                return;
+
+            found = true;
+            bestScore = score;
+            bestPosition = candidate;
+        }
     }
 }

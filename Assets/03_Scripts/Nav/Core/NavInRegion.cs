@@ -194,6 +194,9 @@ namespace MapNav.Core
             for (int oi = 0; oi < region.ObstacleCount; oi++)
             {
                 NavObstacle obs = blob.Obstacles[region.ObstacleStart + oi];
+                if (!ObstacleBoundsContain(in obs, point, 0f))
+                    continue;
+
                 if (NavMath.PolygonContains(ref blob.Points, obs.PointStart, obs.PointCount, point))
                     return true;
             }
@@ -325,14 +328,42 @@ namespace MapNav.Core
 
         private static bool SegmentBlockedByObstacles(ref NavBlob blob, in NavRegion region, float2 a, float2 b, float agentRadius, bool blockTouching)
         {
+            float2 segMin = math.min(a, b);
+            float2 segMax = math.max(a, b);
+
             for (int oi = 0; oi < region.ObstacleCount; oi++)
             {
                 NavObstacle obs = blob.Obstacles[region.ObstacleStart + oi];
                 float clearance = math.max(0f, agentRadius) + obs.CornerPadding;
+                if (!ObstacleBoundsOverlapSegment(in obs, segMin, segMax, clearance))
+                    continue;
+
                 if (SegmentBlockedByPolygon(ref blob, obs.PointStart, obs.PointCount, a, b, clearance, blockTouching))
                     return true;
             }
             return false;
+        }
+
+        private static bool ObstacleBoundsContain(in NavObstacle obstacle, float2 point, float padding)
+        {
+            if (obstacle.HasBounds == 0)
+                return true;
+
+            return point.x >= obstacle.BoundsMin.x - padding
+                && point.x <= obstacle.BoundsMax.x + padding
+                && point.y >= obstacle.BoundsMin.y - padding
+                && point.y <= obstacle.BoundsMax.y + padding;
+        }
+
+        private static bool ObstacleBoundsOverlapSegment(in NavObstacle obstacle, float2 segMin, float2 segMax, float padding)
+        {
+            if (obstacle.HasBounds == 0)
+                return true;
+
+            return segMax.x >= obstacle.BoundsMin.x - padding
+                && segMin.x <= obstacle.BoundsMax.x + padding
+                && segMax.y >= obstacle.BoundsMin.y - padding
+                && segMin.y <= obstacle.BoundsMax.y + padding;
         }
 
         private static bool IsInsideRegionOrBoundary(ref NavBlob blob, in NavRegion region, float2 point)

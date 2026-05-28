@@ -24,6 +24,10 @@ public class Player_Animator : LoopMonoBehaviour
     private void Awake()
     {
         animator ??= GetComponentInChildren<Animator>(true);
+        // Time.timeScale에서 분리 — 월드 정지(timeScale=0) 중에도 플레이어 애니메이션은 재생.
+        // 정지/감속은 animator.speed = PlayerTimeScale로 제어한다.
+        if (animator != null)
+            animator.updateMode = AnimatorUpdateMode.UnscaledTime;
         CacheHashes();
     }
 
@@ -97,7 +101,9 @@ public class Player_Animator : LoopMonoBehaviour
     protected override void OnGameUpdate(float gdt)
     {
         base.OnGameUpdate(gdt);
-        if (animator == null || _isAttacking || _suppressLocomotion) return;
+        if (animator == null) return;
+        animator.speed = Main.Loop.PlayerTimeScale;
+        if (_isAttacking || _suppressLocomotion) return;
 
         bool isMoving = Main.Input.IsActive<InputActions_Move>()
             && InputProvider.Move.Direction.sqrMagnitude > MoveThreshold * MoveThreshold;

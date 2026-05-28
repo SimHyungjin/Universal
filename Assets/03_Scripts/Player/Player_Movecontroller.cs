@@ -4,18 +4,19 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public class Player_Movecontroller : LoopMonoBehaviour
 {
-    private SO_PlayerMoveData moveData;
-
-    private float moveSpeed = 5f;
-    private float rotationSpeed = 12f;
-    private float gravity = -20f;
+    private SO_PlayerStats stats;
+    private SO_LocomotionFeel locomotionFeel;
+    private SO_WorldPhysics worldPhysics;
 
     private CharacterController _cc;
     private Vector3 _planarVelocity;
     private float _verticalVelocity;
     private Vector3 _lungeDirection;
-    private float _lungeSpeed;
+    private float _lungeDistance;
+    private float _lungeDuration;
+    private float _lungeElapsed;
     private float _lungeTimer;
+    private AnimationCurve _lungeSpeedCurve;
 
     public bool IsGrounded => _cc != null && _cc.isGrounded;
     public float VerticalVelocity => _verticalVelocity;
@@ -25,19 +26,46 @@ public class Player_Movecontroller : LoopMonoBehaviour
         _cc = GetComponent<CharacterController>();
     }
 
-    public void SetMoveData(SO_PlayerMoveData data)
+    public void SetMovementData(SO_PlayerStats stats, SO_LocomotionFeel feel, SO_WorldPhysics physics)
     {
-        if (data != null)
-            moveData = data;
+        if (stats != null) this.stats = stats;
+        if (feel != null) this.locomotionFeel = feel;
+        if (physics != null) this.worldPhysics = physics;
     }
 
     public void StartLunge(Vector3 direction, float distance, float duration)
+        => StartLunge(direction, distance, duration, null);
+
+    public void StartLunge(Vector3 direction, AttackLungeData lunge)
+    {
+        if (lunge.moveType == AttackMoveType.None)
+        {
+            StopLunge();
+            return;
+        }
+
+        StartLunge(direction, lunge.distance, lunge.duration, lunge.speedCurve);
+    }
+
+    public void StopLunge()
+    {
+        _lungeTimer = 0f;
+        _lungeElapsed = 0f;
+        _lungeDistance = 0f;
+        _lungeDuration = 0f;
+        _lungeSpeedCurve = null;
+    }
+
+    private void StartLunge(Vector3 direction, float distance, float duration, AnimationCurve speedCurve)
     {
         if (distance <= 0f || duration <= 0f) return;
 
         _lungeDirection = new Vector3(direction.x, 0f, direction.z).normalized;
-        _lungeSpeed = distance / duration;
+        _lungeDistance = distance;
+        _lungeDuration = duration;
+        _lungeElapsed = 0f;
         _lungeTimer = duration;
+        _lungeSpeedCurve = speedCurve;
     }
 
     public void TickLocomotion(Vector3 input, float deltaTime)
@@ -66,6 +94,17 @@ public class Player_Movecontroller : LoopMonoBehaviour
     public void MoveVertical(float deltaTime)
     {
         TickGravity(deltaTime);
+        _cc.Move(new Vector3(0f, _verticalVelocity * deltaTime, 0f));
+    }
+
+    public void MoveVerticalUntilApexThenSuspend(float deltaTime)
+    {
+        if (_verticalVelocity > 0f)
+            TickGravity(deltaTime);
+
+        if (_verticalVelocity < 0f)
+            _verticalVelocity = 0f;
+
         _cc.Move(new Vector3(0f, _verticalVelocity * deltaTime, 0f));
     }
 
@@ -100,13 +139,40 @@ public class Player_Movecontroller : LoopMonoBehaviour
         Rotate(direction, deltaTime);
     }
 
-    protected override void OnUpdate(float dt)
+    protected override void OnGameUpdate(float gdt)
     {
-        base.OnUpdate(dt);
+        base.OnGameUpdate(gdt);
         if (_lungeTimer <= 0f) return;
 
-        _lungeTimer -= dt;
-        _cc.Move(_lungeDirection * _lungeSpeed * dt);
+        float previousElapsed = _lungeElapsed;
+        _lungeElapsed = Mathf.Min(_lungeDuration, _lungeElapsed + gdt);
+        _lungeTimer = Mathf.Max(0f, _lungeDuration - _lungeElapsed);
+
+        float previousT = _lungeDuration > 0f ? previousElapsed / _lungeDuration : 1f;
+        float currentT = _lungeDuration > 0f ? _lungeElapsed / _lungeDuration : 1f;
+        float previousDistanceT = EvaluateLungeDistanceT(previousT);
+        float currentDistanceT = EvaluateLungeDistanceT(currentT);
+        float distanceDelta = Mathf.Max(0f, currentDistanceT - previousDistanceT) * _lungeDistance;
+
+        _cc.Move(_lungeDirection * distanceDelta);
+    }
+
+    private float EvaluateLungeDistanceT(float t)
+    {
+        if (!HasUsableLungeCurve())
+            return t;
+
+        return Mathf.Clamp01(_lungeSpeedCurve.Evaluate(t));
+    }
+
+    private bool HasUsableLungeCurve()
+    {
+        if (_lungeSpeedCurve == null || _lungeSpeedCurve.length < 2)
+            return false;
+
+        float start = _lungeSpeedCurve.Evaluate(0f);
+        float end = _lungeSpeedCurve.Evaluate(1f);
+        return end > start + 0.0001f;
     }
 
     private void Rotate(Vector3 input, float deltaTime)
@@ -130,10 +196,10 @@ public class Player_Movecontroller : LoopMonoBehaviour
         return Vector3.ClampMagnitude((right * input.x) + (forward * input.y), 1f);
     }
 
-    private float MaxSpeed => moveData != null ? moveData.MaxSpeed : moveSpeed;
-    private float Acceleration => moveData != null ? moveData.Acceleration : 1000f;
-    private float Deceleration => moveData != null ? moveData.Deceleration : 1000f;
-    private float RotationInterpolationSpeed => moveData != null ? moveData.RotationInterpolationSpeed : rotationSpeed;
-    private float Gravity => moveData != null ? moveData.Gravity : gravity;
-    private float GroundedStickVelocity => moveData != null ? moveData.GroundedStickVelocity : -1f;
+    private float MaxSpeed => stats != null ? stats.MoveSpeed : 5f;
+    private float Acceleration => locomotionFeel != null ? locomotionFeel.Acceleration : 80f;
+    private float Deceleration => locomotionFeel != null ? locomotionFeel.Deceleration : 100f;
+    private float RotationInterpolationSpeed => locomotionFeel != null ? locomotionFeel.RotationInterpolationSpeed : 30f;
+    private float Gravity => worldPhysics != null ? worldPhysics.Gravity : -15f;
+    private float GroundedStickVelocity => worldPhysics != null ? worldPhysics.GroundedStickVelocity : -1f;
 }

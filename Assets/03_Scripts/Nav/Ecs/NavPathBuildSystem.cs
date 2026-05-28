@@ -33,17 +33,31 @@ namespace MapNav.Ecs
             {
                 foreach ((
                     RefRW<NavAgentPathRequest> request,
+                    RefRW<NavAgentTarget> target,
                     RefRO<NavAgentSettings> settings,
                     RefRW<NavAgentMotion> motion,
                     RefRW<NavAgentPathStatus> status,
+                    RefRO<NavAgentDeath> death,
                     DynamicBuffer<NavAgentWaypoint> waypoints)
                     in SystemAPI.Query<
                         RefRW<NavAgentPathRequest>,
+                        RefRW<NavAgentTarget>,
                         RefRO<NavAgentSettings>,
                         RefRW<NavAgentMotion>,
                         RefRW<NavAgentPathStatus>,
+                        RefRO<NavAgentDeath>,
                         DynamicBuffer<NavAgentWaypoint>>())
                 {
+                    if (death.ValueRO.Dying != 0)
+                    {
+                        request.ValueRW.Pending = 0;
+                        status.ValueRW.HasPath = 0;
+                        status.ValueRW.Waiting = 0;
+                        status.ValueRW.Failed = 0;
+                        waypoints.Clear();
+                        continue;
+                    }
+
                     if (request.ValueRO.Pending == 0) continue;
 
                     if (budget <= 0)
@@ -54,7 +68,7 @@ namespace MapNav.Ecs
 
                     budget--;
                     status.ValueRW.Waiting = 0;
-                    waypoints.Clear();
+                    bool hadExistingPath = status.ValueRO.HasPath != 0 && waypoints.Length > 0;
 
                     float3 actualStart = request.ValueRO.ActualStartWorld;
                     float3 startWorld = request.ValueRO.StartWorld;
@@ -68,6 +82,8 @@ namespace MapNav.Ecs
 
                     if (built)
                     {
+                        waypoints.Clear();
+
                         if (NeedsRecoveryWaypoint(actualStart, startWorld, settings.ValueRO.StopDistance))
                             waypoints.Add(new NavAgentWaypoint { Position = startWorld, Required = 1 });
 
@@ -84,6 +100,9 @@ namespace MapNav.Ecs
                         status.ValueRW.HasPath = (byte)(waypoints.Length > 0 ? 1 : 0);
                         status.ValueRW.Waiting = 0;
                         status.ValueRW.Failed = 0;
+                        target.ValueRW.AcceptedPosition = targetWorld;
+                        target.ValueRW.Position = targetWorld;
+                        target.ValueRW.Dirty = 0;
                         motion.ValueRW.WaypointIndex = 0;
                         motion.ValueRW.LastWaypointAnchor = actualStart;
                         motion.ValueRW.LastDistanceToWaypoint = 0f;
@@ -91,9 +110,18 @@ namespace MapNav.Ecs
                     }
                     else
                     {
-                        status.ValueRW.HasPath = 0;
+                        if (!hadExistingPath)
+                        {
+                            waypoints.Clear();
+                            status.ValueRW.HasPath = 0;
+                            status.ValueRW.Failed = 1;
+                        }
+                        else
+                        {
+                            status.ValueRW.HasPath = 1;
+                            status.ValueRW.Failed = 0;
+                        }
                         status.ValueRW.Waiting = 0;
-                        status.ValueRW.Failed = 1;
                     }
 
                     request.ValueRW.Pending = 0;

@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
 using UnityEngine.EventSystems;
-using UnityEngine.InputSystem.EnhancedTouch;
 
 /// <summary>
 /// InputSystem_Actions는 Unity Input Actions 에셋에서 자동 생성되는 클래스입니다.
@@ -26,7 +25,6 @@ public class InputManager : CoreManager
     protected override async UniTask OnInitializeAsync()
     {
         await base.OnInitializeAsync();
-        EnhancedTouchSupport.Enable();
         SubscribeUpdate();
     }
 

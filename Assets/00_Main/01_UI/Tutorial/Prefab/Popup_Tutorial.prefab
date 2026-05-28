@@ -2207,6 +2207,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 5024479811337994592, guid: 59ff8693b6e77fd4294cc90c72ee6c1e, type: 3}
       insertIndex: -1
       addedObject: {fileID: 4840639584665662459}
+    - targetCorrespondingSourceObject: {fileID: 5024479811337994592, guid: 59ff8693b6e77fd4294cc90c72ee6c1e, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 8176342833123337530}
   m_SourcePrefab: {fileID: 100100000, guid: 59ff8693b6e77fd4294cc90c72ee6c1e, type: 3}
 --- !u!224 &3169024080280031986 stripped
 RectTransform:
@@ -2250,3 +2253,20 @@ MonoBehaviour:
   _dotPrefab: {fileID: 6080664480705626151}
   _dotActiveColor: {r: 1, g: 1, b: 1, a: 1}
   _dotInactiveColor: {r: 1, g: 1, b: 1, a: 0.3}
+--- !u!114 &8176342833123337530
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7660956556712090999}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c6605f2f6d54f6a469d2795041234f49, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SafeArea
+  _safeAreaPanel: {fileID: 1636302804255238234}
+  _leftFiller: {fileID: 0}
+  _rightFiller: {fileID: 0}
+  _topFiller: {fileID: 0}
+  _bottomFiller: {fileID: 0}

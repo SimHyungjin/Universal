@@ -42,7 +42,7 @@ namespace MapNav.Baking
             for (int i = 0; i < transitionEdges.Length; i++)
                 transitionEdges[i] = new List<NavEdge>();
 
-            AddTransitionEdges(regionData, transitionData, points, regionEdges, transitionEdges);
+            AddTransitionEdges(shapeEntries, regionData, transitionData, points, regionEdges, transitionEdges);
 
             return CreateBlob(points, regionData, transitionData, obstacleData, regionEdges, transitionEdges, allocator);
         }
@@ -305,6 +305,7 @@ namespace MapNav.Baking
         }
 
         private static void AddTransitionEdges(
+            List<ShapeEntry> entries,
             NavRegion[] regionData,
             NavTransition[] transitionData,
             List<float2> points,
@@ -324,49 +325,254 @@ namespace MapNav.Baking
 
                 GetTransitionEndpointPortals(trans, points, out float2 fromA, out float2 fromB, out float2 toA, out float2 toB);
 
-                regionEdges[fromIdx].Add(new NavEdge
-                {
-                    ToKind = NavSpaceKind.Transition,
-                    ToId = trans.Id,
-                    PortalLocalA = fromA,
-                    PortalLocalB = fromB,
-                    Cost = trans.Cost,
-                    PortalHeight = trans.FromHeight
-                });
-
-                transitionEdges[t].Add(new NavEdge
-                {
-                    ToKind = NavSpaceKind.Region,
-                    ToId = trans.ToRegionId,
-                    PortalLocalA = toA,
-                    PortalLocalB = toB,
-                    Cost = trans.Cost,
-                    PortalHeight = trans.ToHeight
-                });
+                AddRegionTransitionEdges(entries, regionData, points, trans.FromRegionId, trans.Id, fromA, fromB,
+                    trans.Cost, trans.FromHeight, regionEdges, fallbackRegionIndex: fromIdx);
+                AddTransitionRegionEdges(entries, regionData, points, trans.ToRegionId, toA, toB,
+                    trans.Cost, trans.ToHeight, transitionEdges[t], fallbackRegionIndex: toIdx);
 
                 if (trans.Bidirectional == 0)
                     continue;
 
-                regionEdges[toIdx].Add(new NavEdge
+                AddRegionTransitionEdges(entries, regionData, points, trans.ToRegionId, trans.Id, toA, toB,
+                    trans.Cost, trans.ToHeight, regionEdges, fallbackRegionIndex: toIdx);
+                AddTransitionRegionEdges(entries, regionData, points, trans.FromRegionId, fromA, fromB,
+                    trans.Cost, trans.FromHeight, transitionEdges[t], fallbackRegionIndex: fromIdx);
+            }
+        }
+
+        private static void AddRegionTransitionEdges(
+            List<ShapeEntry> entries,
+            NavRegion[] regionData,
+            List<float2> points,
+            int logicalRegionId,
+            int transitionId,
+            float2 portalA,
+            float2 portalB,
+            float cost,
+            float portalHeight,
+            List<NavEdge>[] regionEdges,
+            int fallbackRegionIndex)
+        {
+            bool added = false;
+            for (int i = 0; i < regionData.Length; i++)
+            {
+                if (entries[i].Region.Id != logicalRegionId)
+                    continue;
+
+                if (!PortalTouchesRegion(regionData[i], points, portalA, portalB))
+                    continue;
+
+                regionEdges[i].Add(new NavEdge
                 {
                     ToKind = NavSpaceKind.Transition,
-                    ToId = trans.Id,
-                    PortalLocalA = toA,
-                    PortalLocalB = toB,
-                    Cost = trans.Cost,
-                    PortalHeight = trans.ToHeight
+                    ToId = transitionId,
+                    PortalLocalA = portalA,
+                    PortalLocalB = portalB,
+                    Cost = cost,
+                    PortalHeight = portalHeight
                 });
+                added = true;
+            }
 
-                transitionEdges[t].Add(new NavEdge
+            if (added)
+                return;
+
+            regionEdges[fallbackRegionIndex].Add(new NavEdge
+            {
+                ToKind = NavSpaceKind.Transition,
+                ToId = transitionId,
+                PortalLocalA = portalA,
+                PortalLocalB = portalB,
+                Cost = cost,
+                PortalHeight = portalHeight
+            });
+        }
+
+        private static void AddTransitionRegionEdges(
+            List<ShapeEntry> entries,
+            NavRegion[] regionData,
+            List<float2> points,
+            int logicalRegionId,
+            float2 portalA,
+            float2 portalB,
+            float cost,
+            float portalHeight,
+            List<NavEdge> transitionEdges,
+            int fallbackRegionIndex)
+        {
+            bool added = false;
+            for (int i = 0; i < regionData.Length; i++)
+            {
+                if (entries[i].Region.Id != logicalRegionId)
+                    continue;
+
+                if (!PortalTouchesRegion(regionData[i], points, portalA, portalB))
+                    continue;
+
+                transitionEdges.Add(new NavEdge
                 {
                     ToKind = NavSpaceKind.Region,
-                    ToId = trans.FromRegionId,
-                    PortalLocalA = fromA,
-                    PortalLocalB = fromB,
-                    Cost = trans.Cost,
-                    PortalHeight = trans.FromHeight
+                    ToId = regionData[i].Id,
+                    PortalLocalA = portalA,
+                    PortalLocalB = portalB,
+                    Cost = cost,
+                    PortalHeight = portalHeight
                 });
+                added = true;
             }
+
+            if (added)
+                return;
+
+            transitionEdges.Add(new NavEdge
+            {
+                ToKind = NavSpaceKind.Region,
+                ToId = regionData[fallbackRegionIndex].Id,
+                PortalLocalA = portalA,
+                PortalLocalB = portalB,
+                Cost = cost,
+                PortalHeight = portalHeight
+            });
+        }
+
+        private static bool PortalTouchesRegion(NavRegion region, List<float2> points, float2 portalA, float2 portalB)
+        {
+            const float tolerance = MapNavigationRegionLinkUtility.LineTolerance;
+            if (region.HasBounds == 0 || region.PointCount < 3)
+                return false;
+
+            float2 segMin = math.min(portalA, portalB);
+            float2 segMax = math.max(portalA, portalB);
+            if (segMax.x < region.BoundsMin.x - tolerance
+                || segMin.x > region.BoundsMax.x + tolerance
+                || segMax.y < region.BoundsMin.y - tolerance
+                || segMin.y > region.BoundsMax.y + tolerance)
+                return false;
+
+            if (ContainsRegionPoint(region, points, portalA)
+                || ContainsRegionPoint(region, points, portalB)
+                || ContainsRegionPoint(region, points, (portalA + portalB) * 0.5f))
+                return true;
+
+            float toleranceSq = tolerance * tolerance;
+            int previous = region.PointCount - 1;
+            for (int i = 0; i < region.PointCount; previous = i++)
+            {
+                float2 edgeA = points[region.PointStart + previous];
+                float2 edgeB = points[region.PointStart + i];
+                if (SegmentsIntersect(portalA, portalB, edgeA, edgeB))
+                    return true;
+
+                if (SegmentDistanceSq(portalA, portalB, edgeA, edgeB) <= toleranceSq)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool ContainsRegionPoint(NavRegion region, List<float2> points, float2 point)
+        {
+            const float tolerance = MapNavigationRegionLinkUtility.LineTolerance;
+            if (point.x < region.BoundsMin.x - tolerance
+                || point.x > region.BoundsMax.x + tolerance
+                || point.y < region.BoundsMin.y - tolerance
+                || point.y > region.BoundsMax.y + tolerance)
+                return false;
+
+            if (PolygonContains(points, region.PointStart, region.PointCount, point))
+                return true;
+
+            float toleranceSq = tolerance * tolerance;
+            int previous = region.PointCount - 1;
+            for (int i = 0; i < region.PointCount; previous = i++)
+            {
+                if (DistanceToSegmentSq(point, points[region.PointStart + previous], points[region.PointStart + i]) <= toleranceSq)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool PolygonContains(List<float2> points, int start, int count, float2 point)
+        {
+            bool inside = false;
+            int previous = count - 1;
+            for (int i = 0; i < count; previous = i++)
+            {
+                float2 a = points[start + i];
+                float2 b = points[start + previous];
+                bool crosses = (a.y > point.y) != (b.y > point.y);
+                if (!crosses)
+                    continue;
+
+                float dy = b.y - a.y;
+                if (math.abs(dy) <= 1e-5f)
+                    continue;
+
+                float x = (b.x - a.x) * (point.y - a.y) / dy + a.x;
+                if (point.x < x)
+                    inside = !inside;
+            }
+
+            return inside;
+        }
+
+        private static float SegmentDistanceSq(float2 a0, float2 a1, float2 b0, float2 b1)
+        {
+            if (SegmentsIntersect(a0, a1, b0, b1))
+                return 0f;
+
+            float d0 = DistanceToSegmentSq(a0, b0, b1);
+            float d1 = DistanceToSegmentSq(a1, b0, b1);
+            float d2 = DistanceToSegmentSq(b0, a0, a1);
+            float d3 = DistanceToSegmentSq(b1, a0, a1);
+            return math.min(math.min(d0, d1), math.min(d2, d3));
+        }
+
+        private static float DistanceToSegmentSq(float2 point, float2 a, float2 b)
+        {
+            float2 ab = b - a;
+            float lenSq = math.lengthsq(ab);
+            if (lenSq <= 1e-5f)
+                return math.lengthsq(point - a);
+
+            float t = math.clamp(math.dot(point - a, ab) / lenSq, 0f, 1f);
+            float2 closest = a + ab * t;
+            return math.lengthsq(point - closest);
+        }
+
+        private static bool SegmentsIntersect(float2 p1, float2 p2, float2 q1, float2 q2)
+        {
+            const float epsilon = 1e-5f;
+            float2 r = p2 - p1;
+            float2 s = q2 - q1;
+            float rxs = Cross(r, s);
+            float2 qp = q1 - p1;
+
+            if (math.abs(rxs) < epsilon)
+            {
+                if (math.abs(Cross(qp, r)) > epsilon)
+                    return false;
+
+                float rr = math.lengthsq(r);
+                if (rr < epsilon)
+                    return math.lengthsq(q1 - p1) < epsilon || math.lengthsq(q2 - p1) < epsilon;
+
+                float t0 = math.dot(q1 - p1, r) / rr;
+                float t1 = math.dot(q2 - p1, r) / rr;
+                if (t0 > t1)
+                    (t0, t1) = (t1, t0);
+                return t0 <= 1f + epsilon && t1 >= -epsilon;
+            }
+
+            float t = Cross(qp, s) / rxs;
+            float u = Cross(qp, r) / rxs;
+            return t >= -epsilon && t <= 1f + epsilon && u >= -epsilon && u <= 1f + epsilon;
+        }
+
+        private static float Cross(float2 a, float2 b)
+        {
+            return a.x * b.y - a.y * b.x;
         }
 
         private static void GetTransitionEndpointPortals(

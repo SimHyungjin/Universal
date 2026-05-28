@@ -77,7 +77,6 @@ namespace MapNav.Ecs
                 request.ValueRW.ActualStartWorld = actualStart;
                 request.ValueRW.TargetWorld = targetWorld;
                 target.ValueRW.Dirty = 0;
-                target.ValueRW.AcceptedPosition = targetWorld;
                 status.ValueRW.Waiting = 1;
                 status.ValueRW.Failed = 0;
             }

@@ -15,18 +15,38 @@ MonoBehaviour:
   m_GroupName: Default Local Group
   m_GUID: b7fcf51853aaec34fa920d50aeede438
   m_SerializeEntries:
+  - m_GUID: 063091fcdabad66489d9c94721816c86
+    m_Address: Slash_A
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 110d0f382b989064282d78b391ed0f26
+    m_Address: Hud_GameScene
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 2e32f93f5ce765e47b0cabd37ce2b73d
+    m_Address: cfxr stretch fire crisp fade hdr ab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 5d80fc8567abfcb42aa39483b8b2b535
     m_Address: Popup_Tutorial
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 8c67a0e220d3cab498f84fbe32c74fa9
-    m_Address: CFXR Hit A (Red)
+  - m_GUID: a74bfffe7054ff74c90d5aba303d6c85
+    m_Address: CFXR Water Ripples2
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: b9e3352958d4d52409da2cd516d0ee06
-    m_Address: CFXR Hit D 3D (Yellow)
+  - m_GUID: be9b8ba3feb70b34e837e229b61ce473
+    m_Address: FX_Weapon Effect
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: c3e459f187beae14f83d6af43a7b2089
+    m_Address: CFXR Water Ripples
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -35,8 +55,18 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: f38a4dd274e84f44a81f3626935dad78
+    m_Address: Unit_Enemy
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: f491bd12ba7d5244ca5b8c1eddaf5e6b
     m_Address: Player
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: f86941387364c7142b883407bbe485d1
+    m_Address: Unit_Ally
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

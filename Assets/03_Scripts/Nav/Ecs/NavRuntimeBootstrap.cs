@@ -7,6 +7,7 @@ using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace MapNav.Ecs
 {
@@ -15,18 +16,24 @@ namespace MapNav.Ecs
     {
         [SerializeField] private MapNavigationAuthoring map;
         [SerializeField] private bool spawnAgents = true;
-        [SerializeField] private int agentCount = 25;
+        [FormerlySerializedAs("agentCount")]
+        [SerializeField] private int enemyAgentCount = 25;
+        [SerializeField] private int allyAgentCount = 8;
         [SerializeField] private int maxSampleAttempts = 64;
 
-        [Header("Agent settings")]
-        [SerializeField] private float agentRadius = 0.35f;
-        [SerializeField] private float stopDistance = 0.08f;
-        [SerializeField] private float moveSpeed = 3.5f;
+        [Header("Unit stats")]
+        [SerializeField] private SO_UnitStats unitStats;
+        [SerializeField] private float attackRangeRandomMin = 0.9f;
+        [SerializeField] private float attackRangeRandomMax = 1.1f;
+
+        [Header("Pathfinding tuning")]
         [SerializeField] private float waypointAdvanceDistance = 0.35f;
         [SerializeField] private float cornerLookAheadDistance;
         [SerializeField] private float heightOffset;
         [SerializeField] private float boundaryTolerance = 0.05f;
         [SerializeField] private float targetRepathDistance = 0.15f;
+        [SerializeField] private float movingTargetRepathDistance = 0.75f;
+        [SerializeField] private float movingTargetRepathInterval = 0.2f;
         [SerializeField] private float stuckRepathDelay = 0.75f;
         [SerializeField] private float stuckRepathCooldown = 1.5f;
         [SerializeField] private float stuckProgressDistance = 0.03f;
@@ -300,7 +307,7 @@ namespace MapNav.Ecs
             {
                 NavTransition t = b.Transitions[i];
                 int outEdges = b.TransitionEdgeRange[i].y;
-                Debug.Log($"  Transition id={t.Id} from={t.FromRegionId} to={t.ToRegionId} type={t.Type} bidir={t.Bidirectional} enabled={t.Enabled} outEdges={outEdges}", this);
+                //Debug.Log($"  Transition id={t.Id} from={t.FromRegionId} to={t.ToRegionId} type={t.Type} bidir={t.Bidirectional} enabled={t.Enabled} outEdges={outEdges}", this);
             }
         }
 
@@ -336,7 +343,15 @@ namespace MapNav.Ecs
             if (_candidateRegions.Count == 0) return 0;
 
             int spawned = 0;
-            for (int i = 0; i < math.max(0, agentCount); i++)
+            spawned += SpawnFaction(em, NavFaction.Ally, allyAgentCount);
+            spawned += SpawnFaction(em, NavFaction.Enemy, enemyAgentCount);
+            return spawned;
+        }
+
+        private int SpawnFaction(EntityManager em, NavFaction faction, int count)
+        {
+            int spawned = 0;
+            for (int i = 0; i < math.max(0, count); i++)
             {
                 if (!TrySamplePoint(out Vector3 pos)) continue;
 
@@ -348,35 +363,55 @@ namespace MapNav.Ecs
                     typeof(NavAgentPathRequest),
                     typeof(NavAgentPathStatus),
                     typeof(NavAgentSeparation),
-                    typeof(NavAgentKnockback));
+                    typeof(NavAgentKnockback),
+                    typeof(NavAgentLaunch),
+                    typeof(NavAgentHealth),
+                    typeof(NavAgentDeath),
+                    typeof(NavAgentFaction),
+                    typeof(NavAgentAttack),
+                    typeof(NavAgentAttackProfile),
+                    typeof(NavAgentCombatTarget));
 
                 em.SetComponentData(e, LocalTransform.FromPositionRotationScale(pos, quaternion.identity, 1f));
-                em.SetComponentData(e, CreateSettings());
+                em.SetComponentData(e, CreateSettings(UnityEngine.Random.Range(
+                    math.min(attackRangeRandomMin, attackRangeRandomMax),
+                    math.max(attackRangeRandomMin, attackRangeRandomMax))));
+                float health = math.max(1f, AgentMaxHealth);
+                em.SetComponentData(e, new NavAgentHealth { Max = health, Current = health });
+                em.SetComponentData(e, new NavAgentFaction { Faction = faction });
+                em.SetComponentData(e, BakeAttackProfile(EnemyAttack, AttackPower));
                 em.AddBuffer<NavAgentWaypoint>(e);
                 spawned++;
             }
             return spawned;
         }
 
-        private NavAgentSettings CreateSettings()
+        private NavAgentSettings CreateSettings(float attackRangeMultiplier = 1f)
         {
             return new NavAgentSettings
             {
-                AgentRadius = math.max(0f, agentRadius),
-                StopDistance = math.max(0f, stopDistance),
-                MoveSpeed = math.max(0f, moveSpeed),
+                AgentRadius = math.max(0f, AgentRadius),
+                StopDistance = math.max(0f, StopDistance),
+                MoveSpeed = math.max(0f, MoveSpeed),
                 WaypointAdvanceDistance = math.max(0f, waypointAdvanceDistance),
                 CornerLookAheadDistance = math.max(0f, cornerLookAheadDistance),
                 HeightOffset = heightOffset,
                 BoundaryTolerance = math.max(0f, boundaryTolerance),
                 TargetRepathDistance = math.max(0f, targetRepathDistance),
+                TargetRefreshDistance = math.max(targetRepathDistance, movingTargetRepathDistance),
+                TargetRefreshInterval = math.max(0f, movingTargetRepathInterval),
                 StuckRepathDelay = math.max(0f, stuckRepathDelay),
                 StuckRepathCooldown = math.max(0f, stuckRepathCooldown),
                 StuckProgressDistance = math.max(0f, stuckProgressDistance),
                 SeparationRadius = math.max(0f, separationRadius),
                 SeparationStrength = math.max(0f, separationStrength),
                 SeparationMaxNeighbors = math.max(0, separationMaxNeighbors),
-                StuckRetryLimit = math.max(0, stuckRetryLimit)
+                StuckRetryLimit = math.max(0, stuckRetryLimit),
+                AttackDamage = math.max(0f, AttackDamage),
+                AttackRange = math.max(0f, AttackRange * math.max(0f, attackRangeMultiplier)),
+                AttackWindup = math.max(0f, AttackWindup),
+                AttackCooldown = math.max(0f, AttackCooldown),
+                Defense = math.max(0f, Defense)
             };
         }
 
@@ -395,7 +430,7 @@ namespace MapNav.Ecs
 
         private bool TrySamplePoint(out Vector3 worldPosition)
         {
-            float clearance = math.max(0f, agentRadius);
+            float clearance = math.max(0f, AgentRadius);
             int attemptsPerRegion = math.max(1, maxSampleAttempts / math.max(1, _candidateRegions.Count));
             for (int outer = 0; outer < maxSampleAttempts; outer++)
             {
@@ -408,6 +443,67 @@ namespace MapNav.Ecs
             }
             worldPosition = default;
             return false;
+        }
+
+        private float AgentRadius => unitStats != null ? unitStats.AgentRadius : 0.35f;
+        private float StopDistance => unitStats != null ? unitStats.StopDistance : 0.08f;
+        private float MoveSpeed => unitStats != null ? unitStats.MoveSpeed : 3.5f;
+        private float AgentMaxHealth => unitStats != null ? unitStats.MaxHealth : 30f;
+        private float AttackPower => unitStats != null ? unitStats.AttackPower : 0f;
+        private float Defense => unitStats != null ? unitStats.Defense : 0f;
+        private SO_AttackData EnemyAttack => unitStats != null ? unitStats.EnemyAttack : null;
+        private float AttackDamage => EnemyAttack != null ? EnemyAttack.Damage : 5f;
+        private float AttackRange => EnemyAttack != null ? EnemyAttack.Hitbox.offset + AttackShapeUtility.GetPlanarReach(EnemyAttack.Shape) : 1.4f;
+        private float AttackWindup => EnemyAttack != null ? EnemyAttack.Duration * EnemyAttack.Hitbox.timing : 0.4f;
+        private float AttackCooldown => EnemyAttack != null ? EnemyAttack.Duration * (1f - EnemyAttack.Hitbox.timing) : 1.2f;
+
+        private static NavAgentAttackProfile BakeAttackProfile(SO_AttackData attack, float attackerAttackPower)
+        {
+            if (attack == null) return default;
+            FixedString64Bytes vfx = default;
+            string vfxAddress = attack.HitVfxAddress;
+            if (!string.IsNullOrEmpty(vfxAddress))
+            {
+                // FixedString64Bytes 용량 초과 문자열은 잘려나감. 어드레서블 키가 60자 이상이면 더 큰 FixedString 검토 필요.
+                vfx = new FixedString64Bytes();
+                vfx.Append(vfxAddress);
+            }
+
+            FixedString64Bytes attackStateName = default;
+            string animStateName = attack.Animation.stateName;
+            if (!string.IsNullOrEmpty(animStateName))
+            {
+                attackStateName = new FixedString64Bytes();
+                attackStateName.Append(animStateName);
+            }
+
+            return new NavAgentAttackProfile
+            {
+                Damage = CombatFormula.ScaleAttackDamage(attackerAttackPower, attack.Damage),
+                KnockbackType = attack.Knockback.type,
+                KnockbackForce = attack.Knockback.force,
+                KnockbackDuration = attack.Knockback.duration,
+                KnockbackFriction = attack.Knockback.friction,
+                HitstopDuration = attack.Hitstop.duration,
+                HitstopTimeScale = attack.Hitstop.timeScale,
+                IsDownAttack = (byte)(attack.Down.enabled ? 1 : 0),
+                DownDuration = attack.Down.duration,
+                Shape = attack.Shape.type,
+                HitboxOffset = attack.Hitbox.offset,
+                HitboxYOffset = attack.Hitbox.yOffset,
+                HitboxVerticalTolerance = attack.Hitbox.verticalTolerance,
+                ShapeRadius = attack.Shape.radius,
+                ShapeAngle = attack.Shape.angle,
+                ShapeLength = attack.Shape.length,
+                ShapeWidth = attack.Shape.width,
+                SuperArmor = attack.SuperArmor,
+                SuperArmorBreak = attack.SuperArmorBreak,
+                HitType = attack.HitType,
+                HitSfx = attack.HitSfx,
+                HitVfxAddress = vfx,
+                AttackStateName = attackStateName,
+                AttackTransition = attack.Animation.transition
+            };
         }
 
         private void SetStatus(string s)

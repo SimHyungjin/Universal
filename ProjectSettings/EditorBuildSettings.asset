@@ -5,12 +5,9 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 0
-    path: Assets/New Folder/Scenes/Loader.unity
-    guid: a2bcfd0088dab57498427eb47330d215
-  - enabled: 0
-    path: Assets/New Folder/Scenes/Demo.unity
-    guid: 23d8661265deed742959416ea58475f7
+  - enabled: 1
+    path: Assets/02_Scenes/GameScene.unity
+    guid: ab7c805908109b642ae1c15b1877b0fb
   m_configObjects:
     com.unity.addressableassets: {fileID: 11400000, guid: 1f88b4a6c4735184ea4be8d2ff0b149d, type: 2}
   m_UseUCBPForAssetBundles: 0

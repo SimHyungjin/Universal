@@ -25,6 +25,8 @@ public class SafeAreaManager : CoreManager
         Rect safeArea = Screen.safeArea;
         float w = Screen.width;
         float h = Screen.height;
+        if (w <= 0f || h <= 0f)
+            return;
 
         Vector2 min = safeArea.position;
         Vector2 max = safeArea.position + safeArea.size;

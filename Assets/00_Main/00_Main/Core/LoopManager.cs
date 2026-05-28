@@ -46,7 +46,11 @@ public class LoopManager : PrimaryManager
 
     #region Properties
 
-    public float GameSpeed { get; private set; } = 1f;
+    // 월드(ECS·적·물리) 시간 배율 — Time.timeScale과 연동.
+    public float WorldTimeScale { get; private set; } = 1f;
+
+    // 플레이어 전용 시간 배율 — Time.timeScale과 무관하게 독립 동작.
+    public float PlayerTimeScale { get; private set; } = 1f;
 
     #endregion
 
@@ -62,7 +66,7 @@ public class LoopManager : PrimaryManager
 
     public void Update(float deltaTime) => OnUpdate?.Invoke(deltaTime);
 
-    public void GameUpdate(float deltaTime) => OnGameUpdate?.Invoke(deltaTime * GameSpeed);
+    public void GameUpdate(float deltaTime) => OnGameUpdate?.Invoke(deltaTime * PlayerTimeScale);
 
     public void LateUpdate(float deltaTime) => OnLateUpdate?.Invoke(deltaTime);
 
@@ -81,20 +85,29 @@ public class LoopManager : PrimaryManager
         return seq;
     }
 
-    public void SetGameSpeed(float gameSpeed)
+    /// <summary>월드·플레이어 시간 배율을 동일하게 설정합니다. (히트스톱·일시정지 등 둘 다 멈추는 경우)</summary>
+    public void SetGameSpeed(float gameSpeed) => SetTimeScales(gameSpeed, gameSpeed);
+
+    /// <summary>월드와 플레이어 시간 배율을 개별 설정합니다.</summary>
+    public void SetTimeScales(float worldScale, float playerScale)
     {
-        GameSpeed = gameSpeed;
-        Time.timeScale = gameSpeed;
+        WorldTimeScale = worldScale;
+        PlayerTimeScale = playerScale;
+        Time.timeScale = worldScale;
         _listSequence.RemoveAll(seq => !seq.isAlive);
     }
+
+    /// <summary>월드(ECS·적·물리)만 즉시 정지시키고 플레이어는 정상 동작시킵니다.</summary>
+    public void FreezeWorldOnly() => SetTimeScales(0f, 1f);
 
     public async UniTaskVoid DoFadeGameSpeed(float targetSpeed, float duration)
     {
         CancelSlowMotion();
-        _slowMotionCTS = new CancellationTokenSource();
-        var token = _slowMotionCTS.Token;
+        var cts = new CancellationTokenSource();
+        _slowMotionCTS = cts;
+        var token = cts.Token;
 
-        float currentSpeed = GameSpeed;
+        float currentSpeed = WorldTimeScale;
         float elapsed = 0f;
 
         try
@@ -110,8 +123,44 @@ public class LoopManager : PrimaryManager
         catch (OperationCanceledException) { }
         finally
         {
-            _slowMotionCTS?.Dispose();
-            _slowMotionCTS = null;
+            // 다른 페이드가 이미 _slowMotionCTS를 덮어썼다면 건드리지 않는다.
+            if (_slowMotionCTS == cts)
+                _slowMotionCTS = null;
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 월드(ECS·적·물리) 시간 배율만 targetScale로 서서히 변화시킵니다.
+    /// 플레이어 시간 배율은 건드리지 않으므로 월드가 느려지거나 멈춰도 플레이어는 그대로 움직입니다.
+    /// </summary>
+    public async UniTaskVoid DoFadeWorldTimeScale(float targetScale, float duration)
+    {
+        CancelSlowMotion();
+        var cts = new CancellationTokenSource();
+        _slowMotionCTS = cts;
+        var token = cts.Token;
+
+        float startScale = WorldTimeScale;
+        float elapsed = 0f;
+
+        try
+        {
+            while (elapsed < duration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                SetTimeScales(Mathf.Lerp(startScale, targetScale, elapsed / duration), PlayerTimeScale);
+                await UniTask.Yield(PlayerLoopTiming.Update, token);
+            }
+            SetTimeScales(targetScale, PlayerTimeScale);
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            // 다른 페이드가 이미 _slowMotionCTS를 덮어썼다면 건드리지 않는다.
+            if (_slowMotionCTS == cts)
+                _slowMotionCTS = null;
+            cts.Dispose();
         }
     }
 
@@ -142,7 +191,9 @@ public class LoopManager : PrimaryManager
         foreach (var seq in _listSequence)
             seq.Stop();
         _listSequence.Clear();
-        GameSpeed = 1f;
+        WorldTimeScale = 1f;
+        PlayerTimeScale = 1f;
+        Time.timeScale = 1f;
     }
 
     #endregion
