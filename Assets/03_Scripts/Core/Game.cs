@@ -17,4 +17,10 @@ public static class Game
             MoveDirection = InputProvider.Move.Direction
         };
     }
+
+    public static void PlayCameraCutIn(SkillCutInData data)
+        => Main.Camera?.PlayCutIn(data);
+
+    public static void PlayUltimateOverlay(UltimateOverlayData data)
+        => Overlay_UltimateActivate.Instance?.Play(data);
 }

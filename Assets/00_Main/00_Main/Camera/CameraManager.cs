@@ -51,6 +51,13 @@ public class CameraManager : CoreManager
     private float _thirdPersonPositionSpeed = 18f;
     private float _thirdPersonRotationSpeed = 14f;
 
+    // Cut-In
+    private float _cutInTimer;
+    private float _cutInYawVelocity;
+    private float _preCutInFov;
+    private float _preCutInDistance;
+    private float _preCutInHeight;
+
     public Camera MainCamera
     {
         get
@@ -155,6 +162,24 @@ public class CameraManager : CoreManager
         _springBackTimer = Mathf.Max(_springBackTimer, SpringBackDelay);
     }
 
+    public void PlayCutIn(SkillCutInData data)
+    {
+        if (!data.enabled || data.duration <= 0f) return;
+
+        if (_cutInTimer <= 0f)
+        {
+            _preCutInFov      = _thirdPersonFov;
+            _preCutInDistance = _thirdPersonDistance;
+            _preCutInHeight   = _thirdPersonHeight;
+        }
+
+        _cutInTimer       = data.duration;
+        _cutInYawVelocity = data.yawVelocity;
+        if (data.fovOverride > 0f)      _thirdPersonFov      = data.fovOverride;
+        if (data.distanceOverride > 0f) _thirdPersonDistance = data.distanceOverride;
+        _thirdPersonHeight = _preCutInHeight + data.heightDelta;
+    }
+
     public void Shake(float amplitude, float duration, float frequency = 25f)
     {
         if (amplitude <= 0f || duration <= 0f) return;
@@ -175,7 +200,25 @@ public class CameraManager : CoreManager
 
     private void LateUpdate(float deltaTime)
     {
+        TickCutIn();
         UpdateCamera(deltaTime, false);
+    }
+
+    private void TickCutIn()
+    {
+        if (_cutInTimer <= 0f) return;
+
+        float udt = Time.unscaledDeltaTime;
+        _cutInTimer -= udt;
+
+        if (_cutInYawVelocity != 0f)
+            _followYaw += _cutInYawVelocity * udt;
+
+        if (_cutInTimer > 0f) return;
+
+        _thirdPersonFov      = _preCutInFov;
+        _thirdPersonDistance = _preCutInDistance;
+        _thirdPersonHeight   = _preCutInHeight;
     }
 
     private void SubscribeLateUpdate()

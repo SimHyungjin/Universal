@@ -9,6 +9,7 @@ public class GameScene : SceneBase
         await UniTask.Yield(cancellationToken: token);
         
         Hud_GameScene hud = await App.ShowHud<Hud_GameScene>(token: token);
+        await App.ShowOverlay<Overlay_UltimateActivate>(ct: token);
         Player player = await App.Instantiate<Player>(token: token);
         player.transform.position = new Vector3(0, 5, 0);
 
