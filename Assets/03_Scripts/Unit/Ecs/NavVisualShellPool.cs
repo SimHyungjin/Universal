@@ -3,17 +3,21 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Transforms;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace MapNav.Ecs
 {
-        [DisallowMultipleComponent]
+    [DisallowMultipleComponent]
     public sealed class NavVisualShellPool : MonoBehaviour
     {
-        [SerializeField] private NavVisualShell prefab;
+        [FormerlySerializedAs("prefab")]
+        [SerializeField] private NavVisualShell enemyPrefab;
+        [SerializeField] private NavVisualShell allyPrefab;
         [SerializeField] private Transform poolRoot;
 
         private readonly Dictionary<Entity, NavVisualShell> _active = new();
-        private readonly Stack<NavVisualShell> _pool = new();
+        private readonly Stack<NavVisualShell> _enemyPool = new();
+        private readonly Stack<NavVisualShell> _allyPool = new();
         private readonly List<Entity> _releaseScratch = new();
         private EntityQuery _agentQuery;
         private EntityManager _em;
@@ -28,16 +32,14 @@ namespace MapNav.Ecs
             DisposeQuery();
         }
 
-        private void Update()
-        {
-            if (prefab == null) return;
-            if (!TryInitQuery()) { ReleaseAll(); return; }
-            RefreshShells();
-        }
-
         private void LateUpdate()
         {
-            if (!_hasQuery || _active.Count == 0) return;
+            if (enemyPrefab == null && allyPrefab == null) return;
+            if (!TryInitQuery()) { ReleaseAll(); return; }
+
+            RefreshShells();
+            if (_active.Count == 0) return;
+
             float deltaTime = Time.deltaTime;
             _releaseScratch.Clear();
 
@@ -59,8 +61,24 @@ namespace MapNav.Ecs
                 NavAgentKnockback kb = _em.HasComponent<NavAgentKnockback>(entity)
                     ? _em.GetComponentData<NavAgentKnockback>(entity)
                     : default;
-                shell.Tick(t, m, kb, deltaTime);
-                ExtendMotionLock(entity, shell.RequiredMotionLockTimer, kb);
+                NavAgentDeath death = _em.HasComponent<NavAgentDeath>(entity)
+                    ? _em.GetComponentData<NavAgentDeath>(entity)
+                    : default;
+                NavAgentAttack attack = _em.HasComponent<NavAgentAttack>(entity)
+                    ? _em.GetComponentData<NavAgentAttack>(entity)
+                    : default;
+                NavAgentHealth health = _em.HasComponent<NavAgentHealth>(entity)
+                    ? _em.GetComponentData<NavAgentHealth>(entity)
+                    : default;
+                NavAgentLaunch launch = _em.HasComponent<NavAgentLaunch>(entity)
+                    ? _em.GetComponentData<NavAgentLaunch>(entity)
+                    : default;
+                shell.Tick(t, m, kb, death, attack, health, launch, deltaTime);
+                if (_em.HasComponent<NavAgentLaunch>(entity) && launch.VisualYOffset != shell.VisualYOffset)
+                {
+                    launch.VisualYOffset = shell.VisualYOffset;
+                    _em.SetComponentData(entity, launch);
+                }
             }
 
             for (int i = 0; i < _releaseScratch.Count; i++)
@@ -78,6 +96,7 @@ namespace MapNav.Ecs
             _agentQuery = _em.CreateEntityQuery(
                 ComponentType.ReadOnly<NavAgentSettings>(),
                 ComponentType.ReadOnly<NavAgentMotion>(),
+                ComponentType.ReadOnly<NavAgentFaction>(),
                 ComponentType.ReadOnly<LocalTransform>());
             _hasQuery = true;
             return true;
@@ -114,38 +133,42 @@ namespace MapNav.Ecs
             {
                 Entity entity = entities[i];
                 if (_active.ContainsKey(entity)) continue;
+                NavFaction faction = _em.HasComponent<NavAgentFaction>(entity)
+                    ? _em.GetComponentData<NavAgentFaction>(entity).Faction
+                    : NavFaction.Enemy;
                 LocalTransform t = _em.GetComponentData<LocalTransform>(entity);
-                NavVisualShell shell = GetShell();
-                shell.Bind(entity, t);
+                NavAgentAttackProfile profile = _em.HasComponent<NavAgentAttackProfile>(entity)
+                    ? _em.GetComponentData<NavAgentAttackProfile>(entity)
+                    : default;
+                NavVisualShell shell = GetShell(faction);
+                if (shell == null) continue;
+
+                shell.Bind(entity, faction, t, profile);
                 _active.Add(entity, shell);
             }
         }
 
-        private NavVisualShell GetShell()
+        private NavVisualShell GetShell(NavFaction faction)
         {
-            NavVisualShell shell = _pool.Count > 0
-                ? _pool.Pop()
+            Stack<NavVisualShell> pool = GetPool(faction);
+            NavVisualShell prefab = GetPrefab(faction);
+            if (prefab == null) return null;
+
+            NavVisualShell shell = pool.Count > 0
+                ? pool.Pop()
                 : Instantiate(prefab, poolRoot != null ? poolRoot : transform);
             shell.gameObject.SetActive(true);
             return shell;
-        }
-
-        private void ExtendMotionLock(Entity entity, float requiredMotionLockTimer, NavAgentKnockback knockback)
-        {
-            if (requiredMotionLockTimer <= knockback.MotionLockTimer || !_em.HasComponent<NavAgentKnockback>(entity))
-                return;
-
-            knockback.MotionLockTimer = requiredMotionLockTimer;
-            _em.SetComponentData(entity, knockback);
         }
 
         private void Release(Entity entity)
         {
             if (!_active.TryGetValue(entity, out NavVisualShell shell)) return;
             _active.Remove(entity);
+            NavFaction faction = shell.Faction;
             shell.Unbind();
             shell.gameObject.SetActive(false);
-            _pool.Push(shell);
+            GetPool(faction).Push(shell);
         }
 
         private void ReleaseAll()
@@ -154,5 +177,15 @@ namespace MapNav.Ecs
             foreach (Entity e in _active.Keys) _releaseScratch.Add(e);
             for (int i = 0; i < _releaseScratch.Count; i++) Release(_releaseScratch[i]);
         }
+
+        private NavVisualShell GetPrefab(NavFaction faction)
+        {
+            if (faction == NavFaction.Ally)
+                return allyPrefab != null ? allyPrefab : enemyPrefab;
+            return enemyPrefab != null ? enemyPrefab : allyPrefab;
+        }
+
+        private Stack<NavVisualShell> GetPool(NavFaction faction)
+            => faction == NavFaction.Ally ? _allyPool : _enemyPool;
     }
 }
