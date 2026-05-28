@@ -26,6 +26,15 @@ public class AutoDespawn : MonoBehaviour, IPoolable
         ReturnAfterDelay(ResolveDelay(), _cts.Token).Forget();
     }
 
+    public void SetDurationAndRestart(float newDuration)
+    {
+        if (newDuration <= 0f) return;
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = CancellationTokenSource.CreateLinkedTokenSource(destroyCancellationToken);
+        ReturnAfterDelay(newDuration, _cts.Token).Forget();
+    }
+
     public void OnDespawn()
     {
         _cts?.Cancel();

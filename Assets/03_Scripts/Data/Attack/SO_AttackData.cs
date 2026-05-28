@@ -91,6 +91,8 @@ public struct AttackHitboxData
     [Min(0f)]
     public float repeatInterval;
     public bool hitSameTargetOnce;
+    [Tooltip("repeat 틱 1회 발동 시 적중 0이면 공격 즉시 종료")]
+    public bool cancelOnTickMiss;
 }
 
 [Serializable]

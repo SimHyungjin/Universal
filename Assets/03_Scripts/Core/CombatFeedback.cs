@@ -20,19 +20,21 @@ public static class CombatFeedback
 
         if (string.IsNullOrEmpty(vfxAddress)) return;
 
-        SpawnAddressedVfx(vfxAddress, position, token).Forget();
+        SpawnAddressedVfx(vfxAddress, position, token, 0f).Forget();
     }
 
-    public static void SpawnVfxAtPosition(string address, Vector3 position, CancellationToken token)
+    public static void SpawnVfxAtPosition(string address, Vector3 position, CancellationToken token, float duration = 0f)
     {
         if (!string.IsNullOrEmpty(address))
-            SpawnAddressedVfx(address, position, token).Forget();
+            SpawnAddressedVfx(address, position, token, duration).Forget();
     }
 
-    private static async UniTaskVoid SpawnAddressedVfx(string address, Vector3 position, CancellationToken token)
+    private static async UniTaskVoid SpawnAddressedVfx(string address, Vector3 position, CancellationToken token, float duration)
     {
         var vfx = await App.SpawnAsync<AutoDespawn>(address, token: token);
-        if (vfx != null)
-            vfx.transform.position = position;
+        if (vfx == null) return;
+        vfx.transform.position = position;
+        if (duration > 0f)
+            vfx.SetDurationAndRestart(duration);
     }
 }

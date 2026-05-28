@@ -136,6 +136,11 @@ public class Player_ActionHandler : LoopMonoBehaviour, IDamageable
 
         if (_attackController != null && _attackController.BlocksMovement)
         {
+            if (_state == PlayerActionState.Dash)
+            {
+                _vfx?.StopDash();
+                _state = PlayerActionState.Normal;
+            }
             if (_attackController.IsSlamDescending)
                 _moveController.MoveDown(_attackController.SlamDescentSpeed, gdt);
             else if (_attackController.SuspendsAtApex)

@@ -43,6 +43,8 @@ public class Player_Attackcontroller : LoopMonoBehaviour
     private bool          _hitboxFired;
     private float         _nextHitboxElapsed;
     private bool          _attackMoveVfxPlaying;
+    private AutoDespawn   _castVfxInstance;
+    private System.Threading.CancellationTokenSource _castVfxSpawnCts;
     private bool          _slamLandingFired;
     private bool          _slamDescending;
 
@@ -254,10 +256,11 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         }
 
         AttackFeedbackData fb = _currentData.Feedback;
+        StopCastVfx();
         if (!string.IsNullOrEmpty(fb.castVfxAddress))
         {
             Vector3 castPos = transform.position + transform.rotation * fb.castVfxOffset;
-            CombatFeedback.SpawnVfxAtPosition(fb.castVfxAddress, castPos, destroyCancellationToken);
+            SpawnCastVfxAsync(fb.castVfxAddress, castPos).Forget();
         }
         _vfx?.PlaySwingTrails(fb.swingTrailIds);
         App.PlaySfx(fb.swingSfx, transform.position);
@@ -270,6 +273,7 @@ public class Player_Attackcontroller : LoopMonoBehaviour
     {
         _playerAnimator?.ExitAttack();
         StopAttackMoveVfx(true);
+        StopCastVfx();
         if (_currentData != null)
             _vfx?.StopSwingTrails(_currentData.Feedback.swingTrailIds);
 
@@ -326,6 +330,7 @@ public class Player_Attackcontroller : LoopMonoBehaviour
     {
         _attackTimer = 0f;
         _playerAnimator?.ExitAttack();
+        StopCastVfx();
         if (_currentData != null)
             _vfx?.StopSwingTrails(_currentData.Feedback.swingTrailIds);
         _skillSequence = null;
@@ -366,12 +371,17 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         float repeatInterval = Mathf.Max(0.01f, hitbox.repeatInterval);
         while (_nextHitboxElapsed <= elapsed)
         {
-            FireHitbox(data);
+            bool hit = FireHitbox(data);
             _nextHitboxElapsed += repeatInterval;
+            if (!hit && hitbox.cancelOnTickMiss)
+            {
+                _attackTimer = 0f;
+                break;
+            }
         }
     }
 
-    private void FireHitbox(SO_AttackData data)
+    private bool FireHitbox(SO_AttackData data)
     {
         float finalDamage = _playerStats != null
             ? CombatFormula.ScaleAttackDamage(_playerStats.AttackPower, data.Damage)
@@ -382,7 +392,8 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         {
             Vector3 center = AttackShapeUtility.GetQueryCenter(transform.position, transform.forward, data.Hitbox, data.Shape);
             center += transform.rotation * data.Feedback.timingVfxOffset;
-            CombatFeedback.SpawnVfxAtPosition(timingVfx, center, destroyCancellationToken);
+            float timingVfxDuration = data.Hitbox.repeatDuringAttack ? data.Hitbox.repeatInterval : 0f;
+            CombatFeedback.SpawnVfxAtPosition(timingVfx, center, destroyCancellationToken, timingVfxDuration);
         }
 
         bool didHit = FireHitInstance(data, data.Hitbox, data.Shape, finalDamage);
@@ -399,7 +410,7 @@ public class Player_Attackcontroller : LoopMonoBehaviour
             didHit = true;
 
         _skillSequenceAnyHit |= didHit;
-        if (!didHit) return;
+        if (!didHit) return false;
 
         if (data.LifeSteal.enabled)
         {
@@ -418,6 +429,7 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         }
 
         TriggerHitstop(data.Hitstop).Forget();
+        return true;
     }
 
     private static float GetTargetSuspendDuration(SO_AttackData data)
@@ -548,6 +560,31 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         CombatFeedback.PlayHitFeedback(data, position, destroyCancellationToken);
     }
 
+    private async Cysharp.Threading.Tasks.UniTaskVoid SpawnCastVfxAsync(string address, Vector3 position)
+    {
+        _castVfxSpawnCts?.Cancel();
+        _castVfxSpawnCts?.Dispose();
+        _castVfxSpawnCts = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(destroyCancellationToken);
+
+        var vfx = await App.SpawnAsync<AutoDespawn>(address, token: _castVfxSpawnCts.Token);
+        if (vfx == null) return;
+        vfx.transform.position = position;
+        _castVfxInstance = vfx;
+    }
+
+    private void StopCastVfx()
+    {
+        _castVfxSpawnCts?.Cancel();
+        _castVfxSpawnCts?.Dispose();
+        _castVfxSpawnCts = null;
+
+        if (_castVfxInstance == null) return;
+        AutoDespawn instance = _castVfxInstance;
+        _castVfxInstance = null;
+        if (instance != null && instance.gameObject.activeInHierarchy)
+            App.Despawn(instance.gameObject);
+    }
+
     private void StopAttackMoveVfx(bool playEnd)
     {
         if (!_attackMoveVfxPlaying)
@@ -590,6 +627,8 @@ public class Player_Attackcontroller : LoopMonoBehaviour
 
     private void OnDestroy()
     {
+        _castVfxSpawnCts?.Cancel();
+        _castVfxSpawnCts?.Dispose();
         if (_cachedWorld != null && _cachedWorld.IsCreated)
             _autoAimQuery.Dispose();
     }
