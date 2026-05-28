@@ -39,6 +39,8 @@ public class Player_ActionHandler : LoopMonoBehaviour, IDamageable
     public bool LocksLocomotion => _state != PlayerActionState.Normal;
     public float Health => _health;
     public float MaxHealth => statsData != null ? statsData.MaxHealth : 100f;
+    public float Gauge => _gauge;
+    public float GaugeMax => statsData != null ? statsData.GaugeMax : 100f;
     public SO_SkillData GetSkillData(int slot)
     {
         if (_attackController != null) return _attackController.GetSkillData(slot);
@@ -57,6 +59,7 @@ public class Player_ActionHandler : LoopMonoBehaviour, IDamageable
 
     // HUD/디버그 패널이 구독한다. 데미지/회복/사망/시작 시점에 (current, max)를 발사.
     public event System.Action<float, float> OnHealthChanged;
+    public event System.Action<float, float> OnGaugeChanged;
 
     private Player_Movecontroller _moveController;
     private Player_Attackcontroller _attackController;
@@ -64,6 +67,7 @@ public class Player_ActionHandler : LoopMonoBehaviour, IDamageable
     private Player_Vfx _vfx;
     private PlayerActionState _state;
     private float _health;
+    private float _gauge;
     private Vector3 _forcedDirection;
     private float _forcedSpeed;
     private float _forcedFriction;
@@ -127,12 +131,14 @@ public class Player_ActionHandler : LoopMonoBehaviour, IDamageable
         _attackController?.UpdateLookDirection(worldInput);
 
         bool attackPressed = combatActive && InputProvider.ConsumeAttack();
-        if (attackPressed && _attackController != null && (_state == PlayerActionState.Normal || _attackController.IsInCombo))
+        if (attackPressed && _attackController != null && (_state == PlayerActionState.Normal || _state == PlayerActionState.Jump || _attackController.IsInCombo))
             _attackController.RequestAttack();
 
         if (_attackController != null && _attackController.BlocksMovement)
         {
-            if (_attackController.SuspendsAtApex)
+            if (_attackController.IsSlamDescending)
+                _moveController.MoveDown(_attackController.SlamDescentSpeed, gdt);
+            else if (_attackController.SuspendsAtApex)
                 _moveController.MoveVerticalUntilApexThenSuspend(gdt);
             else
                 _moveController.MoveVertical(gdt);
@@ -177,6 +183,7 @@ public class Player_ActionHandler : LoopMonoBehaviour, IDamageable
 
         ApplyDamage(damage);
         if (_state == PlayerActionState.Dead) return;
+        AddGauge(statsData != null ? statsData.GaugeGainOnReceive : 0f);
         TriggerHitstop(hitstop);
 
         if (_attackController != null && _attackController.IsSuperArmoredAgainst(superArmorBreak))
@@ -276,6 +283,28 @@ public class Player_ActionHandler : LoopMonoBehaviour, IDamageable
         OnHealthChanged?.Invoke(_health, max);
     }
 
+    public void AddGauge(float amount)
+    {
+        if (amount <= 0f || _state == PlayerActionState.Dead) return;
+
+        float max = GaugeMax;
+        float next = Mathf.Min(max, _gauge + amount);
+        if (Mathf.Approximately(next, _gauge)) return;
+
+        _gauge = next;
+        OnGaugeChanged?.Invoke(_gauge, max);
+    }
+
+    public bool TryConsumeGauge(float cost)
+    {
+        if (cost <= 0f) return true;
+        if (_gauge < cost) return false;
+
+        _gauge -= cost;
+        OnGaugeChanged?.Invoke(_gauge, GaugeMax);
+        return true;
+    }
+
     private void EnterDead()
     {
         _state = PlayerActionState.Dead;
@@ -328,6 +357,12 @@ public class Player_ActionHandler : LoopMonoBehaviour, IDamageable
         Vector3 worldInput = Main.Input.IsActive<InputActions_Move>()
             ? Player_Movecontroller.GetCameraRelativeInput(InputProvider.Move.Direction)
             : Vector3.zero;
+
+        if (InputProvider.ConsumeDash() && _dashCooldownTimer <= 0f)
+        {
+            EnterDash(worldInput, deltaTime);
+            return;
+        }
 
         if (!_jumpLiftStarted)
         {

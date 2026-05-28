@@ -22,3 +22,4 @@ MonoBehaviour:
   attackSequence:
   - {fileID: 11400000, guid: 55873228e00a6ee45a25495ebbf6774a, type: 2}
   - {fileID: 11400000, guid: eb41118ac9fc26841b40efe1f766b27e, type: 2}
+  - {fileID: 11400000, guid: 95df9afd9356c7d4cbed4a67b20295bd, type: 2}

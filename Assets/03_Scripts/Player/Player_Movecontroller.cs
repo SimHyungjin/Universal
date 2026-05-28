@@ -129,6 +129,11 @@ public class Player_Movecontroller : LoopMonoBehaviour
         _verticalVelocity = Mathf.Sqrt(Mathf.Max(0f, height) * -2f * Gravity);
     }
 
+    public void MoveDown(float speed, float deltaTime)
+    {
+        _cc.Move(Vector3.down * Mathf.Abs(speed) * deltaTime);
+    }
+
     public void StopPlanar()
     {
         _planarVelocity = Vector3.zero;

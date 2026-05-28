@@ -19,7 +19,8 @@ public enum AttackMoveType
     Lunge     = 0,
     Dash      = 1,
     RushTrack = 2,
-    None      = 3
+    None      = 3,
+    Slam      = 4  // 공중에서 지면으로 급강하. distance = 하강 속도(m/s), 착지 순간 hitbox 발동.
 }
 
 public enum AttackShape
@@ -58,6 +59,8 @@ public struct AttackLungeData
     public float duration;
     public AnimationCurve speedCurve;
     public bool stopOnHit;
+    [Tooltip("Slam 전용: 초기 하강 속도 (m/s). distance/duration은 수평 이동에 그대로 사용.")]
+    [Min(0f)] public float slamDescentSpeed;
 }
 
 // attacker가 공격 중 자신을 수직으로 띄우는 데이터 (점프 공격). lunge(수평)과는 독립.

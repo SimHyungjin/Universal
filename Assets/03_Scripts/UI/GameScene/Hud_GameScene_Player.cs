@@ -15,10 +15,17 @@ public sealed class Hud_GameScene_Player : MonoBehaviour
     [SerializeField] private float           hpDelayedFillDelay = 0.25f;
     [SerializeField] private float           hpDelayedFillSpeed = 0.8f;
 
+    [Header("Gauge")]
+    [SerializeField] private Image           gaugeFill;
+    [SerializeField] private Image           gaugeDelayedFill;
+    [SerializeField] private float           gaugeDelayedFillSpeed = 1.5f;
+
     private Player_ActionHandler _actionHandler;
     private float                _hpDelayedFillTarget;
     private float                _hpDelayedFillDelayTimer;
     private bool                 _isHpDelayedFillAnimating;
+    private float                _gaugeDelayedFillTarget;
+    private bool                 _isGaugeDelayedFillAnimating;
 
     // ───────────────────────────────────────────────
     #region Bind
@@ -30,13 +37,17 @@ public sealed class Hud_GameScene_Player : MonoBehaviour
         if (_actionHandler == null) return;
 
         _actionHandler.OnHealthChanged += HandleHealthChanged;
+        _actionHandler.OnGaugeChanged  += HandleGaugeChanged;
         HandleHealthChanged(_actionHandler.Health, _actionHandler.MaxHealth);
+        if (gaugeDelayedFill != null) gaugeDelayedFill.fillAmount = 0f;
+        HandleGaugeChanged(_actionHandler.Gauge, _actionHandler.GaugeMax);
     }
 
     public void Unbind()
     {
         if (_actionHandler == null) return;
         _actionHandler.OnHealthChanged -= HandleHealthChanged;
+        _actionHandler.OnGaugeChanged  -= HandleGaugeChanged;
         _actionHandler = null;
     }
 
@@ -48,6 +59,12 @@ public sealed class Hud_GameScene_Player : MonoBehaviour
     #region HP
 
     private void Update()
+    {
+        TickHpDelayedFill();
+        TickGaugeDelayedFill();
+    }
+
+    private void TickHpDelayedFill()
     {
         if (!_isHpDelayedFillAnimating || hpDelayedFill == null) return;
 
@@ -66,6 +83,21 @@ public sealed class Hud_GameScene_Player : MonoBehaviour
 
         hpDelayedFill.fillAmount  = _hpDelayedFillTarget;
         _isHpDelayedFillAnimating = false;
+    }
+
+    private void TickGaugeDelayedFill()
+    {
+        if (!_isGaugeDelayedFillAnimating || gaugeDelayedFill == null) return;
+
+        gaugeDelayedFill.fillAmount = Mathf.MoveTowards(
+            gaugeDelayedFill.fillAmount,
+            _gaugeDelayedFillTarget,
+            gaugeDelayedFillSpeed * Time.deltaTime);
+
+        if (!Mathf.Approximately(gaugeDelayedFill.fillAmount, _gaugeDelayedFillTarget)) return;
+
+        gaugeDelayedFill.fillAmount   = _gaugeDelayedFillTarget;
+        _isGaugeDelayedFillAnimating  = false;
     }
 
     private void HandleHealthChanged(float current, float max)
@@ -92,6 +124,34 @@ public sealed class Hud_GameScene_Player : MonoBehaviour
 
         if (hpAmount != null)
             hpAmount.text = max > 0f ? $"{current} / {max}" : string.Empty;
+    }
+
+    #endregion
+
+    // ───────────────────────────────────────────────
+    #region Gauge
+
+    private void HandleGaugeChanged(float current, float max)
+    {
+        float fill = max > 0f ? Mathf.Clamp01(current / max) : 0f;
+
+        if (gaugeFill != null)
+            gaugeFill.fillAmount = fill;
+
+        if (gaugeDelayedFill != null)
+        {
+            // 증가할 때는 즉시, 감소(Ultimate 소모)할 때만 천천히 따라옴
+            if (fill >= gaugeDelayedFill.fillAmount)
+            {
+                gaugeDelayedFill.fillAmount  = fill;
+                _isGaugeDelayedFillAnimating = false;
+            }
+            else
+            {
+                _gaugeDelayedFillTarget      = fill;
+                _isGaugeDelayedFillAnimating = true;
+            }
+        }
     }
 
     #endregion

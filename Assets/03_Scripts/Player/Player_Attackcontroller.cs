@@ -17,7 +17,10 @@ public class Player_Attackcontroller : LoopMonoBehaviour
     public int  ComboCount  => _comboCount;
     public bool IsAttacking => _attackTimer > 0f;
     public bool IsInCombo   => _attackTimer > 0f || _comboTimer > 0f;
-    public bool SuspendsAtApex => IsAttacking && _currentData != null && _currentData.Jump.suspendAtApex;
+    public bool SuspendsAtApex => IsAttacking && _currentData != null && _currentData.Jump.suspendAtApex
+                                  && _currentData.Lunge.moveType != AttackMoveType.Slam;
+    public bool IsSlamDescending => _slamDescending && _currentData != null && _currentData.Lunge.moveType == AttackMoveType.Slam;
+    public float SlamDescentSpeed => _currentData != null ? _currentData.Lunge.slamDescentSpeed : 0f;
     public bool BlocksMovement => _attackTimer > 0f || (_comboTimer > 0f && _lockMovementDuringComboWindow);
     public bool IsSuperArmoredAgainst(float superArmorBreak)
         => IsAttacking && _currentData != null && _currentData.SuperArmor > superArmorBreak;
@@ -40,6 +43,8 @@ public class Player_Attackcontroller : LoopMonoBehaviour
     private bool          _hitboxFired;
     private float         _nextHitboxElapsed;
     private bool          _attackMoveVfxPlaying;
+    private bool          _slamLandingFired;
+    private bool          _slamDescending;
 
     // Skills (loadout). 4개 슬롯 — [[project_skill_loadout]]. 자원 시스템은 미구현이라 cost는 일단 무시.
     private SO_SkillData[] _skills;
@@ -109,6 +114,8 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         SO_SkillData skill = _skills[slot];
         if (skill == null) return false;
         if (_skillCooldowns[slot] > 0f) return false;
+        if (skill.Category == SkillCategory.Ultimate && (_actionHandler == null || !_actionHandler.TryConsumeGauge(skill.ResourceCost)))
+            return false;
 
         SO_AttackData[] sequence = skill.AttackSequence;
         if (sequence == null || sequence.Length == 0 || sequence[0] == null) return false;
@@ -149,7 +156,8 @@ public class Player_Attackcontroller : LoopMonoBehaviour
 
         if (_attackTimer > 0f)
         {
-            _attackTimer -= gdt;
+            if (!_slamDescending)
+                _attackTimer -= gdt;
 
             TickAttackHitbox(_currentData);
 
@@ -224,10 +232,19 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         _hitboxFired = false;
         _nextHitboxElapsed = 0f;
         _skillSequenceAnyHit = false;
+        _slamLandingFired = false;
         _attackHitRegistry.Clear();
 
         _playerAnimator?.PlayAttack(_currentData.Animation);
-        _moveController?.StartLunge(transform.forward, _currentData.Lunge);
+        if (_currentData.Lunge.moveType == AttackMoveType.Slam)
+        {
+            _slamDescending = true;
+            _moveController?.StartLunge(transform.forward, _currentData.Lunge);
+        }
+        else
+        {
+            _moveController?.StartLunge(transform.forward, _currentData.Lunge);
+        }
         if (_currentData.Jump.enabled)
             _moveController?.Jump(_currentData.Jump.height);
         if (ShouldPlayDashVfx(_currentData.Lunge))
@@ -297,6 +314,8 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         _hitboxFired = false;
         _nextHitboxElapsed = 0f;
         _skillSequenceAnyHit = false;
+        _slamLandingFired = false;
+        _slamDescending = false;
         _attackHitRegistry.Clear();
         StopAttackMoveVfx(false);
         _vfx?.StopAllSwingTrails();
@@ -316,6 +335,17 @@ public class Player_Attackcontroller : LoopMonoBehaviour
 
     private void TickAttackHitbox(SO_AttackData data)
     {
+        if (data.Lunge.moveType == AttackMoveType.Slam)
+        {
+            if (!_slamLandingFired && (_moveController == null || _moveController.IsGrounded))
+            {
+                _slamLandingFired = true;
+                _slamDescending = false;
+                FireHitbox(data);
+            }
+            return;
+        }
+
         AttackHitboxData hitbox = data.Hitbox;
         float elapsed = data.Duration - Mathf.Max(0f, _attackTimer);
         float startElapsed = hitbox.repeatDuringAttack ? 0f : data.Duration * hitbox.timing;
@@ -378,6 +408,8 @@ public class Player_Attackcontroller : LoopMonoBehaviour
                 heal = Mathf.Min(heal, data.LifeSteal.maxPerHit);
             _actionHandler?.Heal(heal);
         }
+
+        _actionHandler?.AddGauge(finalDamage * (_playerStats != null ? _playerStats.GaugeGainPerDamage : 0f));
 
         if (data.Lunge.stopOnHit)
         {

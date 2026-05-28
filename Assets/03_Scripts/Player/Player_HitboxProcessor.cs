@@ -124,15 +124,13 @@ public class Player_HitboxProcessor : MonoBehaviour, IHitboxProcessor
                             Duration        = data.Launch.duration,
                             SuspendDuration = targetSuspendDuration,
                             SuspendAtApex   = (byte)(targetSuspendDuration > 0f ? 1 : 0),
-                            Version         = current.Version + 1,
-                            FreezeDuration  = current.FreezeDuration,
-                            FreezeVersion   = current.FreezeVersion
+                            Elapsed         = 0f,
+                            FreezeTimer     = 0f
                         });
                     }
                     else if (targetSuspendDuration > 0f && current.Height > 0f)
                     {
-                        current.FreezeDuration = targetSuspendDuration;
-                        current.FreezeVersion++;
+                        current.FreezeTimer = targetSuspendDuration;
                         _em.SetComponentData(entities[i], current);
                     }
                 }

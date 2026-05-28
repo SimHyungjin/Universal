@@ -6,6 +6,7 @@ public class Player_Animator : LoopMonoBehaviour
     [SerializeField] private Animator animator;
     private string idleStateName = "Idle";
     private string runStateName = "Run";
+    private string jumpIdleStateName = "";
     private float startRunTransition = 0.05f;
     private float stopRunTransition = 0.18f;
     private float runEnterDelay = 0.06f;
@@ -15,15 +16,18 @@ public class Player_Animator : LoopMonoBehaviour
     private SO_PlayerAnimationData _data;
     private int _idleStateHash;
     private int _runStateHash;
+    private int _jumpIdleStateHash;
     private int _currentStateHash;
     private float _movingTime;
     private float _runTime;
     private bool _isAttacking;
     private bool _suppressLocomotion;
+    private Player_Movecontroller _moveController;
 
     private void Awake()
     {
         animator ??= GetComponentInChildren<Animator>(true);
+        _moveController = GetComponent<Player_Movecontroller>();
         // Time.timeScale에서 분리 — 월드 정지(timeScale=0) 중에도 플레이어 애니메이션은 재생.
         // 정지/감속은 animator.speed = PlayerTimeScale로 제어한다.
         if (animator != null)
@@ -105,6 +109,12 @@ public class Player_Animator : LoopMonoBehaviour
         animator.speed = Main.Loop.PlayerTimeScale;
         if (_isAttacking || _suppressLocomotion) return;
 
+        if (_jumpIdleStateHash != 0 && _moveController != null && !_moveController.IsGrounded)
+        {
+            Play(_jumpIdleStateHash, ActionTransition);
+            return;
+        }
+
         bool isMoving = Main.Input.IsActive<InputActions_Move>()
             && InputProvider.Move.Direction.sqrMagnitude > MoveThreshold * MoveThreshold;
 
@@ -145,8 +155,12 @@ public class Player_Animator : LoopMonoBehaviour
     {
         _idleStateHash = Animator.StringToHash(IdleStateName);
         _runStateHash = Animator.StringToHash(RunStateName);
+        string jumpIdle = JumpIdleStateName;
+        _jumpIdleStateHash = string.IsNullOrEmpty(jumpIdle) ? 0 : Animator.StringToHash(jumpIdle);
     }
 
+    private string JumpIdleStateName => _data != null ? _data.JumpIdleStateName : jumpIdleStateName;
+    private float ActionTransition => _data != null ? _data.ActionTransition : 0.05f;
     private string IdleStateName => _data != null ? _data.IdleStateName : idleStateName;
     private string RunStateName => _data != null ? _data.RunStateName : runStateName;
     private float StartRunTransition => _data != null ? _data.StartRunTransition : startRunTransition;

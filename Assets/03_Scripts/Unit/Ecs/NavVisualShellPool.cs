@@ -74,11 +74,6 @@ namespace MapNav.Ecs
                     ? _em.GetComponentData<NavAgentLaunch>(entity)
                     : default;
                 shell.Tick(t, m, kb, death, attack, health, launch, deltaTime);
-                if (_em.HasComponent<NavAgentLaunch>(entity) && launch.VisualYOffset != shell.VisualYOffset)
-                {
-                    launch.VisualYOffset = shell.VisualYOffset;
-                    _em.SetComponentData(entity, launch);
-                }
             }
 
             for (int i = 0; i < _releaseScratch.Count; i++)

@@ -102,14 +102,16 @@ namespace MapNav.Ecs
     // 실제 y축 물리로 승격할 때 이 컴포넌트를 통째로 제거하고 NavAgentKnockback에 vertical velocity를 도입하면 폐기가 깔끔.
     public struct NavAgentLaunch : IComponentData
     {
+        // ── 트리거 (HitboxProcessor가 새 launch 시 설정) ────────────────────
         public float Height;
         public float Duration;
         public float SuspendDuration;
         public byte  SuspendAtApex;
-        public int   Version;
-        public float FreezeDuration; // 타격마다 낙하 타이머를 이 시간만큼 정지
-        public int   FreezeVersion;  // 변경 시 NavVisualShell이 감지해 freeze 재시작
-        public float VisualYOffset;  // NavVisualShell이 매 프레임 기록하는 현재 비주얼 y 오프셋
+        // ── 시뮬레이션 상태 (NavLaunchSystem이 매 프레임 tick) ───────────────
+        public float Elapsed;      // 발사 경과 시간
+        public float FreezeTimer;  // >0이면 Elapsed 진행 정지 (타격마다 HitboxProcessor가 설정)
+        // ── 출력 (NavLaunchSystem이 계산, Shell·HitboxProcessor가 읽음) ──────
+        public float VisualYOffset;
     }
 
     public enum NavFaction : byte

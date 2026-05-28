@@ -16,3 +16,6 @@ MonoBehaviour:
   attackPower: 0
   defense: 0
   moveSpeed: 4
+  gaugeMax: 1000
+  gaugeGainPerDamage: 0.5
+  gaugeGainOnReceive: 15

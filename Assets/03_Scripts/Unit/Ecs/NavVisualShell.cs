@@ -37,14 +37,6 @@ namespace MapNav.Ecs
         private float _previousKnockbackTimer;
         private float _previousMotionLockTimer;
         private int   _previousHitVersion;
-        private int   _previousLaunchVersion;
-        private float _launchElapsed;
-        private float _launchHeight;
-        private float _launchDuration;
-        private float _launchSuspendDuration;
-        private int   _previousFreezeVersion;
-        private float _freezeTimer;
-        public  float VisualYOffset { get; private set; }
         private bool _wasKnockedBack;
         private bool _wasDying;
         private bool _wasAttacking;
@@ -140,12 +132,6 @@ namespace MapNav.Ecs
             _previousKnockbackTimer = 0f;
             _previousMotionLockTimer = 0f;
             _previousHitVersion = 0;
-            _previousLaunchVersion = 0;
-            _launchElapsed = 0f;
-            _launchHeight = 0f;
-            _launchDuration = 0f;
-            _previousFreezeVersion = 0;
-            _freezeTimer = 0f;
             _wasKnockedBack = false;
             _wasDying = false;
             _wasAttacking = false;
@@ -172,13 +158,6 @@ namespace MapNav.Ecs
             _previousKnockbackTimer = 0f;
             _previousMotionLockTimer = 0f;
             _previousHitVersion = 0;
-            _previousLaunchVersion = 0;
-            _launchElapsed = 0f;
-            _launchHeight = 0f;
-            _launchDuration = 0f;
-            _launchSuspendDuration = 0f;
-            _previousFreezeVersion = 0;
-            _freezeTimer = 0f;
             _previousHealthFill = -1f;
             SetHealthBarVisible(false);
             if (CanUseAnimator())
@@ -201,7 +180,7 @@ namespace MapNav.Ecs
             if (syncRotation)
                 root.rotation = Quaternion.Slerp(root.rotation, ecsTransform.Rotation, DampFactor(_cRotationSharpness, deltaTime));
 
-            ApplyLaunchOffset(launch, ecsTransform.Position.y, deltaTime);
+            ApplyLaunchOffset(launch, ecsTransform.Position.y);
 
             bool dying = death.Dying != 0;
             UpdateHealthBar(health, dying);
@@ -262,60 +241,13 @@ namespace MapNav.Ecs
             ApplyAnim(false);
         }
 
-        private void ApplyLaunchOffset(in NavAgentLaunch launch, float baseY, float deltaTime)
+        private void ApplyLaunchOffset(in NavAgentLaunch launch, float baseY)
         {
-            if (launch.Version != _previousLaunchVersion)
-            {
-                _previousLaunchVersion = launch.Version;
-                _launchElapsed = 0f;
-                _launchHeight = launch.Height;
-                _launchDuration = launch.Duration;
-                _launchSuspendDuration = launch.SuspendDuration;
-            }
-
-            if (_launchDuration <= 0f || _launchHeight <= 0f) { VisualYOffset = 0f; return; }
-            float totalDuration = launch.SuspendAtApex != 0
-                ? Mathf.Max(_launchDuration, _launchSuspendDuration)
-                : _launchDuration;
-            if (_launchElapsed >= totalDuration) { VisualYOffset = 0f; return; }
-
-            if (launch.FreezeVersion != _previousFreezeVersion)
-            {
-                _previousFreezeVersion = launch.FreezeVersion;
-                _freezeTimer = launch.FreezeDuration;
-            }
-
-            if (_freezeTimer > 0f)
-                _freezeTimer -= deltaTime;
-            else
-                _launchElapsed += deltaTime;
-
-            float t = GetLaunchCurveT(_launchElapsed, _launchDuration, totalDuration, launch.SuspendAtApex != 0);
-            // 표준 포물선: t=0.5에서 최고점 height. AnimationCurve가 필요해지면 SO_AttackData.Launch에 추가.
-            float yOffset = 4f * _launchHeight * t * (1f - t);
-            VisualYOffset = yOffset;
-
-            // 절대값 설정. Damp가 hitstop 등으로 거의 안 움직일 때 가산 방식이 누적되어 위로 솟구치는 버그를 막는다.
+            if (launch.VisualYOffset == 0f) return;
             Transform root = _root;
             Vector3 pos = root.position;
-            pos.y = baseY + yOffset;
+            pos.y = baseY + launch.VisualYOffset;
             root.position = pos;
-        }
-
-        private static float GetLaunchCurveT(float elapsed, float arcDuration, float totalDuration, bool suspendAtApex)
-        {
-            if (!suspendAtApex)
-                return Mathf.Clamp01(elapsed / arcDuration);
-
-            float halfArcDuration = arcDuration * 0.5f;
-            if (elapsed < halfArcDuration)
-                return Mathf.Clamp01(elapsed / arcDuration);
-
-            float fallStart = Mathf.Max(halfArcDuration, totalDuration - halfArcDuration);
-            if (elapsed < fallStart)
-                return 0.5f;
-
-            return Mathf.Clamp01(0.5f + (elapsed - fallStart) / arcDuration);
         }
 
         private void ApplyAnim(bool moving)
