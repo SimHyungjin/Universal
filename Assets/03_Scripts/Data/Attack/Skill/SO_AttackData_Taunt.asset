@@ -80,7 +80,7 @@ MonoBehaviour:
         suspendDuration: 0
       down:
         enabled: 1
-        duration: 2
+        duration: 1
   damage: 5
   hitType: 1
   knockback:

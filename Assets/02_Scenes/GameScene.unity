@@ -1017,7 +1017,7 @@ MonoBehaviour:
   stuckProgressDistance: 0.05
   stuckRetryLimit: 4
   separationRadius: 10
-  separationStrength: 10
+  separationStrength: 15
   separationMaxNeighbors: 100
   maxPathsPerFrame: 256
 --- !u!4 &387206963

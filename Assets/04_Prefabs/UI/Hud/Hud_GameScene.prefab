@@ -2661,10 +2661,10 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_Sprite: {fileID: 21300000, guid: f427949bb65aa154b96d6f5158f41597, type: 3}
-  m_Type: 0
+  m_Type: 3
   m_PreserveAspect: 1
   m_FillCenter: 1
-  m_FillMethod: 4
+  m_FillMethod: 0
   m_FillAmount: 1
   m_FillClockwise: 1
   m_FillOrigin: 0
@@ -2960,7 +2960,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::UI_Joystick
   joystickRoot: {fileID: 9100034666296993338}
   knob: {fileID: 1011812157882422475}
-  useAnchorRatioPosition: 1
   deadZoneRatio: 0.05
 --- !u!222 &3009906311691432796
 CanvasRenderer:
@@ -3391,7 +3390,7 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 19.4
+  m_fontSize: 24
   m_fontSizeBase: 36
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -4169,6 +4168,9 @@ MonoBehaviour:
   hpAmount: {fileID: 9035243351685561610}
   hpDelayedFillDelay: 0.25
   hpDelayedFillSpeed: 0.8
+  gaugeFill: {fileID: 1986527360049375897}
+  gaugeDelayedFill: {fileID: 0}
+  gaugeDelayedFillSpeed: 1.5
 --- !u!114 &2888239819897541409
 MonoBehaviour:
   m_ObjectHideFlags: 0

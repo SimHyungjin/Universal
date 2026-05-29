@@ -26,9 +26,11 @@ MonoBehaviour:
       m_PostInfinity: 2
       m_RotationOrder: 4
     stopOnHit: 0
+    slamDescentSpeed: 0
   jump:
     enabled: 0
     height: 2
+    suspendAtApex: 0
   duration: 1.2
   shape:
     type: 0
@@ -54,13 +56,14 @@ MonoBehaviour:
     force: 70
     duration: 0.3
     friction: 12
-  down:
-    enabled: 1
-    duration: 2
   launch:
     enabled: 1
     height: 1.5
     duration: 0.6
+    suspendDuration: 0
+  down:
+    enabled: 1
+    duration: 2
   lifeSteal:
     enabled: 0
     ratio: 0.1
@@ -118,7 +121,7 @@ MonoBehaviour:
     - 2
     swingSfx: 0
     timingVfxAddress: FX_Weapon Effect
-    timingVfxOffset: {x: 0, y: 0, z: 1}
+    timingVfxOffset: {x: 0, y: -0.5, z: 1}
     hitVfxAddress: CFXR3 Hit Fire B (Air)
     hitSfx: 0
   hitVfxAddress: 

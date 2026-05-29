@@ -3,7 +3,7 @@ using UnityEngine;
 
 public enum SkillCategory
 {
-    Active   = 0,
+    Active = 0,
     Ultimate = 1
 }
 
@@ -22,15 +22,15 @@ public struct UltimateOverlayData
 public struct SkillCutInData
 {
     public bool enabled;
-    [Min(0f), Tooltip("컷인 유지 시간 (이후 원래 값으로 복원)")]
+    [Min(0f), Tooltip("Cut-in duration. Camera values restore after this.")]
     public float duration;
-    [Min(0f), Tooltip("0 = 변경 없음")]
+    [Min(0f), Tooltip("0 = keep current FOV.")]
     public float fovOverride;
-    [Min(0f), Tooltip("0 = 변경 없음")]
+    [Min(0f), Tooltip("0 = keep current distance.")]
     public float distanceOverride;
-    [Tooltip("카메라 높이 오프셋 (양수 = 위로)")]
+    [Tooltip("Temporary camera height offset.")]
     public float heightDelta;
-    [Tooltip("cutIn 동안 카메라 선회 속도 (degrees/sec, 양수 = 우→좌)")]
+    [Tooltip("Camera yaw velocity during cut-in, in degrees per second.")]
     public float yawVelocity;
 }
 
@@ -49,14 +49,11 @@ public sealed class SO_SkillData : ScriptableObject
     [Header("Activation")]
     [SerializeField, Min(0f)] private float cooldown = 5f;
     [SerializeField, Min(0f)] private float resourceCost;
-    [Tooltip("Ultimate 전용: 발동 시 무적 지속 시간")]
+    [Tooltip("Ultimate only: invincibility duration after activation.")]
     [SerializeField, Min(0f)] private float invincibleDuration;
 
     [Header("Ultimate Overlay")]
     [SerializeField] private UltimateOverlayData overlay;
-
-    [Header("Camera Cut-In")]
-    [SerializeField] private SkillCutInData cutIn;
 
     [Header("Attack")]
     [SerializeField] private SO_AttackData[] attackSequence;
@@ -70,6 +67,7 @@ public sealed class SO_SkillData : ScriptableObject
     public float ResourceCost => resourceCost;
     public float InvincibleDuration => invincibleDuration;
     public UltimateOverlayData Overlay => overlay;
-    public SkillCutInData CutIn => cutIn;
     public SO_AttackData[] AttackSequence => attackSequence;
+    public bool IsUltimate => category == SkillCategory.Ultimate;
+    public bool HasAttackSequence => attackSequence != null && attackSequence.Length > 0 && attackSequence[0] != null;
 }

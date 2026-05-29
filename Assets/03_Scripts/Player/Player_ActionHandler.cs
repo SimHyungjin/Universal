@@ -36,6 +36,7 @@ public class Player_ActionHandler : LoopMonoBehaviour, IDamageable
     public PlayerActionState State => _state;
     public bool IsInvincible => _invincibleTimer > 0f;
     public bool CanAttack => _state == PlayerActionState.Normal;
+    public bool CanUseSkill => _state == PlayerActionState.Normal || _state == PlayerActionState.Jump;
     public bool LocksLocomotion => _state != PlayerActionState.Normal;
     public float Health => _health;
     public float MaxHealth => statsData != null ? statsData.MaxHealth : 100f;
@@ -298,6 +299,12 @@ public class Player_ActionHandler : LoopMonoBehaviour, IDamageable
 
         _gauge = next;
         OnGaugeChanged?.Invoke(_gauge, max);
+    }
+
+    public void AddInvincible(float duration)
+    {
+        if (duration <= 0f) return;
+        _invincibleTimer = Mathf.Max(_invincibleTimer, duration);
     }
 
     public bool TryConsumeGauge(float cost)
