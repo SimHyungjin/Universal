@@ -21,6 +21,9 @@ public static class Game
     public static void PlayCameraCutIn(SkillCutInData data)
         => Main.Camera?.PlayCutIn(data);
 
+    public static void CancelCameraCutIn()
+        => Main.Camera?.CancelCutIn();
+
     public static void PlayUltimateOverlay(UltimateOverlayData data)
         => Overlay_UltimateActivate.Instance?.Play(data);
 }

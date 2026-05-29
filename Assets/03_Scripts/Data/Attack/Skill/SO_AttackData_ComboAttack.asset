@@ -10,14 +10,14 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 04afefad81cf42009a9997add1629312, type: 3}
-  m_Name: SO_AttackData_Player1
+  m_Name: SO_AttackData_ComboAttack
   m_EditorClassIdentifier: 
   animation:
-    stateName: Attack_1
+    stateName: Onehand_Up
     transition: 0.05
   lunge:
-    moveType: 0
-    distance: 2
+    moveType: 3
+    distance: 1
     duration: 0.5
     speedCurve:
       serializedVersion: 2
@@ -26,41 +26,44 @@ MonoBehaviour:
       m_PostInfinity: 2
       m_RotationOrder: 4
     stopOnHit: 0
+    slamDescentSpeed: 0
   jump:
-    enabled: 0
-    height: 2
+    enabled: 1
+    height: 5
+    suspendAtApex: 1
   duration: 0.5
   shape:
-    type: 0
-    radius: 2.5
+    type: 2
+    radius: 2
     angle: 90
     length: 3
     width: 2
   hitbox:
-    timing: 0.7
+    timing: 0.2
     offset: 0
     yOffset: 0
-    verticalTolerance: 2
+    verticalTolerance: 3
   repeat:
     enabled: 0
     interval: 0.05
     hitSameTargetOnce: 1
     cancelOnMiss: 0
   additionalHits: []
-  damage: 30
+  damage: 10
   hitType: 1
   knockback:
     type: 1
-    force: 50
-    duration: 0.3
+    force: 30
+    duration: 0.1
     friction: 12
-  down:
-    enabled: 0
-    duration: 0.8
   launch:
     enabled: 1
-    height: 1.5
-    duration: 0.8
+    height: 5
+    duration: 0.5
+    suspendDuration: 1
+  down:
+    enabled: 0
+    duration: 0.5
   lifeSteal:
     enabled: 0
     ratio: 0.1
@@ -110,11 +113,15 @@ MonoBehaviour:
     forwardOffset: 2
     followAttacker: 0
   feedback:
+    castVfxAddress: 
+    castVfxOffset: {x: 0, y: 0, z: 0}
     swingTrailIds:
     - 0
     - 1
     - 2
     swingSfx: 0
+    timingVfxAddress: 
+    timingVfxOffset: {x: 0, y: 0, z: 0}
     hitVfxAddress: CFXR3 Hit Fire B (Air)
     hitSfx: 0
   hitVfxAddress: 

@@ -30,20 +30,22 @@ MonoBehaviour:
     enabled: 0
     height: 2
   duration: 0.5
-  hitbox:
-    timing: 0.8
-    offset: 0
-    yOffset: 0
-    verticalTolerance: 1
-    repeatDuringAttack: 0
-    repeatInterval: 0.05
-    hitSameTargetOnce: 1
   shape:
     type: 2
     radius: 2
     angle: 90
     length: 3
     width: 2
+  hitbox:
+    timing: 0.8
+    offset: 0
+    yOffset: 0
+    verticalTolerance: 1
+  repeat:
+    enabled: 0
+    interval: 0.05
+    hitSameTargetOnce: 1
+    cancelOnMiss: 0
   additionalHits: []
   damage: 30
   hitType: 1
@@ -52,9 +54,6 @@ MonoBehaviour:
     force: 30
     duration: 0.1
     friction: 12
-  hitstop:
-    duration: 0.2
-    timeScale: 0.02
   down:
     enabled: 0
     duration: 0.5
@@ -66,17 +65,36 @@ MonoBehaviour:
     enabled: 0
     ratio: 0.1
     maxPerHit: 0
-  superArmor: 0
-  superArmorBreak: 0
-  cameraShake:
-    enabled: 1
-    amplitude: 0.15
-    duration: 0.18
-    frequency: 25
-  slowMo:
+  superArmor:
+    value: 0
+    breakPower: 0
+  cameraCue:
     enabled: 0
-    worldScale: 0.3
-    duration: 0.5
+    trigger: 0
+    duration: 0
+    fovOverride: 0
+    distanceOverride: 0
+    heightDelta: 0
+    yawVelocity: 0
+  releaseEffects:
+    shake:
+      enabled: 0
+      amplitude: 0
+      duration: 0
+      frequency: 0
+    slowMo:
+      enabled: 0
+      worldScale: 0.3
+      duration: 0.5
+  hitEffects:
+    shake:
+      enabled: 1
+      amplitude: 0.15
+      duration: 0.18
+      frequency: 25
+    hitstop:
+      duration: 0.2
+      timeScale: 0.02
   projectile:
     enabled: 0
     prefabAddress: 

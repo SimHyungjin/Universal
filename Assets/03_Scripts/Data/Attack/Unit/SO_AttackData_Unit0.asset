@@ -27,34 +27,61 @@ MonoBehaviour:
       m_PostInfinity: 2
       m_RotationOrder: 4
     stopOnHit: 0
-  hitbox:
-    timing: 0.8
-    offset: 0
-    yOffset: 0
-    verticalTolerance: 2
-    repeatDuringAttack: 0
-    repeatInterval: 0.05
-    hitSameTargetOnce: 1
   shape:
     type: 0
     radius: 1
     angle: 90
     length: 3
     width: 2
+  hitbox:
+    timing: 0.8
+    offset: 0
+    yOffset: 0
+    verticalTolerance: 2
+  repeat:
+    enabled: 0
+    interval: 0.05
+    hitSameTargetOnce: 1
+    cancelOnMiss: 0
   damage: 10
   knockback:
     type: 1
     force: 10
     duration: 0.1
     friction: 12
-  hitstop:
-    duration: 0
-    timeScale: 0
   down:
     enabled: 0
     duration: 0.8
-  superArmor: 0
-  superArmorBreak: 0
+  superArmor:
+    value: 0
+    breakPower: 0
+  cameraCue:
+    enabled: 0
+    trigger: 0
+    duration: 0
+    fovOverride: 0
+    distanceOverride: 0
+    heightDelta: 0
+    yawVelocity: 0
+  releaseEffects:
+    shake:
+      enabled: 0
+      amplitude: 0
+      duration: 0
+      frequency: 0
+    slowMo:
+      enabled: 0
+      worldScale: 0
+      duration: 0
+  hitEffects:
+    shake:
+      enabled: 0
+      amplitude: 0
+      duration: 0
+      frequency: 0
+    hitstop:
+      duration: 0
+      timeScale: 0
   hitType: 1
   feedback:
     swingTrailIds: []

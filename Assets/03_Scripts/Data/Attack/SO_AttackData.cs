@@ -36,6 +36,13 @@ public enum KnockbackType
     Directional = 1
 }
 
+public enum AttackCueTrigger
+{
+    Release = 0,
+    Hit = 1,
+    End = 2
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 1 — Setup: 공격 발동 전 단계
 // ─────────────────────────────────────────────────────────────────────────────
@@ -87,12 +94,17 @@ public struct AttackHitboxData
     public float yOffset;
     [Min(0f)]
     public float verticalTolerance;
-    public bool repeatDuringAttack;
+}
+
+[Serializable]
+public struct AttackRepeatData
+{
+    public bool enabled;
     [Min(0f)]
-    public float repeatInterval;
+    public float interval;
     public bool hitSameTargetOnce;
-    [Tooltip("repeat 틱 1회 발동 시 적중 0이면 공격 즉시 종료")]
-    public bool cancelOnTickMiss;
+    [Tooltip("틱 1회 발동 시 적중 0이면 공격 즉시 종료")]
+    public bool cancelOnMiss;
 }
 
 [Serializable]
@@ -109,13 +121,26 @@ public struct AttackShapeData
     public float width;
 }
 
-// 한 공격에 동시 발동되는 추가 히트박스. 기본 hitbox와 같은 timing에 발동되는 것을 전제로 한다 (좌우 동시, 발+검 동시 등).
-// 시차 발동이 필요해지면 자체 timing 추가를 고려. 실행 측은 SkillRunner 도입 시 소비.
+// overrideHitResult = true일 때 AttackExtraHit에서 사용하는 독립 히트 결과.
+// false면 SO_AttackData 최상위 damage/hitType/knockback/launch/down을 그대로 사용.
+[Serializable]
+public struct AttackExtraHitResult
+{
+    public float damage;
+    public HitType hitType;
+    public AttackKnockbackData knockback;
+    public AttackLaunchData launch;
+    public AttackDownData down;
+}
+
+// 추가 히트박스. hitbox.timing이 독립적이므로 시차 다단 히트에 사용 가능 (좌우 동시, 발+검, 다른 타이밍 후속타 등).
 [Serializable]
 public struct AttackExtraHit
 {
-    public AttackHitboxData hitbox;
     public AttackShapeData shape;
+    public AttackHitboxData hitbox;
+    public AttackRepeatData repeat;
+    public AttackExtraHitResult hitResult;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -166,6 +191,13 @@ public struct AttackLifeStealData
     [Min(0f)] public float maxPerHit;
 }
 
+[Serializable]
+public struct AttackSuperArmorData
+{
+    [Min(0f)] public float value;
+    [Min(0f)] public float breakPower;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 5 — Global Effects: 화면/시간 전역 연출
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,6 +219,35 @@ public struct AttackSlowMoData
     public bool enabled;
     [Range(0f, 1f)] public float worldScale;
     [Min(0f)] public float duration;
+}
+
+[Serializable]
+public struct AttackCameraCueData
+{
+    public bool enabled;
+    public AttackCueTrigger trigger;
+    [Min(0f), Tooltip("0 = use the attack duration.")]
+    public float duration;
+    [Min(0f), Tooltip("0 = keep current FOV.")]
+    public float fovOverride;
+    [Min(0f), Tooltip("0 = keep current distance.")]
+    public float distanceOverride;
+    public float heightDelta;
+    public float yawVelocity;
+}
+
+[Serializable]
+public struct AttackReleaseEffectData
+{
+    public AttackCameraShakeData shake;
+    public AttackSlowMoData slowMo;
+}
+
+[Serializable]
+public struct AttackHitEffectData
+{
+    public AttackCameraShakeData shake;
+    public AttackHitstopData hitstop;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -285,15 +346,6 @@ public sealed class SO_AttackData : ScriptableObject, ISerializationCallbackRece
     // ── Phase 3: Hit Detection ───────────────────────────────────────────────
     [Header("Hit Detection")]
     [SerializeField] private float duration = 0.4f;
-    [SerializeField] private AttackHitboxData hitbox = new()
-    {
-        timing = 0.4f,
-        offset = 1.0f,
-        yOffset = 0.8f,
-        verticalTolerance = 1.5f,
-        repeatInterval = 0.05f,
-        hitSameTargetOnce = true
-    };
     [SerializeField] private AttackShapeData shape = new()
     {
         type = AttackShape.Sphere,
@@ -301,6 +353,18 @@ public sealed class SO_AttackData : ScriptableObject, ISerializationCallbackRece
         angle = 90f,
         length = 3f,
         width = 2f
+    };
+    [SerializeField] private AttackHitboxData hitbox = new()
+    {
+        timing = 0.4f,
+        offset = 1.0f,
+        yOffset = 0.8f,
+        verticalTolerance = 1.5f
+    };
+    [SerializeField] private AttackRepeatData repeat = new()
+    {
+        interval = 0.05f,
+        hitSameTargetOnce = true
     };
     [SerializeField] private AttackExtraHit[] additionalHits;
 
@@ -325,35 +389,21 @@ public sealed class SO_AttackData : ScriptableObject, ISerializationCallbackRece
         enabled = false,
         duration = 0.5f
     };
-    [SerializeField] private AttackHitstopData hitstop = new()
-    {
-        duration = 0.08f,
-        timeScale = 0.02f
-    };
     [SerializeField] private AttackLifeStealData lifeSteal = new()
     {
         enabled = false,
         ratio = 0.1f,
         maxPerHit = 0f
     };
-    [SerializeField, Min(0f)] private float superArmor;
-    [SerializeField, Min(0f)] private float superArmorBreak;
+    [SerializeField] private AttackSuperArmorData superArmor;
+
+    [Header("Camera")]
+    [SerializeField] private AttackCameraCueData cameraCue;
 
     // ── Phase 5: Global Effects ──────────────────────────────────────────────
     [Header("Global Effects")]
-    [SerializeField] private AttackCameraShakeData cameraShake = new()
-    {
-        enabled = false,
-        amplitude = 0.15f,
-        duration = 0.18f,
-        frequency = 25f
-    };
-    [SerializeField] private AttackSlowMoData slowMo = new()
-    {
-        enabled = false,
-        worldScale = 0.3f,
-        duration = 0.5f
-    };
+    [SerializeField] private AttackReleaseEffectData releaseEffects;
+    [SerializeField] private AttackHitEffectData hitEffects;
 
     // ── Phase 6: Alternative Delivery ────────────────────────────────────────
     [Header("Alternative Delivery")]
@@ -388,22 +438,28 @@ public sealed class SO_AttackData : ScriptableObject, ISerializationCallbackRece
     public AttackJumpData Jump => jump;
     // Hit Detection
     public float Duration => duration;
-    public AttackHitboxData Hitbox => hitbox;
     public AttackShapeData Shape => shape;
+    public AttackHitboxData Hitbox => hitbox;
+    public AttackRepeatData Repeat => repeat;
     public AttackExtraHit[] AdditionalHits => additionalHits;
     // Hit Result
     public float Damage => damage;
     public HitType HitType => hitType;
     public AttackKnockbackData Knockback => knockback;
-    public AttackHitstopData Hitstop => hitstop;
+    public AttackHitstopData Hitstop => hitEffects.hitstop;
     public AttackDownData Down => down;
     public AttackLaunchData Launch => launch;
     public AttackLifeStealData LifeSteal => lifeSteal;
-    public float SuperArmor => superArmor;
-    public float SuperArmorBreak => superArmorBreak;
+    public AttackSuperArmorData SuperArmorData => superArmor;
+    public float SuperArmor => superArmor.value;
+    public float SuperArmorBreak => superArmor.breakPower;
+    // Camera
+    public AttackCameraCueData CameraCue => cameraCue;
     // Global Effects
-    public AttackCameraShakeData CameraShake => cameraShake;
-    public AttackSlowMoData SlowMo => slowMo;
+    public AttackReleaseEffectData ReleaseEffects => releaseEffects;
+    public AttackHitEffectData HitEffects => hitEffects;
+    public AttackCameraShakeData CameraShake => hitEffects.shake;
+    public AttackSlowMoData SlowMo => releaseEffects.slowMo;
     // Alternative Delivery
     public AttackProjectileData Projectile => projectile;
     public AttackFieldData Field => field;
@@ -430,6 +486,7 @@ public sealed class SO_AttackData : ScriptableObject, ISerializationCallbackRece
             hitSfx = SfxType.None;
         }
     }
+
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -447,10 +504,7 @@ public static class AttackShapeUtility
 
         float forwardOffset = hitbox.offset;
         if (shape.type == AttackShape.Box)
-        {
-            float length = Mathf.Max(shape.radius * 2f, shape.length);
-            forwardOffset += length * 0.5f;
-        }
+            forwardOffset += shape.length * 0.5f;
 
         return attackerPosition + forward * forwardOffset + Vector3.up * hitbox.yOffset;
     }
@@ -467,7 +521,7 @@ public static class AttackShapeUtility
         return shape.type switch
         {
             AttackShape.Cone => Mathf.Max(shape.radius, shape.length),
-            AttackShape.Box => Mathf.Max(shape.radius, Mathf.Sqrt(shape.length * shape.length + shape.width * shape.width) * 0.5f),
+            AttackShape.Box => Mathf.Sqrt(shape.length * shape.length + shape.width * shape.width) * 0.5f,
             _ => Mathf.Max(0f, shape.radius)
         };
     }
@@ -477,7 +531,7 @@ public static class AttackShapeUtility
         return shape.type switch
         {
             AttackShape.Cone => Mathf.Max(shape.radius, shape.length),
-            AttackShape.Box => Mathf.Max(shape.radius * 2f, shape.length),
+            AttackShape.Box => shape.length,
             _ => Mathf.Max(0f, shape.radius)
         };
     }
@@ -526,8 +580,8 @@ public static class AttackShapeUtility
 
     private static bool ContainsBox(Vector3 attackerPosition, Vector3 forward, Vector3 targetPosition, float targetRadius, AttackHitboxData hitbox, AttackShapeData shape)
     {
-        float length = Mathf.Max(shape.radius * 2f, shape.length);
-        float width = Mathf.Max(shape.radius * 2f, shape.width);
+        float length = shape.length;
+        float width  = shape.width;
         Vector3 center = attackerPosition + forward * (hitbox.offset + length * 0.5f) + Vector3.up * hitbox.yOffset;
         if (!IsWithinVerticalTolerance(center, targetPosition, targetRadius, hitbox))
             return false;

@@ -44,24 +44,28 @@ MonoBehaviour:
       m_PostInfinity: 2
       m_RotationOrder: 4
     stopOnHit: 0
+    slamDescentSpeed: 0
   jump:
     enabled: 0
     height: 2
+    suspendAtApex: 0
   duration: 0.2
-  hitbox:
-    timing: 0.8
-    offset: 0
-    yOffset: 0
-    verticalTolerance: 1
-    repeatDuringAttack: 1
-    repeatInterval: 0.02
-    hitSameTargetOnce: 0
   shape:
     type: 0
     radius: 2
     angle: 90
     length: 3
     width: 2
+  hitbox:
+    timing: 0
+    offset: 0
+    yOffset: 0
+    verticalTolerance: 1
+  repeat:
+    enabled: 1
+    interval: 0.02
+    hitSameTargetOnce: 0
+    cancelOnMiss: 0
   additionalHits: []
   damage: 10
   hitType: 0
@@ -70,31 +74,48 @@ MonoBehaviour:
     force: 100
     duration: 0.1
     friction: 12
-  hitstop:
-    duration: 0
-    timeScale: 0
-  down:
-    enabled: 1
-    duration: 2
   launch:
     enabled: 1
     height: 1.5
     duration: 1
+    suspendDuration: 0
+  down:
+    enabled: 1
+    duration: 2
   lifeSteal:
     enabled: 0
     ratio: 0.1
     maxPerHit: 0
-  superArmor: 1
-  superArmorBreak: 0
-  cameraShake:
+  superArmor:
+    value: 1
+    breakPower: 0
+  cameraCue:
     enabled: 1
-    amplitude: 0.15
-    duration: 0.18
-    frequency: 25
-  slowMo:
-    enabled: 0
-    worldScale: 0.02
-    duration: 0.5
+    trigger: 0
+    duration: 0.1
+    fovOverride: 38
+    distanceOverride: 4.4
+    heightDelta: -0.35
+    yawVelocity: 18
+  releaseEffects:
+    shake:
+      enabled: 0
+      amplitude: 0
+      duration: 0
+      frequency: 0
+    slowMo:
+      enabled: 1
+      worldScale: 0.02
+      duration: 0.3
+  hitEffects:
+    shake:
+      enabled: 1
+      amplitude: 0.15
+      duration: 0.18
+      frequency: 25
+    hitstop:
+      duration: 0
+      timeScale: 0
   projectile:
     enabled: 0
     prefabAddress: 
@@ -110,8 +131,12 @@ MonoBehaviour:
     forwardOffset: 2
     followAttacker: 0
   feedback:
+    castVfxAddress: 
+    castVfxOffset: {x: 0, y: 0, z: 0}
     swingTrailIds: []
     swingSfx: 0
+    timingVfxAddress: 
+    timingVfxOffset: {x: 0, y: 0, z: 0}
     hitVfxAddress: CFXR3 Hit Fire B (Air)
     hitSfx: 0
   hitVfxAddress: 

@@ -4,6 +4,7 @@ using UnityEngine;
 public interface IHitboxProcessor
 {
     bool Process(SO_AttackData data, Transform attacker, AttackHitRegistry hitRegistry, float finalDamage, float targetSuspendDuration);
+    bool ProcessExtra(SO_AttackData data, AttackExtraHit extra, int extraIndex, Transform attacker, AttackHitRegistry hitRegistry, float finalDamage, float targetSuspendDuration);
 }
 
 public sealed class AttackHitRegistry

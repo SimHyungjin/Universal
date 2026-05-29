@@ -180,6 +180,16 @@ public class CameraManager : CoreManager
         _thirdPersonHeight = _preCutInHeight + data.heightDelta;
     }
 
+    public void CancelCutIn()
+    {
+        if (_cutInTimer <= 0f) return;
+
+        _cutInTimer = 0f;
+        _thirdPersonFov      = _preCutInFov;
+        _thirdPersonDistance = _preCutInDistance;
+        _thirdPersonHeight   = _preCutInHeight;
+    }
+
     public void Shake(float amplitude, float duration, float frequency = 25f)
     {
         if (amplitude <= 0f || duration <= 0f) return;

@@ -26,26 +26,61 @@ MonoBehaviour:
       m_PostInfinity: 2
       m_RotationOrder: 4
     stopOnHit: 0
+    slamDescentSpeed: 0
   jump:
     enabled: 0
     height: 2
     suspendAtApex: 0
   duration: 1.5
-  hitbox:
-    timing: 0.8
-    offset: 0
-    yOffset: 0
-    verticalTolerance: 1
-    repeatDuringAttack: 1
-    repeatInterval: 0.1
-    hitSameTargetOnce: 0
   shape:
     type: 0
     radius: 5
     angle: 360
     length: 3
     width: 2
-  additionalHits: []
+  hitbox:
+    timing: 0.2
+    offset: 0
+    yOffset: 0
+    verticalTolerance: 1
+  repeat:
+    enabled: 1
+    interval: 0.1
+    hitSameTargetOnce: 0
+    cancelOnMiss: 0
+  additionalHits:
+  - shape:
+      type: 0
+      radius: 7
+      angle: 360
+      length: 3
+      width: 2
+    hitbox:
+      timing: 0.9
+      offset: 0
+      yOffset: 0
+      verticalTolerance: 1
+    repeat:
+      enabled: 1
+      interval: 0.1
+      hitSameTargetOnce: 1
+      cancelOnMiss: 0
+    hitResult:
+      damage: 50
+      hitType: 1
+      knockback:
+        type: 0
+        force: 30
+        duration: 0.4
+        friction: 12
+      launch:
+        enabled: 1
+        height: 1.5
+        duration: 0.3
+        suspendDuration: 0
+      down:
+        enabled: 1
+        duration: 2
   damage: 5
   hitType: 1
   knockback:
@@ -53,31 +88,48 @@ MonoBehaviour:
     force: 10
     duration: 0.4
     friction: 12
-  hitstop:
-    duration: 0
-    timeScale: 0
-  down:
-    enabled: 1
-    duration: 0.5
   launch:
     enabled: 1
     height: 1.5
     duration: 0.3
+    suspendDuration: 0
+  down:
+    enabled: 0
+    duration: 0.5
   lifeSteal:
     enabled: 0
     ratio: 0.1
     maxPerHit: 0
-  superArmor: 1
-  superArmorBreak: 0
-  cameraShake:
+  superArmor:
+    value: 1
+    breakPower: 0
+  cameraCue:
     enabled: 1
-    amplitude: 0.15
-    duration: 1.5
-    frequency: 25
-  slowMo:
-    enabled: 1
-    worldScale: 0.02
-    duration: 0.2
+    trigger: 0
+    duration: 0
+    fovOverride: 38
+    distanceOverride: 4.4
+    heightDelta: -0.35
+    yawVelocity: 18
+  releaseEffects:
+    shake:
+      enabled: 0
+      amplitude: 0
+      duration: 0
+      frequency: 0
+    slowMo:
+      enabled: 1
+      worldScale: 0.02
+      duration: 0.2
+  hitEffects:
+    shake:
+      enabled: 1
+      amplitude: 0.15
+      duration: 1.5
+      frequency: 25
+    hitstop:
+      duration: 0
+      timeScale: 0
   projectile:
     enabled: 0
     prefabAddress: 

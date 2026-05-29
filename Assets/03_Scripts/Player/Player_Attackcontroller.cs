@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Cysharp.Threading.Tasks;
 using MapNav.Ecs;
 using Unity.Collections;
@@ -48,12 +48,15 @@ public class Player_Attackcontroller : LoopMonoBehaviour
     private bool          _slamLandingFired;
     private bool          _slamDescending;
 
-    // Skills (loadout). 4개 슬롯 — [[project_skill_loadout]]. 자원 시스템은 미구현이라 cost는 일단 무시.
+    // Skills (loadout). 4媛??щ’ ??[[project_skill_loadout]]. ?먯썝 ?쒖뒪?쒖? 誘멸뎄?꾩씠??cost???쇰떒 臾댁떆.
     private SO_SkillData[] _skills;
     private readonly float[] _skillCooldowns = new float[SkillInput.SlotCount];
     private SO_AttackData[] _skillSequence;
     private int             _skillSequenceIndex;
     private bool  _skillSequenceAnyHit;
+    private bool _hitCameraCuePlayed;
+    private bool[]  _extraHitFired;
+    private float[] _extraNextHitboxElapsed;
     private readonly Collider[] _hitboxOverlapBuffer = new Collider[128];
     private readonly Collider[] _autoAimOverlapBuffer = new Collider[128];
     private readonly AttackHitRegistry _attackHitRegistry = new();
@@ -113,23 +116,31 @@ public class Player_Attackcontroller : LoopMonoBehaviour
     {
         if (slot < 0 || slot >= _skillCooldowns.Length) return false;
         if (_skills == null || slot >= _skills.Length) return false;
+        if (_skillSequence != null) return false;
+        if (_actionHandler != null && !_actionHandler.CanUseSkill) return false;
         SO_SkillData skill = _skills[slot];
         if (skill == null) return false;
         if (_skillCooldowns[slot] > 0f) return false;
-        if (skill.Category == SkillCategory.Ultimate && (_actionHandler == null || !_actionHandler.TryConsumeGauge(skill.ResourceCost)))
-            return false;
 
         SO_AttackData[] sequence = skill.AttackSequence;
-        if (sequence == null || sequence.Length == 0 || sequence[0] == null) return false;
+        if (!skill.HasAttackSequence) return false;
 
-        // 진행 중 공격/콤보가 있으면 끊고 스킬 진입. CancelAttack이 _skillSequence를 비우므로 그 뒤에 설정.
+        if (skill.IsUltimate)
+        {
+            if (_actionHandler == null || !_actionHandler.TryConsumeGauge(skill.ResourceCost))
+                return false;
+            _actionHandler.AddInvincible(skill.InvincibleDuration);
+            Game.PlayUltimateOverlay(skill.Overlay);
+        }
+
+        // 吏꾪뻾 以?怨듦꺽/肄ㅻ낫媛 ?덉쑝硫??딄퀬 ?ㅽ궗 吏꾩엯. CancelAttack??_skillSequence瑜?鍮꾩슦誘濡?洹??ㅼ뿉 ?ㅼ젙.
         if (_attackTimer > 0f)
             CancelAttack();
 
         _skillCooldowns[slot] = skill.Cooldown;
         _skillSequence = sequence;
         _skillSequenceIndex = 0;
-        StartAttackData(sequence[0]);
+        StartAttackDataWithEffects(sequence[0]);
         return true;
     }
 
@@ -193,7 +204,7 @@ public class Player_Attackcontroller : LoopMonoBehaviour
 
     private void PollSkillInput()
     {
-        // 스킬 시퀀스 진행 중에는 다른 스킬을 받지 않는다 (자기 자신 끊김 방지).
+        // ?ㅽ궗 ?쒗??吏꾪뻾 以묒뿉???ㅻⅨ ?ㅽ궗??諛쏆? ?딅뒗??(?먭린 ?먯떊 ?딄? 諛⑹?).
         if (_skillSequence != null) return;
         if (_skills == null) return;
 
@@ -204,6 +215,17 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         }
     }
 
+    private static void ShakeOnAttackRelease(AttackReleaseEffectData release)
+    {
+        AttackCameraShakeData shake = release.shake;
+        if (!shake.enabled || shake.amplitude <= 0f || shake.duration <= 0f) return;
+
+        App.ShakeCamera(
+            shake.amplitude,
+            shake.duration,
+            shake.frequency > 0f ? shake.frequency : 25f);
+    }
+
     private void StartAttack()
     {
         SO_AttackData attack = GetData(_comboCount);
@@ -212,7 +234,34 @@ public class Player_Attackcontroller : LoopMonoBehaviour
             ResetCombo();
             return;
         }
+        StartAttackDataWithEffects(attack);
+    }
+
+    private void StartAttackDataWithEffects(SO_AttackData attack)
+    {
+        if (attack == null) return;
+
+        ShakeOnAttackRelease(attack.ReleaseEffects);
         StartAttackData(attack);
+        PlayAttackCameraCue(attack, AttackCueTrigger.Release);
+    }
+
+    private static void PlayAttackCameraCue(SO_AttackData attack, AttackCueTrigger trigger)
+    {
+        if (attack == null) return;
+
+        AttackCameraCueData cue = attack.CameraCue;
+        if (!cue.enabled || cue.trigger != trigger) return;
+
+        Game.PlayCameraCutIn(new SkillCutInData
+        {
+            enabled = true,
+            duration = cue.duration > 0f ? cue.duration : Mathf.Max(0.01f, attack.Duration),
+            fovOverride = cue.fovOverride,
+            distanceOverride = cue.distanceOverride,
+            heightDelta = cue.heightDelta,
+            yawVelocity = cue.yawVelocity
+        });
     }
 
     private void StartAttackData(SO_AttackData attack)
@@ -232,11 +281,13 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         _comboTimer = 0f;
         _attackTimer = _currentData.Duration;
         _hitboxFired = false;
+        _hitCameraCuePlayed = false;
         _nextHitboxElapsed = 0f;
         _skillSequenceAnyHit = false;
         _slamLandingFired = false;
         _attackHitRegistry.Clear();
 
+        InitExtraHitState(_currentData);
         _playerAnimator?.PlayAttack(_currentData.Animation);
         if (_currentData.Lunge.moveType == AttackMoveType.Slam)
         {
@@ -275,9 +326,15 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         StopAttackMoveVfx(true);
         StopCastVfx();
         if (_currentData != null)
+        {
+            // Release 트리거 큐가 남아 있으면 취소 (cancelOnTickMiss 등 조기 종료 시 큐가 계속 재생되는 문제 방지)
+            if (_currentData.CameraCue.enabled && _currentData.CameraCue.trigger == AttackCueTrigger.Release)
+                Game.CancelCameraCutIn();
+            PlayAttackCameraCue(_currentData, AttackCueTrigger.End);
             _vfx?.StopSwingTrails(_currentData.Feedback.swingTrailIds);
+        }
 
-        // 스킬 시퀀스 진행 중이면 다음 attack을 자동 발사. 시퀀스가 끝나면 일반 콤보 상태로 복귀.
+        // ?ㅽ궗 ?쒗??吏꾪뻾 以묒씠硫??ㅼ쓬 attack???먮룞 諛쒖궗. ?쒗?ㅺ? ?앸굹硫??쇰컲 肄ㅻ낫 ?곹깭濡?蹂듦?.
         if (_skillSequence != null)
         {
             if (!_skillSequenceAnyHit)
@@ -291,7 +348,7 @@ public class Player_Attackcontroller : LoopMonoBehaviour
             _skillSequenceIndex++;
             if (_skillSequenceIndex < _skillSequence.Length && _skillSequence[_skillSequenceIndex] != null)
             {
-                StartAttackData(_skillSequence[_skillSequenceIndex]);
+                StartAttackDataWithEffects(_skillSequence[_skillSequenceIndex]);
                 return;
             }
             _skillSequence = null;
@@ -309,6 +366,21 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         _comboTimer = _comboWindow;
     }
 
+    private void InitExtraHitState(SO_AttackData data)
+    {
+        int count = data.AdditionalHits?.Length ?? 0;
+        if (_extraHitFired == null || _extraHitFired.Length < count)
+        {
+            _extraHitFired = new bool[count];
+            _extraNextHitboxElapsed = new float[count];
+        }
+        for (int i = 0; i < count; i++)
+        {
+            _extraHitFired[i] = false;
+            _extraNextHitboxElapsed[i] = 0f;
+        }
+    }
+
     private void ResetCombo()
     {
         _comboCount = 0;
@@ -318,8 +390,15 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         _hitboxFired = false;
         _nextHitboxElapsed = 0f;
         _skillSequenceAnyHit = false;
+        _hitCameraCuePlayed = false;
         _slamLandingFired = false;
         _slamDescending = false;
+        if (_extraHitFired != null)
+            for (int i = 0; i < _extraHitFired.Length; i++)
+            {
+                _extraHitFired[i] = false;
+                _extraNextHitboxElapsed[i] = 0f;
+            }
         _attackHitRegistry.Clear();
         StopAttackMoveVfx(false);
         _vfx?.StopAllSwingTrails();
@@ -332,7 +411,11 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         _playerAnimator?.ExitAttack();
         StopCastVfx();
         if (_currentData != null)
+        {
+            if (_currentData.CameraCue.enabled)
+                Game.CancelCameraCutIn();
             _vfx?.StopSwingTrails(_currentData.Feedback.swingTrailIds);
+        }
         _skillSequence = null;
         _skillSequenceIndex = 0;
         ResetCombo();
@@ -352,33 +435,148 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         }
 
         AttackHitboxData hitbox = data.Hitbox;
+        AttackRepeatData repeat = data.Repeat;
         float elapsed = data.Duration - Mathf.Max(0f, _attackTimer);
-        float startElapsed = hitbox.repeatDuringAttack ? 0f : data.Duration * hitbox.timing;
+        float startElapsed = data.Duration * hitbox.timing;
         if (!_hitboxFired)
         {
             if (elapsed < startElapsed)
                 return;
 
             _hitboxFired = true;
-            _nextHitboxElapsed = elapsed + Mathf.Max(0.01f, hitbox.repeatInterval);
+            _nextHitboxElapsed = elapsed + Mathf.Max(0.01f, repeat.interval);
             FireHitbox(data);
             return;
         }
 
-        if (!hitbox.repeatDuringAttack)
+        if (!repeat.enabled)
+        {
+            TickExtraHitboxes(data, elapsed);
             return;
+        }
 
-        float repeatInterval = Mathf.Max(0.01f, hitbox.repeatInterval);
+        float repeatInterval = Mathf.Max(0.01f, repeat.interval);
         while (_nextHitboxElapsed <= elapsed)
         {
             bool hit = FireHitbox(data);
             _nextHitboxElapsed += repeatInterval;
-            if (!hit && hitbox.cancelOnTickMiss)
+            if (!hit && repeat.cancelOnMiss)
             {
                 _attackTimer = 0f;
                 break;
             }
         }
+
+        TickExtraHitboxes(data, elapsed);
+    }
+
+    private void TickExtraHitboxes(SO_AttackData data, float elapsed)
+    {
+        AttackExtraHit[] extras = data.AdditionalHits;
+        if (extras == null || extras.Length == 0) return;
+
+        float scaledBaseDamage = _playerStats != null
+            ? CombatFormula.ScaleAttackDamage(_playerStats.AttackPower, data.Damage)
+            : data.Damage;
+
+        for (int i = 0; i < extras.Length; i++)
+        {
+            AttackExtraHit extra = extras[i];
+            AttackRepeatData repeat = extra.repeat;
+            float startElapsed = data.Duration * extra.hitbox.timing;
+
+            if (!_extraHitFired[i])
+            {
+                if (elapsed < startElapsed) continue;
+                _extraHitFired[i] = true;
+                _extraNextHitboxElapsed[i] = elapsed + Mathf.Max(0.01f, repeat.interval);
+                FireExtraHit(data, extra, i, scaledBaseDamage);
+                continue;
+            }
+
+            if (!repeat.enabled) continue;
+
+            float repeatInterval = Mathf.Max(0.01f, repeat.interval);
+            while (_extraNextHitboxElapsed[i] <= elapsed)
+            {
+                bool hit = FireExtraHit(data, extra, i, scaledBaseDamage);
+                _extraNextHitboxElapsed[i] += repeatInterval;
+                if (!hit && repeat.cancelOnMiss)
+                {
+                    _attackTimer = 0f;
+                    break;
+                }
+            }
+        }
+    }
+
+    private bool FireExtraHit(SO_AttackData data, AttackExtraHit extra, int extraIndex, float scaledBaseDamage)
+    {
+        float finalDamage = _playerStats != null
+            ? CombatFormula.ScaleAttackDamage(_playerStats.AttackPower, extra.hitResult.damage)
+            : extra.hitResult.damage;
+        float suspendDuration = extra.hitResult.launch.suspendDuration;
+
+        string timingVfx = data.Feedback.timingVfxAddress;
+        if (!string.IsNullOrEmpty(timingVfx))
+        {
+            Vector3 center = AttackShapeUtility.GetQueryCenter(transform.position, transform.forward, extra.hitbox, extra.shape);
+            center += transform.rotation * data.Feedback.timingVfxOffset;
+            float vfxDuration = extra.repeat.enabled ? extra.repeat.interval : 0f;
+            CombatFeedback.SpawnVfxAtPosition(timingVfx, center, destroyCancellationToken, vfxDuration);
+        }
+
+        bool didHit = FireExtraHitInstance(data, extra, extraIndex, finalDamage);
+
+        if (_hitboxProcessor != null &&
+            _hitboxProcessor.ProcessExtra(data, extra, extraIndex, transform, _attackHitRegistry, finalDamage, suspendDuration))
+            didHit = true;
+
+        _skillSequenceAnyHit |= didHit;
+        if (!didHit) return false;
+
+        if (!_hitCameraCuePlayed)
+        {
+            _hitCameraCuePlayed = true;
+            PlayAttackCameraCue(data, AttackCueTrigger.Hit);
+        }
+
+        if (data.LifeSteal.enabled)
+        {
+            float heal = finalDamage * data.LifeSteal.ratio;
+            if (data.LifeSteal.maxPerHit > 0f)
+                heal = Mathf.Min(heal, data.LifeSteal.maxPerHit);
+            _actionHandler?.Heal(heal);
+        }
+
+        _actionHandler?.AddGauge(finalDamage * (_playerStats != null ? _playerStats.GaugeGainPerDamage : 0f));
+        TriggerHitstop(data.HitEffects.hitstop).Forget();
+        return true;
+    }
+
+    private bool FireExtraHitInstance(SO_AttackData data, AttackExtraHit extra, int extraIndex, float finalDamage)
+    {
+        Vector3 center = AttackShapeUtility.GetQueryCenter(transform.position, transform.forward, extra.hitbox, extra.shape);
+        float queryRadius = AttackShapeUtility.GetQueryRadius(extra.hitbox, extra.shape);
+        bool didHit = false;
+
+        int hitCount = Physics.OverlapSphereNonAlloc(center, queryRadius, _hitboxOverlapBuffer);
+        for (int i = 0; i < hitCount; i++)
+        {
+            Collider col = _hitboxOverlapBuffer[i];
+            if (!col.TryGetComponent(out IHitTarget target)) continue;
+            Vector3 targetPoint = col.ClosestPoint(center);
+            if (!AttackShapeUtility.Contains(transform.position, transform.forward, targetPoint, extra.hitbox, extra.shape))
+                continue;
+            if (!_attackHitRegistry.TryRegister(col.GetInstanceID(), extraIndex + 10, extra.repeat.hitSameTargetOnce))
+                continue;
+
+            target.ReceiveHit(transform.position, transform.forward, data, finalDamage);
+            SpawnHitFeedback(data, targetPoint);
+            didHit = true;
+        }
+
+        return didHit;
     }
 
     private bool FireHitbox(SO_AttackData data)
@@ -392,18 +590,11 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         {
             Vector3 center = AttackShapeUtility.GetQueryCenter(transform.position, transform.forward, data.Hitbox, data.Shape);
             center += transform.rotation * data.Feedback.timingVfxOffset;
-            float timingVfxDuration = data.Hitbox.repeatDuringAttack ? data.Hitbox.repeatInterval : 0f;
+            float timingVfxDuration = data.Repeat.enabled ? data.Repeat.interval : 0f;
             CombatFeedback.SpawnVfxAtPosition(timingVfx, center, destroyCancellationToken, timingVfxDuration);
         }
 
         bool didHit = FireHitInstance(data, data.Hitbox, data.Shape, finalDamage);
-
-        AttackExtraHit[] extras = data.AdditionalHits;
-        if (extras != null)
-        {
-            for (int i = 0; i < extras.Length; i++)
-                didHit |= FireHitInstance(data, extras[i].hitbox, extras[i].shape, finalDamage);
-        }
 
         float targetSuspendDuration = GetTargetSuspendDuration(data);
         if (_hitboxProcessor != null && _hitboxProcessor.Process(data, transform, _attackHitRegistry, finalDamage, targetSuspendDuration))
@@ -411,6 +602,12 @@ public class Player_Attackcontroller : LoopMonoBehaviour
 
         _skillSequenceAnyHit |= didHit;
         if (!didHit) return false;
+
+        if (!_hitCameraCuePlayed)
+        {
+            _hitCameraCuePlayed = true;
+            PlayAttackCameraCue(data, AttackCueTrigger.Hit);
+        }
 
         if (data.LifeSteal.enabled)
         {
@@ -428,7 +625,7 @@ public class Player_Attackcontroller : LoopMonoBehaviour
             StopAttackMoveVfx(true);
         }
 
-        TriggerHitstop(data.Hitstop).Forget();
+        TriggerHitstop(data.HitEffects.hitstop).Forget();
         return true;
     }
 
@@ -449,7 +646,7 @@ public class Player_Attackcontroller : LoopMonoBehaviour
             Vector3 targetPoint = col.ClosestPoint(center);
             if (!AttackShapeUtility.Contains(transform.position, transform.forward, targetPoint, hitbox, shape))
                 continue;
-            if (!_attackHitRegistry.TryRegister(col.GetInstanceID(), 1, hitbox.hitSameTargetOnce))
+            if (!_attackHitRegistry.TryRegister(col.GetInstanceID(), 1, data.Repeat.hitSameTargetOnce))
                 continue;
 
             target.ReceiveHit(transform.position, transform.forward, data, finalDamage);
@@ -477,7 +674,6 @@ public class Player_Attackcontroller : LoopMonoBehaviour
             forward = Vector3.forward;
         forward.Normalize();
 
-        // GameObject 타겟
         int hitCount = Physics.OverlapSphereNonAlloc(myPos, range, _autoAimOverlapBuffer);
         for (int i = 0; i < hitCount; i++)
         {
@@ -493,7 +689,6 @@ public class Player_Attackcontroller : LoopMonoBehaviour
             best = diff.normalized;
         }
 
-        // ECS 타겟
         if (EnsureAutoAimQuery())
         {
             NativeArray<LocalTransform> transforms = _autoAimQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
@@ -551,7 +746,7 @@ public class Player_Attackcontroller : LoopMonoBehaviour
             ? _attacks[Mathf.Clamp(index, 0, _attacks.Length - 1)]
             : null;
 
-    // hit VFX는 캐릭터의 가슴/배 높이에서 떠야 자연스럽다. 발 위치 기준으로 +0.5m 보정.
+    // hit VFX??罹먮┃?곗쓽 媛??諛??믪씠?먯꽌 ?좎빞 ?먯뿰?ㅻ읇?? 諛??꾩튂 湲곗??쇰줈 +0.5m 蹂댁젙.
     private const float HitVfxHeightOffset = 0.5f;
 
     private void SpawnHitFeedback(SO_AttackData data, Vector3 position)
@@ -732,8 +927,8 @@ public class Player_Attackcontroller : LoopMonoBehaviour
 
     private static void DrawBoxGizmo(Vector3 origin, Vector3 forward, AttackHitboxData hitbox, AttackShapeData shape, bool solid)
     {
-        float length = Mathf.Max(shape.radius * 2f, shape.length);
-        float width = Mathf.Max(shape.radius * 2f, shape.width);
+        float length = shape.length;
+        float width  = shape.width;
         float height = Mathf.Max(0.05f, Mathf.Max(0f, hitbox.verticalTolerance) * 2f);
         Vector3 center = origin + forward * (hitbox.offset + length * 0.5f) + Vector3.up * hitbox.yOffset;
         Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
@@ -796,3 +991,5 @@ public class Player_Attackcontroller : LoopMonoBehaviour
         }
     }
 }
+
+

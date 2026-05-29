@@ -12,6 +12,40 @@ public class Player_HitboxProcessor : MonoBehaviour, IHitboxProcessor
     private EntityQuery   _hitQuery;
     private World         _cachedWorld;
 
+    // ProcessInstance에 주입되는 전투 파라미터. SO_AttackData 또는 AttackExtraHitResult에서 생성.
+    private readonly struct HitContext
+    {
+        public readonly HitType HitType;
+        public readonly AttackKnockbackData Knockback;
+        public readonly AttackLaunchData Launch;
+        public readonly AttackDownData Down;
+        public readonly float SuperArmorBreak;
+        public readonly float SuspendDuration;
+        public readonly bool HitSameTargetOnce;
+
+        public HitContext(SO_AttackData data, float suspendDuration)
+        {
+            HitType            = data.HitType;
+            Knockback          = data.Knockback;
+            Launch             = data.Launch;
+            Down               = data.Down;
+            SuperArmorBreak    = data.SuperArmorBreak;
+            SuspendDuration    = suspendDuration;
+            HitSameTargetOnce  = data.Repeat.hitSameTargetOnce;
+        }
+
+        public HitContext(AttackExtraHitResult r, float superArmorBreak, float suspendDuration, bool hitSameTargetOnce)
+        {
+            HitType            = r.hitType;
+            Knockback          = r.knockback;
+            Launch             = r.launch;
+            Down               = r.down;
+            SuperArmorBreak    = superArmorBreak;
+            SuspendDuration    = suspendDuration;
+            HitSameTargetOnce  = hitSameTargetOnce;
+        }
+    }
+
     public bool Process(SO_AttackData data, Transform attacker, AttackHitRegistry hitRegistry, float finalDamage, float targetSuspendDuration)
     {
         if (!EnsureHitQuery()) return false;
@@ -20,16 +54,31 @@ public class Player_HitboxProcessor : MonoBehaviour, IHitboxProcessor
         NativeArray<LocalTransform> transforms = _hitQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
         NativeArray<NavAgentSettings> settings = _hitQuery.ToComponentDataArray<NavAgentSettings>(Allocator.Temp);
 
-        bool didHit = ProcessInstance(data, data.Hitbox, data.Shape, attacker, hitRegistry, finalDamage, targetSuspendDuration,
-            entities, transforms, settings);
+        HitContext ctx = new HitContext(data, targetSuspendDuration);
+        bool didHit = ProcessInstance(ctx, data.Hitbox, data.Shape, attacker, hitRegistry, 2, finalDamage,
+            data, entities, transforms, settings);
 
-        AttackExtraHit[] extras = data.AdditionalHits;
-        if (extras != null)
-        {
-            for (int i = 0; i < extras.Length; i++)
-                didHit |= ProcessInstance(data, extras[i].hitbox, extras[i].shape, attacker, hitRegistry, finalDamage, targetSuspendDuration,
-                    entities, transforms, settings);
-        }
+        entities.Dispose();
+        transforms.Dispose();
+        settings.Dispose();
+
+        return didHit;
+    }
+
+    public bool ProcessExtra(SO_AttackData data, AttackExtraHit extra, int extraIndex, Transform attacker, AttackHitRegistry hitRegistry, float finalDamage, float targetSuspendDuration)
+    {
+        if (!EnsureHitQuery()) return false;
+
+        NativeArray<Entity> entities = _hitQuery.ToEntityArray(Allocator.Temp);
+        NativeArray<LocalTransform> transforms = _hitQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
+        NativeArray<NavAgentSettings> settings = _hitQuery.ToComponentDataArray<NavAgentSettings>(Allocator.Temp);
+
+        HitContext ctx = new HitContext(extra.hitResult, data.SuperArmorBreak, targetSuspendDuration, extra.repeat.hitSameTargetOnce);
+
+        // extraIndex + 10을 scope으로 사용해 메인 hitbox(scope=2)와 레지스트리 충돌 방지
+        int scope = extraIndex + 10;
+        bool didHit = ProcessInstance(ctx, extra.hitbox, extra.shape, attacker, hitRegistry, scope, finalDamage,
+            data, entities, transforms, settings);
 
         entities.Dispose();
         transforms.Dispose();
@@ -39,13 +88,14 @@ public class Player_HitboxProcessor : MonoBehaviour, IHitboxProcessor
     }
 
     private bool ProcessInstance(
-        SO_AttackData data,
+        in HitContext ctx,
         AttackHitboxData hitbox,
         AttackShapeData shape,
         Transform attacker,
         AttackHitRegistry hitRegistry,
+        int registryScope,
         float finalDamage,
-        float targetSuspendDuration,
+        SO_AttackData feedbackData,
         NativeArray<Entity> entities,
         NativeArray<LocalTransform> transforms,
         NativeArray<NavAgentSettings> settings)
@@ -66,7 +116,7 @@ public class Player_HitboxProcessor : MonoBehaviour, IHitboxProcessor
             if (math.distancesq(center, unitPos) > expandedQueryRadius * expandedQueryRadius) continue;
             if (!AttackShapeUtility.Contains(attacker.position, attacker.forward, unitPos, targetRadius, hitbox, shape))
                 continue;
-            if (hitRegistry != null && !hitRegistry.TryRegister(GetEntityHitKey(entities[i]), 2, hitbox.hitSameTargetOnce))
+            if (hitRegistry != null && !hitRegistry.TryRegister(GetEntityHitKey(entities[i]), registryScope, ctx.HitSameTargetOnce))
                 continue;
 
             // 사망 연출 중인 적은 더 이상 타격 대상이 아니다.
@@ -85,7 +135,7 @@ public class Player_HitboxProcessor : MonoBehaviour, IHitboxProcessor
             float3 forwardDir = math.normalizesafe(
                 new float3(attacker.forward.x, 0f, attacker.forward.z),
                 new float3(0f, 0f, 1f));
-            float3 dir = data.Knockback.type == KnockbackType.Directional ? forwardDir : radialDir;
+            float3 dir = ctx.Knockback.type == KnockbackType.Directional ? forwardDir : radialDir;
             float3 lookDir = math.normalizesafe(
                 new float3(myPos.x - unitPos.x, 0f, myPos.z - unitPos.z),
                 new float3(attacker.forward.x, 0f, attacker.forward.z));
@@ -93,44 +143,44 @@ public class Player_HitboxProcessor : MonoBehaviour, IHitboxProcessor
             LocalTransform unitTransform = transforms[i];
             unitTransform.Rotation = quaternion.LookRotationSafe(lookDir, math.up());
 
-            bool superArmorBlocked = IsSuperArmorBlocked(entities[i], data.SuperArmorBreak);
+            bool superArmorBlocked = IsSuperArmorBlocked(entities[i], ctx.SuperArmorBreak);
             if (!superArmorBlocked)
             {
                 _em.SetComponentData(entities[i], unitTransform);
 
-                AttackKnockbackData knockback = data.Knockback;
+                AttackKnockbackData knockback = ctx.Knockback;
                 int prevVersion = _em.GetComponentData<NavAgentKnockback>(entities[i]).HitVersion;
                 _em.SetComponentData(entities[i], new NavAgentKnockback
                 {
                     Velocity        = dir * knockback.force,
                     Timer           = knockback.duration,
-                    MotionLockTimer = data.Down.duration,
+                    MotionLockTimer = ctx.Down.duration,
                     Friction        = knockback.friction,
                     InitialSpeed    = knockback.force,
-                    HitType         = (int)data.HitType,
-                    SuperArmorBreak = data.SuperArmorBreak,
+                    HitType         = (int)ctx.HitType,
+                    SuperArmorBreak = ctx.SuperArmorBreak,
                     HitVersion      = prevVersion + 1,
-                    IsHeavy         = (byte)(data.Down.enabled ? 1 : 0)
+                    IsHeavy         = (byte)(ctx.Down.enabled ? 1 : 0)
                 });
 
                 if (_em.HasComponent<NavAgentLaunch>(entities[i]))
                 {
                     NavAgentLaunch current = _em.GetComponentData<NavAgentLaunch>(entities[i]);
-                    if (data.Launch.enabled)
+                    if (ctx.Launch.enabled)
                     {
                         _em.SetComponentData(entities[i], new NavAgentLaunch
                         {
-                            Height          = data.Launch.height,
-                            Duration        = data.Launch.duration,
-                            SuspendDuration = targetSuspendDuration,
-                            SuspendAtApex   = (byte)(targetSuspendDuration > 0f ? 1 : 0),
+                            Height          = ctx.Launch.height,
+                            Duration        = ctx.Launch.duration,
+                            SuspendDuration = ctx.SuspendDuration,
+                            SuspendAtApex   = (byte)(ctx.SuspendDuration > 0f ? 1 : 0),
                             Elapsed         = 0f,
                             FreezeTimer     = 0f
                         });
                     }
-                    else if (targetSuspendDuration > 0f && current.Height > 0f)
+                    else if (ctx.SuspendDuration > 0f && current.Height > 0f)
                     {
-                        current.FreezeTimer = targetSuspendDuration;
+                        current.FreezeTimer = ctx.SuspendDuration;
                         _em.SetComponentData(entities[i], current);
                     }
                 }
@@ -144,7 +194,7 @@ public class Player_HitboxProcessor : MonoBehaviour, IHitboxProcessor
                 _em.SetComponentData(entities[i], health);
             }
 
-            SpawnHitFeedback(data, unitPos);
+            SpawnHitFeedback(feedbackData, unitPos);
             didHit = true;
         }
 
