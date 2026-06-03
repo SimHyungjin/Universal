@@ -14,6 +14,7 @@ public sealed class Character_Vitals : MonoBehaviour
     private float _gauge;
     private float _gaugeMax = 100f;
     private float _defense;
+    private float _bodyRadius = 0.5f;
     private NavFaction _faction = NavFaction.Ally;
     private bool _isDead;
     private bool _factionResolved;
@@ -28,6 +29,8 @@ public sealed class Character_Vitals : MonoBehaviour
     public float Gauge => _gauge;
     public float GaugeMax => _gaugeMax;
     public float Defense => _defense;
+    // 잡몹이 못 들어오는 몸체 반경 + 잡몹 공격 적중 판정 반경(공용). Character_EcsBridge가 ECS로 발행한다.
+    public float BodyRadius => _bodyRadius;
     public NavFaction Faction => _faction;
     public bool IsDead => _isDead;
 
@@ -39,12 +42,13 @@ public sealed class Character_Vitals : MonoBehaviour
     // 스탯/진영을 주입하고 체력을 (재)설정한다. startHealth가 null이면 풀피로 시작.
     // 장수 재실체화 시 Elite_State.Health를 startHealth로 넘겨 직전 체력을 복원한다.
     // 이벤트 구독자는 유지된다(Configure는 숫자만 갱신).
-    public void Configure(float maxHealth, float defense, float gaugeMax, NavFaction faction, float? startHealth = null)
+    public void Configure(float maxHealth, float defense, float gaugeMax, NavFaction faction, float? startHealth = null, float bodyRadius = 0.5f)
     {
-        _maxHealth = Mathf.Max(1f, maxHealth);
-        _defense   = defense;
-        _gaugeMax  = Mathf.Max(0f, gaugeMax);
-        _faction   = faction;
+        _maxHealth  = Mathf.Max(1f, maxHealth);
+        _defense    = defense;
+        _gaugeMax   = Mathf.Max(0f, gaugeMax);
+        _bodyRadius = Mathf.Max(0f, bodyRadius);
+        _faction    = faction;
         _factionResolved = true;
         _isDead    = false;
         _health    = Mathf.Clamp(startHealth ?? _maxHealth, 0f, _maxHealth);

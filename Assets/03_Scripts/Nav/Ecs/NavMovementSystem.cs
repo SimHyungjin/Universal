@@ -43,6 +43,7 @@ namespace MapNav.Ecs
             ref NavAgentPathStatus status,
             ref LocalTransform transform,
             in NavAgentSeparation separation,
+            in NavAgentCombatTarget combat,
             in NavAgentKnockback knockback,
             in NavAgentAttack attack,
             in NavAgentLaunch launch,
@@ -66,7 +67,8 @@ namespace MapNav.Ecs
                 return;
             }
 
-            // 공격 동작(선딜·쿨다운) 중에는 제자리에 멈춘다.
+            // 공격 동작(선딜·쿨다운) 중에는 제자리에 멈춘다. 위치를 옮기면 공격 애니가 미끄러진다.
+            // 한 점 수렴은 추격 단계의 ring 정착(아래)이 막으므로 여기서 분리는 적용하지 않는다.
             if (attack.Phase != NavAttackPhase.Idle)
             {
                 Stop(ref motion);
@@ -140,14 +142,42 @@ namespace MapNav.Ecs
                 return;
             }
 
-            float moveDistance = math.min(settings.MoveSpeed * DeltaTime, distance);
-            float3 steering = NavAgentCore.ResolveSteering(steeringTarget, current, planarDelta);
-            steering = ApplySeparationSteering(in settings, in separation, steering, planarDelta, waypoints[index].Required != 0);
+            // 타겟 거리 기반 포위: 타겟에서 ring(=사거리 안) 거리에 정착시켜 한 점 수렴을 막는다.
+            // ring 밖이면 ring까지만 전진, ring 안이면 가까울수록 기하급수적으로 강하게 후퇴한다.
+            // 위치 변경은 이 추격 경로(IsMoving=1) 안에서만 일어나므로 비주얼이 미끄러지지 않는다.
+            float ring = math.max(settings.AttackRange * settings.EncircleRingFactor, settings.AgentRadius * 2f);
+            float3 toTarget = combat.HasTarget != 0 ? combat.Position - current : float3.zero;
+            toTarget.y = 0f;
+            float distToTarget = math.length(toTarget);
 
-            float3 direction = math.normalizesafe(steering, planarDelta / distance);
-            float3 step = direction * moveDistance;
-            if (moveDistance > distance)
-                step = planarDelta;
+            float moveDistance;
+            float3 step;
+            bool retreating = combat.HasTarget != 0 && distToTarget > 1e-3f && distToTarget < ring;
+            if (retreating)
+            {
+                // ring 안으로 밀려듦 → 타겟 반대로 후퇴(가까울수록 t²로 가속). 이웃 분리로 옆으로도 펼친다.
+                float t = (ring - distToTarget) / ring;
+                moveDistance = settings.MoveSpeed * DeltaTime * math.min(1f, t * t * settings.RetreatGain);
+                float3 away = -toTarget / distToTarget;
+                float3 sep = separation.Steering;
+                sep.y = 0f;
+                float3 dir = math.normalizesafe(away + sep * settings.SeparationStrength, away);
+                step = dir * moveDistance;
+            }
+            else
+            {
+                moveDistance = math.min(settings.MoveSpeed * DeltaTime, distance);
+                // ring 밖에서 추격: ring을 넘어 더 다가가지 않도록 전진량을 ring까지로 제한한다.
+                if (combat.HasTarget != 0 && distToTarget > ring)
+                    moveDistance = math.min(moveDistance, distToTarget - ring);
+
+                float3 steering = NavAgentCore.ResolveSteering(steeringTarget, current, planarDelta);
+                steering = ApplySeparationSteering(in settings, in separation, steering, planarDelta, waypoints[index].Required != 0);
+                float3 direction = math.normalizesafe(steering, planarDelta / distance);
+                step = direction * moveDistance;
+                if (moveDistance > distance)
+                    step = planarDelta;
+            }
 
             float3 nextPosition = current + step;
 
@@ -168,8 +198,11 @@ namespace MapNav.Ecs
 
             transform.Position = nextPosition;
 
-            if (math.lengthsq(direction) > 1e-4f)
-                transform.Rotation = quaternion.LookRotationSafe(direction, math.up());
+            // 후퇴(뒷걸음) 중에는 타겟을 바라본다(등지지 않게). 전진·분리 중에는 이동 방향을 본다
+            // — 잡몹은 단방향 Run 애니라 회전이 이동 방향과 일치해야 게걸음처럼 미끄러지지 않는다.
+            float3 faceDir = retreating ? toTarget / distToTarget : math.normalizesafe(step);
+            if (math.lengthsq(faceDir) > 1e-4f)
+                transform.Rotation = quaternion.LookRotationSafe(faceDir, math.up());
 
             motion.IsMoving = 1;
             motion.CurrentSpeed = DeltaTime > 0f ? moveDistance / DeltaTime : 0f;
@@ -285,8 +318,9 @@ namespace MapNav.Ecs
             float3 separationSteering = separation.Steering;
             separationSteering.y = 0f;
 
+            // 분리의 전진 저지 성분을 일부만 깎는다(과거 0.75는 추격 중 분리를 너무 약화시켜 한 점 수렴을 키웠다).
             float backward = math.min(0f, math.dot(separationSteering, pathDir));
-            separationSteering -= pathDir * backward * 0.75f;
+            separationSteering -= pathDir * backward * 0.5f;
 
             float3 mixed = steering + separationSteering * settings.SeparationStrength;
             if (math.lengthsq(mixed) <= 1e-6f || math.dot(mixed, planarDelta) < -1e-4f)

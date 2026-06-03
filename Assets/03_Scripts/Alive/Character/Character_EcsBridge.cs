@@ -8,9 +8,6 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public sealed class Character_EcsBridge : MonoBehaviour
 {
-    [Tooltip("잡몹 공격 판정 시 캐릭터를 점이 아닌 반경으로 취급. 1프레임 stale·넉백 미끄러짐을 흡수.")]
-    [SerializeField] private float hitRadius = 0.5f;
-
     private Character_Vitals _vitals;
     private World _world;
     private Entity _entity = Entity.Null;
@@ -43,10 +40,10 @@ public sealed class Character_EcsBridge : MonoBehaviour
 
         em.SetComponentData(_entity, new CharacterNavTarget
         {
-            Position  = transform.position,
-            HasValue  = (byte)(active ? 1 : 0),
-            HitRadius = Mathf.Max(0f, hitRadius),
-            Faction   = _vitals != null ? _vitals.Faction : NavFaction.Ally
+            Position   = transform.position,
+            HasValue   = (byte)(active ? 1 : 0),
+            BodyRadius = _vitals != null ? _vitals.BodyRadius : 0.5f,
+            Faction    = _vitals != null ? _vitals.Faction : NavFaction.Ally
         });
     }
 

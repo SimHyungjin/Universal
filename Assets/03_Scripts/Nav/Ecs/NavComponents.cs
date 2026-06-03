@@ -30,6 +30,10 @@ namespace MapNav.Ecs
         public float WakeupRecoveryDuration;
         // 받는 데미지 감소율. CombatFormula.ReduceIncomingDamage(Defense, incoming).
         public float Defense;
+        // 포위 링 거리 = AttackRange * EncircleRingFactor. 타겟에서 정착할 거리(사거리 안).
+        public float EncircleRingFactor;
+        // ring 안으로 밀려든 유닛이 타겟에서 멀어질 때의 후퇴 가속(거리 t²에 곱해진다).
+        public float RetreatGain;
     }
 
     public struct NavAgentTarget : IComponentData
@@ -167,13 +171,14 @@ namespace MapNav.Ecs
     // GameObject로 존재하는 캐릭터(플레이어/장수)를 ECS 잡몹이 타겟·타격하기 위한 다리.
     // 캐릭터 1명당 1엔티티(더 이상 싱글톤 아님). 같은 엔티티에 CharacterIncomingHit 버퍼가 붙는다.
     // MonoBehaviour 브릿지(Character_EcsBridge)가 매 프레임 위치/진영을 갱신한다.
-    // HitRadius: 잡몹 공격 판정 시 캐릭터를 점이 아닌 반경으로 취급해 1프레임 stale·넉백 미끄러짐을 흡수한다.
+    // BodyRadius: 잡몹이 못 들어오는 몸체 반경(NavOverlapResolveSystem 겹침 방지)이자, 잡몹 공격 판정 시
+    //   캐릭터를 점이 아닌 반경으로 취급하는 적중 판정 반경(공용). SO_Character_Stats가 단일 진실.
     // Faction: 잡몹은 자신과 다른 진영의 캐릭터만 타겟·타격한다.
     public struct CharacterNavTarget : IComponentData
     {
         public float3     Position;
         public byte       HasValue;
-        public float      HitRadius;
+        public float      BodyRadius;
         public NavFaction Faction;
     }
 

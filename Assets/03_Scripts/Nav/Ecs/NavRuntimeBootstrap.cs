@@ -45,6 +45,12 @@ namespace MapNav.Ecs
         [SerializeField] private float separationStrength = 0.45f;
         [SerializeField] private int separationMaxNeighbors = 8;
 
+        [Header("Encircle / crowd")]
+        [Tooltip("포위 링 거리 = 공격 사거리 × 이 값. 작을수록 타겟에 바짝, 클수록 멀리 둘러싼다.")]
+        [SerializeField] private float encircleRingFactor = 0.85f;
+        [Tooltip("ring 안으로 밀려든 유닛이 타겟에서 멀어지는 후퇴 가속. 클수록 더 빠르게 튕겨나간다.")]
+        [SerializeField] private float retreatGain = 3f;
+
         [Header("Faction cluster spawn")]
         [Tooltip("진영별 스폰을 모을 시드 클러스터 반경. 두 진영이 nav 영역 양 끝에 뭉쳐 전선을 이룬다.")]
         [SerializeField] private float factionClusterRadius = 12f;
@@ -695,7 +701,9 @@ namespace MapNav.Ecs
                 AttackWindup            = math.max(0f, attackWindup),
                 AttackCooldown          = math.max(0f, attackCooldown),
                 WakeupRecoveryDuration  = math.max(0f, wakeupRecovery),
-                Defense                 = math.max(0f, defense)
+                Defense                 = math.max(0f, defense),
+                EncircleRingFactor      = math.max(0f, encircleRingFactor),
+                RetreatGain             = math.max(0f, retreatGain)
             };
         }
 

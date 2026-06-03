@@ -259,6 +259,7 @@ namespace MapNav.Ecs
 
                 if (!targetChanged
                     && target.Dirty == 0
+                    && !hasNoUsablePath
                     && math.lengthsq(targetDelta) <= refreshDistance * refreshDistance)
                 {
                     TargetLookup[self] = target;

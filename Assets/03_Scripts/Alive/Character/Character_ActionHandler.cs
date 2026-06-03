@@ -212,7 +212,8 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
             statsData != null ? statsData.MaxHealth : 100f,
             statsData != null ? statsData.Defense : 0f,
             statsData != null ? statsData.GaugeMax : 100f,
-            faction);
+            faction,
+            bodyRadius: statsData != null ? statsData.BodyRadius : 0.5f);
     }
 
     private void ApplyActiveLoadout()

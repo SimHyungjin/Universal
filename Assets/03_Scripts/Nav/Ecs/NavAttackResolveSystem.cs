@@ -61,7 +61,7 @@ namespace MapNav.Ecs
                         CharacterNavTarget character = em.GetComponentData<CharacterNavTarget>(characterEntity);
                         if (character.HasValue != 0
                             && character.Faction != faction.ValueRO.Faction
-                            && IsInAttackShape(transform.ValueRO.Position, forward, character.Position, character.HitRadius, profile.ValueRO))
+                            && IsInAttackShape(transform.ValueRO.Position, forward, character.Position, character.BodyRadius, profile.ValueRO))
                         {
                             em.GetBuffer<CharacterIncomingHit>(characterEntity).Add(new CharacterIncomingHit
                             {

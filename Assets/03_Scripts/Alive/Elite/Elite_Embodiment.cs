@@ -32,7 +32,8 @@ public sealed class Elite_Embodiment : MonoBehaviour
             stats != null ? stats.Defense : 0f,
             stats != null ? stats.GaugeMax : _vitals.GaugeMax,
             State.Faction,
-            State.Health);
+            State.Health,
+            stats != null ? stats.BodyRadius : 0.5f);
 
         _vitals.OnHealthChanged += HandleHealthChanged;
     }
