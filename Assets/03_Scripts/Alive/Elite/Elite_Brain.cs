@@ -126,10 +126,7 @@ public sealed class Elite_Brain : LoopMonoBehaviour
         float preferredRange = attackRange * Mathf.Lerp(GetPreferredRangeRatio(), 0.85f, aggression);
         float closeRange = attackRange * Mathf.Lerp(GetCloseRangeRatio(), 0.35f, aggression);
 
-        if (TryUseSkill(sqrDistance, attackRange, straightDir))
-            return;
-
-        if (TryEmergencyReposition(distance, closeRange, straightDir, aggression))
+        if (HoldCommandsDuringSkillSequence())
             return;
 
         if (_attackController != null && _attackController.IsInCombo)
@@ -138,6 +135,12 @@ public sealed class Elite_Brain : LoopMonoBehaviour
             PressComboAttack();
             return;
         }
+
+        if (TryUseSkill(sqrDistance, attackRange, straightDir))
+            return;
+
+        if (TryEmergencyReposition(distance, closeRange, straightDir, aggression))
+            return;
 
         if (sqrDistance <= attackRange * attackRange)
         {
@@ -160,6 +163,16 @@ public sealed class Elite_Brain : LoopMonoBehaviour
 
         // 추격: nav로 경로를 만들고 그 방향을 MoveWorld로 흘린다. nav가 transform을 직접 움직이진 않는다.
         ChaseTarget(targetPos, straightDir, dt);
+    }
+
+    private bool HoldCommandsDuringSkillSequence()
+    {
+        if (_attackController == null || !_attackController.IsSkillSequenceActive)
+            return false;
+
+        StopMovement();
+        _aiCommands.ClearOneShotInputs();
+        return true;
     }
 
     // 자기 진영과 다른 최근접 적대 대상을 찾는다. 후보: 플레이어 + 실체화된 적 장수 + 적 잡몹(ECS).

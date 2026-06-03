@@ -38,7 +38,6 @@ namespace MapNav.Ecs
         private ActorLocomotionAnimation _locomotion;
         private int _attackHash;
         private HitReactionAnimSet _hitReactionSet;
-        private float _previousKnockbackTimer;
         private float _previousMotionLockTimer;
         private int   _previousHitVersion;
         private byte  _previousLaunchAirborne;
@@ -136,7 +135,6 @@ namespace MapNav.Ecs
             ResolveProfile();
             CacheHashes();
             _animation.Reset();
-            _previousKnockbackTimer = 0f;
             _previousMotionLockTimer = 0f;
             _previousHitVersion = 0;
             _previousLaunchAirborne = 0;
@@ -169,7 +167,6 @@ namespace MapNav.Ecs
             _wasDying = false;
             _wasAttacking = false;
             _previousAttackPhase = NavAttackPhase.Idle;
-            _previousKnockbackTimer = 0f;
             _previousMotionLockTimer = 0f;
             _previousHitVersion = 0;
             _previousLaunchAirborne = 0;
@@ -221,8 +218,9 @@ namespace MapNav.Ecs
                 _animation.ResetLocomotionTimers();
             }
 
-            bool isKnockedBack = knockback.Timer > 0f;
+            bool isKnockedBack = NavKnockbackSystem.HasPlanarKnockbackVelocity(knockback.Velocity);
             bool isLocked      = knockback.MotionLockTimer > 0f;
+            bool isWakingUp    = knockback.WakeupTimer > 0f;
             bool isAirborne    = launch.Airborne != 0;
             bool landed        = _previousLaunchAirborne != 0 && !isAirborne;
             bool playedReactionThisTick = false;
@@ -230,7 +228,7 @@ namespace MapNav.Ecs
             // 사망 중에는 피격 리액션 애니메이션으로 사망 애니메이션을 덮어쓰지 않는다.
             if (!dying)
             {
-                bool newKnockback  = isKnockedBack && (!_wasKnockedBack || knockback.Timer > _previousKnockbackTimer + 0.0001f);
+                bool newKnockback  = isKnockedBack && !_wasKnockedBack;
                 bool newMotionLock = knockback.MotionLockTimer > _previousMotionLockTimer + 0.0001f;
                 bool newHitVersion = knockback.HitVersion != _previousHitVersion && knockback.HitVersion != 0;
 
@@ -283,7 +281,7 @@ namespace MapNav.Ecs
                 }
             }
 
-            if (!dying && !attacking && !isLocked && !isAirborne && !playedReactionThisTick)
+            if (!dying && !attacking && !isLocked && !isWakingUp && !isAirborne && !playedReactionThisTick)
                 ApplyAnim(motion.IsMoving != 0);
 
             _wasDying = dying;
@@ -291,7 +289,6 @@ namespace MapNav.Ecs
             _previousAttackPhase = attack.Phase;
             _wasKnockedBack = isKnockedBack;
             _previousLaunchAirborne = launch.Airborne;
-            _previousKnockbackTimer = knockback.Timer;
             _previousMotionLockTimer = knockback.MotionLockTimer;
             _previousHitVersion = knockback.HitVersion;
         }

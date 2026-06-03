@@ -89,9 +89,6 @@ public sealed class Elite_WorldSimulator
                 continue;
             }
 
-            if (state.CurrentSector == playerSector)
-                continue;
-
             Sector before = state.CurrentSector;
             if (state.TickGateApproach(deltaTime))
                 continue;
@@ -110,6 +107,9 @@ public sealed class Elite_WorldSimulator
             }
 
             if (state.IsApproachingGate || state.IsFieldTraveling)
+                continue;
+
+            if (state.CurrentSector == playerSector)
                 continue;
 
             // 같은 섹터에 적대 대상이 있으면 매 틱 섹터 내 교전 위치를 연출하고(미니맵에서 싸우는 듯) 이동 결정은 보류.
@@ -163,15 +163,13 @@ public sealed class Elite_WorldSimulator
         if (state.IsGateEntryAnimating)
             return;
 
-        // 현재 섹터에 교전 대상이 있으면 머문다 → 이탈 신호 해제(Elite_Brain이 실제 전투 처리).
-        if (IsEngagedInCurrentSector(state, elites, playerSector, hasBackgroundHostile))
-        {
-            state.CancelEmbodiedGateExit();
-            return;
-        }
-
-        // 이미 이탈 신호가 서 있으면(게이트로 걸어가는 중) 유지.
+        // 이미 이탈 경로가 결정됐으면 교전 여부와 무관하게 유지한다.
+        // 반대편에서 플레이어가 들어와도 게이트까지 계속 걸어가 스쳐 지나간다.
         if (state.PendingExitSector != null)
+            return;
+
+        // 아직 이탈 결정 전: 교전 대상이 있으면 머물며 싸운다.
+        if (IsEngagedInCurrentSector(state, elites, playerSector, hasBackgroundHostile))
             return;
 
         state.FieldThinkTimer -= deltaTime;

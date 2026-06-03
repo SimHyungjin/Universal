@@ -40,7 +40,12 @@ public static class LaunchPhysics
         {
             y = ceiling;
             if (verticalVelocity > 0f)
+            {
                 verticalVelocity = 0f;
+                // ceiling 클램프로 velocity=0이 됐을 때 suspendTimer 조건이 즉시 트리거되지 않도록 리셋.
+                // suspend는 자연 정점(중력으로 velocity가 음수가 된 첫 프레임)에서만 작동해야 한다.
+                suspendTimer = 0f;
+            }
         }
     }
 }

@@ -57,7 +57,9 @@ namespace MapNav.Ecs
                 return;
             }
 
-            if (knockback.Timer > 0f || knockback.MotionLockTimer > 0f)
+            if (NavKnockbackSystem.HasPlanarKnockbackVelocity(knockback.Velocity)
+                || knockback.MotionLockTimer > 0f
+                || knockback.WakeupTimer > 0f)
             {
                 Stop(ref motion);
                 ApplyHeightSnap(ref transform, in settings);

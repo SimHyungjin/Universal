@@ -9,6 +9,13 @@ using UnityEngine;
 [RequireComponent(typeof(CharacterController))]
 public class Player_Actor : MonoBehaviour
 {
+    [SerializeField] private SO_Character_Data characterData;
+
+    private void Awake()
+    {
+        GetComponent<Character_ActionHandler>().SetCharacterData(characterData, clearEquippedLoadout: true);
+    }
+
     private void OnEnable()
     {
         App.SetInput<InputActions_Move, InputActions_Combat, InputActions_Camera>();

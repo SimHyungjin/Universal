@@ -17,6 +17,7 @@ public class Character_AttackController : LoopMonoBehaviour
     public int  ComboCount  => _comboCount;
     public bool IsAttacking => _attackTimer > 0f;
     public bool IsInCombo   => _attackTimer > 0f || _comboTimer > 0f;
+    public bool IsSkillSequenceActive => _skillSequence != null;
     public bool SuspendsAtApex => IsAttacking && _currentData != null && _currentData.Jump.suspendAtApex
                                   && _currentData.Lunge.moveType != AttackMoveType.Slam;
     public bool IsSlamDescending => _slamDescending && _currentData != null && _currentData.Lunge.moveType == AttackMoveType.Slam;
@@ -168,6 +169,9 @@ public class Character_AttackController : LoopMonoBehaviour
 
     public bool RequestAttack()
     {
+        if (_actionHandler != null && _actionHandler.IsSectorGateTransitioning)
+            return false;
+
         if (_attackTimer > 0f)
         {
             _nextQueued = true;
@@ -187,6 +191,14 @@ public class Character_AttackController : LoopMonoBehaviour
         base.OnGameUpdate(gdt);
 
         TickSkillCooldowns(gdt);
+        if (_actionHandler != null && _actionHandler.IsSectorGateTransitioning)
+        {
+            PollAndDiscardSkillInput();
+            if (IsAttacking || IsInCombo || _skillSequence != null)
+                CancelAttack();
+            return;
+        }
+
         PollSkillInput();
 
         if (_attackTimer > 0f)
@@ -194,7 +206,7 @@ public class Character_AttackController : LoopMonoBehaviour
             if (!_slamDescending)
                 _attackTimer -= gdt;
 
-            TickAttackHitbox(_currentData);
+            TickAttackHitbox(_currentData, gdt);
 
             if (_attackTimer <= 0f) OnAttackEnd();
             return;
@@ -272,6 +284,15 @@ public class Character_AttackController : LoopMonoBehaviour
         ShakeOnAttackRelease(attack.ReleaseEffects);
         StartAttackData(attack);
         PlayAttackCameraCue(attack, AttackCueTrigger.Release);
+    }
+
+    private void PollAndDiscardSkillInput()
+    {
+        if (_skills == null)
+            return;
+
+        for (int i = 0; i < _skillCooldowns.Length; i++)
+            ConsumeSkill(i);
     }
 
     private static void PlayAttackCameraCue(SO_Attack_Data attack, AttackCueTrigger trigger)
@@ -366,7 +387,7 @@ public class Character_AttackController : LoopMonoBehaviour
         // ?ㅽ궗 ?쒗??吏꾪뻾 以묒씠硫??ㅼ쓬 attack???먮룞 諛쒖궗. ?쒗?ㅺ? ?앸굹硫??쇰컲 肄ㅻ낫 ?곹깭濡?蹂듦?.
         if (_skillSequence != null)
         {
-            if (!_skillSequenceAnyHit)
+            if (!_skillSequenceAnyHit && !CanAdvanceSkillSequenceWithoutHit(_currentData))
             {
                 _skillSequence = null;
                 _skillSequenceIndex = 0;
@@ -394,6 +415,12 @@ public class Character_AttackController : LoopMonoBehaviour
         }
         _comboTimer = _comboWindow;
     }
+
+    private static bool CanAdvanceSkillSequenceWithoutHit(SO_Attack_Data data)
+        => data != null
+           && data.Damage <= 0f
+           && !data.Launch.enabled
+           && !data.Down.enabled;
 
     private void InitExtraHitState(SO_Attack_Data data)
     {
@@ -450,10 +477,13 @@ public class Character_AttackController : LoopMonoBehaviour
         ResetCombo();
     }
 
-    private void TickAttackHitbox(SO_Attack_Data data)
+    private void TickAttackHitbox(SO_Attack_Data data, float deltaTime)
     {
         if (data.Lunge.moveType == AttackMoveType.Slam)
         {
+            if (_slamDescending && _moveController != null && !_moveController.IsGrounded)
+                _moveController.MoveDown(data.Lunge.slamDescentSpeed, deltaTime);
+
             if (!_slamLandingFired && (_moveController == null || _moveController.IsGrounded))
             {
                 _slamLandingFired = true;

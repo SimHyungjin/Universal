@@ -167,13 +167,15 @@ public class Character_HitboxProcessor : MonoBehaviour, IHitboxProcessor
             {
                 _em.SetComponentData(entities[i], unitTransform);
 
+                if (!TryPreserveAirborneHit(entities[i], ctx))
+                {
                 AttackKnockbackData knockback = ctx.Knockback;
                 int prevVersion = _em.GetComponentData<NavAgentKnockback>(entities[i]).HitVersion;
                 _em.SetComponentData(entities[i], new NavAgentKnockback
                 {
                     Velocity        = dir * knockback.force,
-                    Timer           = knockback.duration,
                     MotionLockTimer = ctx.Down.duration,
+                    WakeupTimer     = 0f,
                     Friction        = knockback.friction,
                     InitialSpeed    = knockback.force,
                     HitType         = (int)ctx.HitType,
@@ -208,6 +210,7 @@ public class Character_HitboxProcessor : MonoBehaviour, IHitboxProcessor
                         _em.SetComponentData(entities[i], current);
                     }
                 }
+                }
             }
 
             if (_em.HasComponent<NavAgentHealth>(entities[i]))
@@ -236,6 +239,36 @@ public class Character_HitboxProcessor : MonoBehaviour, IHitboxProcessor
 
         NavAgentAttackProfile profile = _em.GetComponentData<NavAgentAttackProfile>(entity);
         return profile.SuperArmor > superArmorBreak;
+    }
+
+    private bool TryPreserveAirborneHit(Entity entity, in HitContext ctx)
+    {
+        if (!_em.HasComponent<NavAgentLaunch>(entity))
+            return false;
+
+        NavAgentLaunch launch = _em.GetComponentData<NavAgentLaunch>(entity);
+        if (launch.Airborne == 0 || (ctx.Launch.enabled && ctx.Launch.height > 0f))
+            return false;
+
+        if (ctx.Down.enabled)
+        {
+            NavAgentKnockback knockback = _em.GetComponentData<NavAgentKnockback>(entity);
+            knockback.MotionLockTimer = math.max(knockback.MotionLockTimer, ctx.Down.duration);
+            knockback.WakeupTimer = 0f;
+            knockback.HitType = (int)ctx.HitType;
+            knockback.SuperArmorBreak = ctx.SuperArmorBreak;
+            knockback.HitVersion++;
+            knockback.IsHeavy = 1;
+            _em.SetComponentData(entity, knockback);
+        }
+
+        if (ctx.SuspendDuration > 0f)
+        {
+            launch.SuspendTimer = math.max(launch.SuspendTimer, ctx.SuspendDuration);
+            _em.SetComponentData(entity, launch);
+        }
+
+        return true;
     }
 
     private static int GetEntityHitKey(Entity entity)

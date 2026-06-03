@@ -25,8 +25,8 @@ public enum Character_ActionState
 [DisallowMultipleComponent]
 public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarget
 {
-    [SerializeField] private SO_Character_Data _playerData;
-    [SerializeField] private SO_Character_Loadout equippedLoadout;
+    private SO_Character_Data _characterData;
+    private SO_Character_Loadout _equippedLoadout;
 
     private SO_Character_Stats statsData;
     private SO_Actor_AnimationData animationData;
@@ -39,9 +39,10 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
 
     public Character_ActionState State => _state;
     public bool IsInvincible => _invincibleTimer > 0f;
-    public bool CanAttack => _state == Character_ActionState.Normal;
-    public bool CanUseSkill => _state == Character_ActionState.Normal || _state == Character_ActionState.Jump;
-    public bool LocksLocomotion => _state != Character_ActionState.Normal;
+    public bool IsSectorGateTransitioning => _sectorGateTransitioning;
+    public bool CanAttack => !_sectorGateTransitioning && _state == Character_ActionState.Normal;
+    public bool CanUseSkill => !_sectorGateTransitioning && (_state == Character_ActionState.Normal || _state == Character_ActionState.Jump);
+    public bool LocksLocomotion => _sectorGateTransitioning || _state != Character_ActionState.Normal;
     public bool CanEnterSectorGate => _state == Character_ActionState.Dash || Time.time <= _sectorGateDashGraceUntil;
     public float GateTransitionSpeed => dashRule != null ? dashRule.GateTransitionSpeed : 18f;
     public float Health => _vitals != null ? _vitals.Health : 0f;
@@ -81,7 +82,9 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
 
     public void PrepareSectorGateTransition()
     {
+        _sectorGateTransitioning = true;
         _sectorGateDashGraceUntil = 0f;
+        _attackController?.CancelAttack();
         _moveController?.StopPlanar();
         _moveController?.StopLunge();
         _forcedDirection = Vector3.zero;
@@ -92,6 +95,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
 
     public void CompleteSectorGateTransition()
     {
+        _sectorGateTransitioning = false;
         _vfx?.StopDash();
         EnterNormal();
     }
@@ -101,6 +105,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private Character_Animator _animator;
     private Character_Vfx _vfx;
     private Character_Vitals _vitals;
+    private CharacterController _characterController;
     private Character_CommandSource _commandSource;
     private Character_ActionState _state;
     private Vector3 _forcedDirection;
@@ -110,6 +115,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private float _invincibleTimer;
     private float _dashCooldownTimer;
     private float _sectorGateDashGraceUntil;
+    private bool _sectorGateTransitioning;
     private float _hitReactionDurationScale = 1f;
     // launch(공중 부양). 잡몹 NavLaunchSystem과 동일하게 LaunchPhysics(초기속도+중력 적분)로 y를 구동해
     // 궤적·타이밍·체공을 통일한다. _launchGroundY는 최초 진입 시의 지면 y(잡몹 NavAgentLaunch.GroundY와 동형).
@@ -117,6 +123,8 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private float _launchGroundY;
     private float _launchHeight;
     private float _launchSuspendTimer;
+    private float _launchElapsed;
+    private float _launchMaxDuration;
     private bool _launchPendingDown;
     private float _launchDownDuration;
     private float _coyoteTimer;
@@ -125,6 +133,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private bool _jumpLiftStarted;
     private bool _jumpIdlePlayed;
     private bool _jumpEndPlayed;
+    private static readonly RaycastHit[] LaunchGroundHits = new RaycastHit[8];
 
     private void Awake()
     {
@@ -133,28 +142,12 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         _animator = GetComponent<Character_Animator>();
         _vfx = GetComponent<Character_Vfx>();
         _vitals = GetComponent<Character_Vitals>();
+        _characterController = GetComponent<CharacterController>();
         if (_vitals == null)
             _vitals = gameObject.AddComponent<Character_Vitals>();
         _commandSource = ResolveCommandSource();
 
-        if (_playerData != null)
-        {
-            statsData = _playerData.StatsData;
-            animationData = _playerData.AnimationData;
-            locomotionFeel = _playerData.LocomotionFeel;
-            worldPhysics = _playerData.WorldPhysics;
-            inputBuffering = _playerData.InputBuffering;
-            jumpFeel = _playerData.JumpFeel;
-            dashRule = _playerData.DashRule;
-            actionRecovery = _playerData.ActionRecovery;
-        }
-
-        _moveController.SetMovementData(statsData, locomotionFeel, worldPhysics);
-        _animator.SetAnimationData(animationData);
-        _attackController.SetPlayerStats(statsData);
-        SO_Character_Loadout loadout = ActiveLoadout;
-        _attackController.SetBasicAttackCombo(loadout != null ? loadout.EquippedAttackCombo : null);
-        _attackController.SetSkills(loadout != null ? loadout.EquippedSkills : null);
+        ApplyCharacterData(_characterData);
         _attackController.SetCommandSource(_commandSource);
         _animator.SetCommandSource(_commandSource);
 
@@ -162,15 +155,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         // 여기서 Configure하지 않는다. 여기서 잠정 Enemy로 Configure하면 Bind 전 한 프레임 동안
         // Character_EcsBridge가 Enemy로 발행해 아군 엘리트가 입장 순간 아군 잡몹의 적으로 오인된다.
         // Configure 전까지는 Vitals.FactionResolved=false → Bridge가 HasValue=0으로 타겟 후보에서 제외한다.
-        if (!TryGetComponent(out Elite_Embodiment _))
-        {
-            NavFaction faction = TryGetComponent(out Player_Actor _) ? NavFaction.Ally : NavFaction.Enemy;
-            _vitals.Configure(
-                statsData != null ? statsData.MaxHealth : 100f,
-                statsData != null ? statsData.Defense : 0f,
-                statsData != null ? statsData.GaugeMax : 100f,
-                faction);
-        }
+        ApplyVitalsDataIfOwnedByActionHandler();
         _vitals.OnDied += EnterDead;
     }
 
@@ -181,16 +166,60 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     }
 
     private SO_Character_Loadout ActiveLoadout
-        => equippedLoadout != null
-            ? equippedLoadout
-            : (_playerData != null ? _playerData.DefaultLoadout : null);
+        => _equippedLoadout != null
+            ? _equippedLoadout
+            : (_characterData != null ? _characterData.DefaultLoadout : null);
+
+    public void SetCharacterData(SO_Character_Data characterData, bool clearEquippedLoadout = false)
+    {
+        _characterData = characterData;
+        if (clearEquippedLoadout)
+            _equippedLoadout = null;
+        ApplyCharacterData(_characterData);
+        ApplyVitalsDataIfOwnedByActionHandler();
+    }
 
     public void SetEquippedLoadout(SO_Character_Loadout loadout)
     {
-        equippedLoadout = loadout;
-        SO_Character_Loadout active = ActiveLoadout;
-        _attackController?.SetBasicAttackCombo(active != null ? active.EquippedAttackCombo : null);
-        _attackController?.SetSkills(active != null ? active.EquippedSkills : null);
+        _equippedLoadout = loadout;
+        ApplyActiveLoadout();
+    }
+
+    private void ApplyCharacterData(SO_Character_Data characterData)
+    {
+        statsData = characterData != null ? characterData.StatsData : null;
+        animationData = characterData != null ? characterData.AnimationData : null;
+        locomotionFeel = characterData != null ? characterData.LocomotionFeel : null;
+        worldPhysics = characterData != null ? characterData.WorldPhysics : null;
+        inputBuffering = characterData != null ? characterData.InputBuffering : null;
+        jumpFeel = characterData != null ? characterData.JumpFeel : null;
+        dashRule = characterData != null ? characterData.DashRule : null;
+        actionRecovery = characterData != null ? characterData.ActionRecovery : null;
+
+        _moveController?.SetMovementData(statsData, locomotionFeel, worldPhysics);
+        _animator?.SetAnimationData(animationData);
+        _attackController?.SetPlayerStats(statsData);
+        ApplyActiveLoadout();
+    }
+
+    private void ApplyVitalsDataIfOwnedByActionHandler()
+    {
+        if (_vitals == null || TryGetComponent(out Elite_Embodiment _))
+            return;
+
+        NavFaction faction = TryGetComponent(out Player_Actor _) ? NavFaction.Ally : NavFaction.Enemy;
+        _vitals.Configure(
+            statsData != null ? statsData.MaxHealth : 100f,
+            statsData != null ? statsData.Defense : 0f,
+            statsData != null ? statsData.GaugeMax : 100f,
+            faction);
+    }
+
+    private void ApplyActiveLoadout()
+    {
+        SO_Character_Loadout loadout = ActiveLoadout;
+        _attackController?.SetBasicAttackCombo(loadout != null ? loadout.EquippedAttackCombo : null);
+        _attackController?.SetSkills(loadout != null ? loadout.EquippedSkills : null);
     }
 
     public void SetCommandSource(Character_CommandSource commandSource)
@@ -211,6 +240,18 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         }
 
         TickSharedTimers(gdt);
+
+        if (_sectorGateTransitioning)
+        {
+            _commandSource?.ConsumeAttack();
+            _commandSource?.ConsumeJump();
+            _commandSource?.ConsumeDash();
+            for (int i = 0; i < SkillInput.SlotCount; i++)
+                _commandSource?.ConsumeSkill(i);
+            _moveController.MoveVertical(gdt);
+            return;
+        }
+
         BufferJumpInput();
 
         Vector3 worldInput = GetMoveWorld();
@@ -229,7 +270,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
                 _state = Character_ActionState.Normal;
             }
             if (_attackController.IsSlamDescending)
-                _moveController.MoveDown(_attackController.SlamDescentSpeed, gdt);
+                return;
             else if (_attackController.SuspendsAtApex)
                 _moveController.MoveVerticalUntilApexThenSuspend(gdt);
             else
@@ -276,7 +317,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         AttackLaunchData launch = default,
         Vector3 attackerForward = default)
     {
-        if (IsInvincible || _state == Character_ActionState.Dead) return;
+        if (_sectorGateTransitioning || IsInvincible || _state == Character_ActionState.Dead) return;
 
         ApplyDamage(damage);
         if (_state == Character_ActionState.Dead) return;
@@ -287,9 +328,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
             return;
 
         float hitReactionDurationScale = ConsumeHitReactionDurationScale();
-        float scaledReactionDuration = Mathf.Max(0f, down.duration) * hitReactionDurationScale;
-        float scaledKnockbackDuration = Mathf.Max(0f, knockback.duration) * hitReactionDurationScale;
-        float stateDuration = Mathf.Max(scaledReactionDuration, scaledKnockbackDuration);
+        float stateDuration = Mathf.Max(0f, down.duration) * hitReactionDurationScale;
 
         _attackController?.CancelAttack();
         _vfx?.StopDash();
@@ -306,6 +345,21 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
             ? forward.normalized
             : radial;
 
+        bool incomingLaunch = launch.enabled && launch.height > 0f;
+        if (_state == Character_ActionState.Launched && !incomingLaunch)
+        {
+            if (down.enabled)
+            {
+                _launchPendingDown = true;
+                _launchDownDuration = Mathf.Max(_launchDownDuration, stateDuration);
+            }
+
+            if (launch.suspendDuration > 0f)
+                _launchSuspendTimer = Mathf.Max(_launchSuspendTimer, launch.suspendDuration);
+
+            return;
+        }
+
         // 강한 넉백/튕김이 직후 들어오는 약한 후속타(메인 repeat 등)에 즉시 지워지지 않게 한다.
         // (Taunt 끝 extra force:30 → 직후 메인 force:10이 덮어쓰는 문제 방지)
         float forcedSpeed = Mathf.Max(0f, knockback.force);
@@ -319,7 +373,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         _moveController.StopPlanar();
 
         // launch는 캐릭터를 실제로 공중에 띄운다. 착지(궤적 종료) 후 down이 예약돼 있으면 다운으로 이어진다.
-        if (launch.enabled && launch.height > 0f)
+        if (incomingLaunch)
         {
             EnterOrRefreshLaunch(launch, down);
             return;
@@ -343,8 +397,9 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
             return;
         }
 
-        _state = scaledKnockbackDuration > 0f ? Character_ActionState.Knockback : Character_ActionState.Hitstun;
-        PlayHitReaction(scaledKnockbackDuration > 0f ? HitReactionKind.HeavyHit : HitReactionKind.LightHit);
+        bool hasKnockback = knockback.force > 0f;
+        _state = hasKnockback ? Character_ActionState.Knockback : Character_ActionState.Hitstun;
+        PlayHitReaction(hasKnockback ? HitReactionKind.HeavyHit : HitReactionKind.LightHit);
     }
 
     public void ReceiveHit(Vector3 hitSource, SO_Attack_Data attack)
@@ -364,7 +419,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     // finalDamage는 공격자 쪽에서 이미 공격력 스케일을 적용한 값이라 그대로 사용한다.
     // ReceiveHit이 무시하는 상태(무적·사망)와 동일 조건. 공격자가 이때 시체/무적 대상을 건너뛰어
     // 타격 연출·히트스톱·게이지가 헛으로 들어가지 않게 한다.
-    bool IHitTarget.IsHittable => !IsInvincible && _state != Character_ActionState.Dead;
+    bool IHitTarget.IsHittable => !_sectorGateTransitioning && !IsInvincible && _state != Character_ActionState.Dead;
 
     bool IHitTarget.IsAirborneHittable => _state == Character_ActionState.Launched;
 
@@ -397,7 +452,6 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         ReceiveHit(hitSource, new AttackKnockbackData
         {
             force = knockbackForce,
-            duration = knockbackForce > 0f ? FallbackReactionDuration : 0f,
             friction = FallbackKnockbackFriction
         }, amount, down: new AttackDownData { duration = FallbackReactionDuration });
     }
@@ -613,8 +667,12 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private void EnterOrRefreshLaunch(AttackLaunchData launch, AttackDownData down)
     {
         bool wasLaunched = _state == Character_ActionState.Launched;
+        bool startsNewArc = !wasLaunched || _launchVerticalVelocity <= 0f;
         if (!wasLaunched)
-            _launchGroundY = transform.position.y;
+            _launchGroundY = ResolveLaunchGroundY(transform.position);
+
+        if (startsNewArc)
+            _launchElapsed = 0f;
 
         _state = Character_ActionState.Launched;
         _launchHeight = Mathf.Max(0f, launch.height);
@@ -623,6 +681,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         float initialVelocity = LaunchPhysics.InitialVelocity(launch.height, LaunchPhysics.Gravity);
         _launchVerticalVelocity = LaunchPhysics.RefreshVelocityForLaunchHit(_launchVerticalVelocity, initialVelocity, wasLaunched);
         _launchSuspendTimer = Mathf.Max(0f, launch.suspendDuration);
+        _launchMaxDuration = ResolveLaunchMaxDuration(_launchHeight, _launchSuspendTimer);
         _launchPendingDown = down.enabled;
         _launchDownDuration = Mathf.Max(0f, down.duration);
         _moveController.StopPlanar();
@@ -631,18 +690,25 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
 
     private void TickLaunched(float deltaTime)
     {
-        _forcedSpeed *= Mathf.Max(0f, 1f - _forcedFriction * deltaTime);
+        _launchElapsed += deltaTime;
+        // 포물선 수평 성분: 공중에서는 friction 없이 일정 속도 유지.
+        // 착지 후 EnterDown/EnterNormal으로 이어지므로 거리 조절은 launch.knockback.force로 한다.
 
         float y = transform.position.y;
         float ceiling = _launchGroundY + _launchHeight;
         LaunchPhysics.Integrate(ref y, ref _launchVerticalVelocity, LaunchPhysics.Gravity, deltaTime, ref _launchSuspendTimer, ceiling);
 
         // 낙하해서 시작 지면 이하로 내려오면 착지. down이 예약돼 있으면 다운으로 이어진다.
-        bool landed = _launchVerticalVelocity <= 0f && y <= _launchGroundY;
-        if (landed)
-            y = _launchGroundY;
-
         Vector3 displacement = _forcedDirection * (_forcedSpeed * deltaTime);
+        Vector3 nextPlanarPosition = transform.position + new Vector3(displacement.x, 0f, displacement.z);
+        float landingGroundY = ResolveLaunchGroundY(nextPlanarPosition);
+
+        bool landed = _launchVerticalVelocity <= 0f && y <= landingGroundY;
+        if (_launchMaxDuration > 0f && _launchElapsed >= _launchMaxDuration)
+            landed = true;
+        if (landed)
+            y = landingGroundY;
+
         displacement.y = y - transform.position.y;
         _moveController.MoveDisplacement(displacement);
 
@@ -653,6 +719,74 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
             EnterDown(_launchDownDuration);
         else
             EnterNormal();
+    }
+
+    private float ResolveLaunchGroundY(Vector3 samplePosition)
+    {
+        if (TryResolveLaunchGroundY(samplePosition, out float groundY))
+            return groundY;
+
+        return _launchGroundY != 0f ? _launchGroundY : transform.position.y;
+    }
+
+    private bool TryResolveLaunchGroundY(Vector3 samplePosition, out float groundY)
+    {
+        float radius = _characterController != null
+            ? Mathf.Max(0.05f, _characterController.radius * 0.85f)
+            : 0.25f;
+        Vector3 origin = samplePosition + Vector3.up * LaunchGroundProbeUp;
+        int count = Physics.SphereCastNonAlloc(
+            origin,
+            radius,
+            Vector3.down,
+            LaunchGroundHits,
+            LaunchGroundProbeUp + LaunchGroundProbeDown,
+            ~0,
+            QueryTriggerInteraction.Ignore);
+
+        float bestDistance = float.MaxValue;
+        groundY = 0f;
+        bool found = false;
+        for (int i = 0; i < count; i++)
+        {
+            RaycastHit hit = LaunchGroundHits[i];
+            Collider hitCollider = hit.collider;
+            LaunchGroundHits[i] = default;
+            if (hitCollider == null || ShouldIgnoreLaunchGroundHit(hitCollider))
+                continue;
+
+            if (hit.distance >= bestDistance)
+                continue;
+
+            bestDistance = hit.distance;
+            groundY = hit.point.y;
+            found = true;
+        }
+
+        return found;
+    }
+
+    private bool ShouldIgnoreLaunchGroundHit(Collider hitCollider)
+    {
+        if (hitCollider.transform == transform || hitCollider.transform.IsChildOf(transform))
+            return true;
+
+        if (hitCollider.GetComponentInParent<Character_ActionHandler>() != null)
+            return true;
+
+        if (hitCollider.GetComponentInParent<Unit_NavVisualShell>() != null)
+            return true;
+
+        return false;
+    }
+
+    private static float ResolveLaunchMaxDuration(float height, float suspendDuration)
+    {
+        float initialVelocity = LaunchPhysics.InitialVelocity(height, LaunchPhysics.Gravity);
+        float airtime = initialVelocity > 0f
+            ? initialVelocity * 2f / Mathf.Abs(LaunchPhysics.Gravity)
+            : 0f;
+        return Mathf.Clamp(airtime + Mathf.Max(0f, suspendDuration) + LaunchFailsafeExtraTime, 0.35f, LaunchFailsafeMaxDuration);
     }
 
     private void EnterDown(float duration)
@@ -786,6 +920,10 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private const float FallbackReactionDuration = 0.35f;
     private const float FallbackKnockbackFriction = 14f;
     private const float ChainedHitReactionDurationMultiplier = 0.8f;
+    private const float LaunchGroundProbeUp = 2f;
+    private const float LaunchGroundProbeDown = 12f;
+    private const float LaunchFailsafeExtraTime = 0.75f;
+    private const float LaunchFailsafeMaxDuration = 3f;
     private float WakeupDuration => actionRecovery != null ? actionRecovery.WakeupDuration : 0f;
     private float WakeupInvincibleDuration => actionRecovery != null ? actionRecovery.WakeupInvincibleDuration : 0f;
     private string JumpStartStateName => animationData != null ? animationData.JumpStartStateName : "";

@@ -32,21 +32,22 @@ namespace MapNav.Ecs
                     RefRO<NavAgentLaunch>,
                     DynamicBuffer<NavAgentWaypoint>>())
             {
-                float timer     = knockback.ValueRO.Timer;
-                float lockTimer = knockback.ValueRO.MotionLockTimer;
+                float3 vel       = knockback.ValueRO.Velocity;
+                bool isMoving    = HasPlanarKnockbackVelocity(vel);
+                float lockTimer  = knockback.ValueRO.MotionLockTimer;
+                float wakeupTimer = knockback.ValueRO.WakeupTimer;
 
-                if (timer <= 0f && lockTimer <= 0f) continue;
+                if (!isMoving && lockTimer <= 0f && wakeupTimer <= 0f) continue;
 
-                float newTimer     = math.max(0f, timer     - dt);
                 float lockDelta = launch.ValueRO.Airborne != 0 ? 0f : dt;
                 float newLockTimer = math.max(0f, lockTimer - lockDelta);
+                float newWakeupTimer = math.max(0f, wakeupTimer - dt);
 
-                knockback.ValueRW.Timer           = newTimer;
                 knockback.ValueRW.MotionLockTimer = newLockTimer;
+                knockback.ValueRW.WakeupTimer     = newWakeupTimer;
 
-                if (timer > 0f)
+                if (isMoving)
                 {
-                    float3 vel = knockback.ValueRO.Velocity;
                     float3 cur = transform.ValueRO.Position;
                     bool hitBoundary = false;
 
@@ -75,13 +76,22 @@ namespace MapNav.Ecs
                     if (hitBoundary)
                     {
                         knockback.ValueRW.Velocity = float3.zero;
-                        knockback.ValueRW.Timer    = 0f;
-                        newTimer = 0f;
                     }
                     else
                     {
-                        float decay = math.max(0f, 1f - knockback.ValueRO.Friction * dt);
-                        knockback.ValueRW.Velocity = vel * decay;
+                        // 공중에서는 friction 없이 수평 속도 유지 (포물선 수평 성분).
+                        float3 nextVelocity = vel;
+                        if (launch.ValueRO.Airborne == 0)
+                        {
+                            float friction = knockback.ValueRO.Friction;
+                            nextVelocity = friction > 0f
+                                ? vel * math.max(0f, 1f - friction * dt)
+                                : float3.zero;
+                        }
+
+                        knockback.ValueRW.Velocity = HasPlanarKnockbackVelocity(nextVelocity)
+                            ? nextVelocity
+                            : float3.zero;
                     }
                 }
 
@@ -89,6 +99,9 @@ namespace MapNav.Ecs
 
                 if (lockTimer > 0f && newLockTimer <= 0f)
                 {
+                    if (knockback.ValueRO.IsHeavy != 0)
+                        knockback.ValueRW.WakeupTimer = math.max(0f, settings.ValueRO.WakeupRecoveryDuration);
+
                     if (ctx.IsValid)
                     {
                         float3 pos       = transform.ValueRO.Position;
@@ -256,5 +269,10 @@ namespace MapNav.Ecs
             return NavQuery.TryClassify(in ctx, position, tolerance, out _)
                 && NavQuery.IsClearOfObstaclePadding(in ctx, position, agentRadius);
         }
+
+        public static bool HasPlanarKnockbackVelocity(float3 velocity)
+            => math.lengthsq(velocity.xz) > KnockbackStopSpeedSqr;
+
+        private const float KnockbackStopSpeedSqr = 0.01f;
     }
 }

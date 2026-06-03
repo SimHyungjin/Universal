@@ -2145,8 +2145,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d57b0e13423643a88c105e8ee0e9b72c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _playerData: {fileID: 11400000, guid: da7ae11e51a700d0c0b0a09080706051, type: 2}
-  equippedLoadout: {fileID: 0}
 --- !u!114 &8531269072957618353
 MonoBehaviour:
   m_ObjectHideFlags: 0

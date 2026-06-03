@@ -42,7 +42,9 @@ namespace MapNav.Ecs
                 }
 
                 // 넉백·경직 중에는 진행 중인 선딜이 캔슬된다. 쿨다운(Recover)은 그대로 이어진다.
-                if (knockback.ValueRO.Timer > 0f || knockback.ValueRO.MotionLockTimer > 0f)
+                if (NavKnockbackSystem.HasPlanarKnockbackVelocity(knockback.ValueRO.Velocity)
+                    || knockback.ValueRO.MotionLockTimer > 0f
+                    || knockback.ValueRO.WakeupTimer > 0f)
                 {
                     if (attack.ValueRO.Phase == NavAttackPhase.Windup)
                     {

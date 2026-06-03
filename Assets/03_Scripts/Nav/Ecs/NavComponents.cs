@@ -27,6 +27,7 @@ namespace MapNav.Ecs
         public float AttackRange;
         public float AttackWindup;
         public float AttackCooldown;
+        public float WakeupRecoveryDuration;
         // 받는 데미지 감소율. CombatFormula.ReduceIncomingDamage(Defense, incoming).
         public float Defense;
     }
@@ -87,8 +88,8 @@ namespace MapNav.Ecs
     public struct NavAgentKnockback : IComponentData
     {
         public float3 Velocity;
-        public float  Timer;
         public float  MotionLockTimer;
+        public float  WakeupTimer;
         public float  Friction;
         public float  InitialSpeed;
         public int    HitType;
@@ -183,7 +184,6 @@ namespace MapNav.Ecs
         public float Damage;
         public KnockbackType KnockbackType;
         public float KnockbackForce;
-        public float KnockbackDuration;
         public float KnockbackFriction;
         public float HitstopDuration;
         public float HitstopTimeScale;

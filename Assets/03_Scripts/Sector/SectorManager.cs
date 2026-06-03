@@ -59,6 +59,7 @@ public class SectorManager : MonoBehaviour
 
         Sector targetSector = arrivalGate.Sector;
         if (targetSector == null || targetSector == CurrentSector) return;
+        Elite_Manager.Instance?.ForceGateCrossingWithPlayer(arrivalGate.ConnectedGate, arrivalGate);
 
         _spawnCts?.Cancel();
         _spawnCts?.Dispose();

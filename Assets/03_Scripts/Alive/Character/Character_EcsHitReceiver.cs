@@ -58,7 +58,6 @@ public sealed class Character_EcsHitReceiver : MonoBehaviour
         {
             type     = profile.KnockbackType,
             force    = profile.KnockbackForce,
-            duration = profile.KnockbackDuration,
             friction = profile.KnockbackFriction
         };
         AttackHitstopData hitstop = new AttackHitstopData

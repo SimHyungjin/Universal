@@ -51,6 +51,11 @@ namespace MapNav.Ecs
         [Tooltip("이 비율만큼은 클러스터를 무시하고 전체 nav 영역에 랜덤 산개(난전 느낌).")]
         [SerializeField, Range(0f, 1f)] private float spawnRandomFraction = 0.3f;
 
+        [Header("Player-aware spawn safety")]
+        [SerializeField] private float playerSpawnExclusionRadius = 10f;
+        [SerializeField] private float playerForwardSpawnExclusionDistance = 16f;
+        [SerializeField, Range(0f, 180f)] private float playerForwardSpawnExclusionAngle = 100f;
+
         [Header("Path build")]
         [SerializeField] private int maxPathsPerFrame = 32;
 
@@ -62,6 +67,7 @@ namespace MapNav.Ecs
         private BlobAssetReference<NavBlob> _ownedBlob;
         private Entity _singleton = Entity.Null;
         private World _ownedWorld;
+        private Transform _playerTransform;
 
         public static NavRuntimeBootstrap Instance { get; private set; }
         public SO_Unit_Data GetUnitData(Entity entity)
@@ -345,7 +351,7 @@ namespace MapNav.Ecs
                 sb.AppendLine(
                     $"#{e.Index} pos=({p.x:F2},{p.y:F2},{p.z:F2}) classify={(cls ? sp.Kind.ToString() : "FAIL")} " +
                     $"clearOfObstacle={clear} snapH={(gotH ? h.ToString("F2") : "FAIL")} dy={dy:F2} " +
-                    $"kbTimer={kb.Timer:F2} airborne={lf.Airborne} groundY={lf.GroundY:F2} vVel={lf.VerticalVelocity:F2} lHeight={lf.Height:F2} suspend={lf.SuspendTimer:F2} dying={dh.Dying} moving={mo.IsMoving} wp={wps.Length}");
+                    $"kbVel=({kb.Velocity.x:F2},{kb.Velocity.z:F2}) airborne={lf.Airborne} groundY={lf.GroundY:F2} vVel={lf.VerticalVelocity:F2} lHeight={lf.Height:F2} suspend={lf.SuspendTimer:F2} dying={dh.Dying} moving={mo.IsMoving} wp={wps.Length}");
 
                 for (int k = 0; k < math.min(3, wps.Length); k++)
                 {
@@ -641,7 +647,7 @@ namespace MapNav.Ecs
             float rangeMax = math.max(attackRangeRandomMin, attackRangeRandomMax);
             for (int i = 0; i < math.max(0, count); i++)
             {
-                if (!TrySamplePoint(out Vector3 pos, clearance)) continue;
+                if (!TrySamplePointAwayFromPlayer(out Vector3 pos, clearance)) continue;
                 SpawnSingleAgent(em, unitData, pos, UnityEngine.Random.Range(rangeMin, rangeMax), faction);
                 spawned++;
             }
@@ -657,6 +663,7 @@ namespace MapNav.Ecs
             float agentRadius    = stats != null ? stats.AgentRadius   : 0.35f;
             float stopDist       = stats != null ? stats.StopDistance  : 0.08f;
             float moveSpeed      = stats != null ? stats.MoveSpeed     : 3.5f;
+            float wakeupRecovery = data != null && data.ActionRecovery != null ? data.ActionRecovery.WakeupDuration : 1f;
             float defense        = stats != null ? stats.Defense       : 0f;
             SO_Attack_Data attack = stats?.EnemyAttack;
             float attackDamage   = attack != null ? attack.Damage      : 5f;
@@ -687,6 +694,7 @@ namespace MapNav.Ecs
                 AttackRange             = math.max(0f, attackRange * math.max(0f, attackRangeMultiplier)),
                 AttackWindup            = math.max(0f, attackWindup),
                 AttackCooldown          = math.max(0f, attackCooldown),
+                WakeupRecoveryDuration  = math.max(0f, wakeupRecovery),
                 Defense                 = math.max(0f, defense)
             };
         }
@@ -722,7 +730,7 @@ namespace MapNav.Ecs
                 Vector3 anchor = seeds[UnityEngine.Random.Range(0, seeds.Count)];
                 if (TrySampleNear(anchor, factionClusterRadius, clearance, out pos)) return true;
             }
-            return TrySamplePoint(out pos, clearance);
+            return TrySamplePointAwayFromPlayer(out pos, clearance);
         }
 
         // 앵커 반경 안에서 여러 번 샘플해 가장 가까운 점을 고른다. 반경 안을 못 찾으면 false(호출처가 랜덤 폴백).
@@ -734,11 +742,69 @@ namespace MapNav.Ecs
             float radiusSq = radius * radius;
             for (int i = 0; i < 8; i++)
             {
-                if (!TrySamplePoint(out Vector3 p, clearance)) continue;
+                if (!TrySamplePointAwayFromPlayer(out Vector3 p, clearance)) continue;
                 float d = (p - anchor).sqrMagnitude;
                 if (d <= radiusSq && d < bestSq) { bestSq = d; pos = p; found = true; }
             }
             return found;
+        }
+
+        private bool TrySamplePointAwayFromPlayer(out Vector3 worldPosition, float clearanceRadius = 0.35f)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                if (!TrySamplePoint(out Vector3 candidate, clearanceRadius))
+                    continue;
+
+                if (IsPlayerSafeSpawnPoint(candidate))
+                {
+                    worldPosition = candidate;
+                    return true;
+                }
+            }
+
+            worldPosition = default;
+            return false;
+        }
+
+        private bool IsPlayerSafeSpawnPoint(Vector3 position)
+        {
+            Transform player = ResolvePlayerTransform();
+            if (player == null)
+                return true;
+
+            Vector3 toSpawn = position - player.position;
+            toSpawn.y = 0f;
+            float distanceSq = toSpawn.sqrMagnitude;
+
+            float minDistance = math.max(0f, playerSpawnExclusionRadius);
+            if (distanceSq < minDistance * minDistance)
+                return false;
+
+            float frontDistance = math.max(0f, playerForwardSpawnExclusionDistance);
+            float frontAngle = math.clamp(playerForwardSpawnExclusionAngle, 0f, 180f);
+            if (frontDistance <= 0f || frontAngle <= 0f || distanceSq > frontDistance * frontDistance)
+                return true;
+
+            Vector3 forward = player.forward;
+            forward.y = 0f;
+            if (forward.sqrMagnitude <= 0.0001f || toSpawn.sqrMagnitude <= 0.0001f)
+                return true;
+
+            forward.Normalize();
+            toSpawn.Normalize();
+            float minDot = Mathf.Cos(frontAngle * 0.5f * Mathf.Deg2Rad);
+            return Vector3.Dot(forward, toSpawn) < minDot;
+        }
+
+        private Transform ResolvePlayerTransform()
+        {
+            if (_playerTransform != null)
+                return _playerTransform;
+
+            Player_Actor player = FindAnyObjectByType<Player_Actor>();
+            _playerTransform = player != null ? player.transform : null;
+            return _playerTransform;
         }
 
         private bool TrySamplePoint(out Vector3 worldPosition, float clearanceRadius = 0.35f)
@@ -787,7 +853,6 @@ namespace MapNav.Ecs
                 Damage = CombatFormula.ScaleAttackDamage(attackerAttackPower, attack.Damage),
                 KnockbackType = attack.Knockback.type,
                 KnockbackForce = attack.Knockback.force,
-                KnockbackDuration = attack.Knockback.duration,
                 KnockbackFriction = attack.Knockback.friction,
                 HitstopDuration = attack.Hitstop.duration,
                 HitstopTimeScale = attack.Hitstop.timeScale,

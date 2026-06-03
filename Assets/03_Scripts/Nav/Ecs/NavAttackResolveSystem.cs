@@ -203,12 +203,15 @@ namespace MapNav.Ecs
             targetTransform.Rotation = quaternion.LookRotationSafe(lookDir, math.up());
             em.SetComponentData(target, targetTransform);
 
+            if (TryPreserveAirborneHit(em, target, profile))
+                return;
+
             int prevVersion = em.GetComponentData<NavAgentKnockback>(target).HitVersion;
             em.SetComponentData(target, new NavAgentKnockback
             {
                 Velocity        = dir * profile.KnockbackForce,
-                Timer           = profile.KnockbackDuration,
                 MotionLockTimer = profile.DownDuration,
+                WakeupTimer     = 0f,
                 Friction        = profile.KnockbackFriction,
                 InitialSpeed    = profile.KnockbackForce,
                 HitType         = (int)profile.HitType,
@@ -229,6 +232,30 @@ namespace MapNav.Ecs
 
             NavAgentAttackProfile targetProfile = em.GetComponentData<NavAgentAttackProfile>(target);
             return targetProfile.SuperArmor > superArmorBreak;
+        }
+
+        private static bool TryPreserveAirborneHit(EntityManager em, Entity target, in NavAgentAttackProfile profile)
+        {
+            if (!em.HasComponent<NavAgentLaunch>(target))
+                return false;
+
+            NavAgentLaunch launch = em.GetComponentData<NavAgentLaunch>(target);
+            if (launch.Airborne == 0)
+                return false;
+
+            if (profile.IsDownAttack != 0)
+            {
+                NavAgentKnockback knockback = em.GetComponentData<NavAgentKnockback>(target);
+                knockback.MotionLockTimer = math.max(knockback.MotionLockTimer, profile.DownDuration);
+                knockback.WakeupTimer = 0f;
+                knockback.HitType = (int)profile.HitType;
+                knockback.SuperArmorBreak = profile.SuperArmorBreak;
+                knockback.HitVersion++;
+                knockback.IsHeavy = 1;
+                em.SetComponentData(target, knockback);
+            }
+
+            return true;
         }
     }
 }

@@ -35,6 +35,15 @@ public sealed class Elite_AICommandSource : MonoBehaviour, Character_CommandSour
             _skillPressed[slot] = true;
     }
 
+    public void ClearOneShotInputs()
+    {
+        _attackPressed = false;
+        _jumpPressed = false;
+        _dashPressed = false;
+        for (int i = 0; i < _skillPressed.Length; i++)
+            _skillPressed[i] = false;
+    }
+
     public bool ConsumeAttack()
     {
         bool value = _attackPressed;

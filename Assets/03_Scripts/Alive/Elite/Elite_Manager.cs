@@ -9,6 +9,8 @@ using UnityEngine;
 
 public sealed class Elite_Manager : IDisposable
 {
+    private const float PlayerGateCrossingRange = 4f;
+
     private readonly List<Elite_State> _elites = new();
     private readonly Dictionary<Elite_State, Hud_GameScene_Minimap.Marker> _markers = new();
     private readonly SectorManager _sectorManager;
@@ -187,11 +189,20 @@ public sealed class Elite_Manager : IDisposable
                 continue;
             }
 
+            TryBeginObservedGateArrival(state, current);
+
             if (state.CurrentSector != current)
             {
-                ReleaseEmbodiment(state, preservePendingExit: true, observedSector: current);
-                if (state.CurrentSector != current)
-                    continue;
+                // 실체화 엘리트가 게이트 이동 중(대쉬 또는 걷는 단계)이면 섹터가 달라도 해제하지 않는다.
+                // FinalizeGateExit이 대쉬 완료 후 CurrentSector를 갱신하고 재실체화를 처리한다.
+                bool committedToGate = state.Embodiment != null
+                    && (state.IsGateEntryAnimating || state.PendingExitSector != null);
+                if (!committedToGate)
+                {
+                    ReleaseEmbodiment(state, preservePendingExit: true, observedSector: current);
+                    if (state.CurrentSector != current)
+                        continue;
+                }
             }
 
             if (state.Embodiment != null)
@@ -207,7 +218,14 @@ public sealed class Elite_Manager : IDisposable
 
         // 장수는 CharacterController+중력으로 수직 처리하므로 스폰 y가 지면이 아니면 떨어진다.
         // 섹터 중앙 좌표를 현재 섹터 nav 그래프의 지면 높이로 스냅해 그라운드 상태로 스폰한다.
-        Vector3 arrival = ResolveNavSafePosition(state.CurrentSector, state.WorldPosition, ResolveAgentRadius(state.Data));
+        bool wasFieldDeparting = state.FieldDestinationSector != null && !state.IsApproachingGate;
+        Sector fieldDepartureDestination = wasFieldDeparting ? state.FieldDestinationSector : null;
+        Vector3 arrival = wasFieldDeparting
+            ? Elite_WorldSimulator.ResolveGateDeparturePosition(
+                state.CurrentSector,
+                fieldDepartureDestination,
+                state)
+            : ResolveNavSafePosition(state.CurrentSector, state.WorldPosition, ResolveAgentRadius(state.Data));
         state.WorldPosition = arrival;
 
         // 게이트 진입이면 반대편(출발 섹터) 게이트에서 스폰해 도착 지점까지 대쉬한다(반대 섹터에서 오는 느낌).
@@ -225,7 +243,30 @@ public sealed class Elite_Manager : IDisposable
 
         if (go == null) return;
 
+        // 매크로 이동 중(Moving/GateApproach)에 실체화되는 경우 Destination을 클리어한다.
+        // 클리어하지 않으면 TryGetTransition이 FieldDestinationSector를 읽어 마커가 이동 중 표시를 유지한다.
+        // GateArriving(게이트 대쉬 진입 연출 중)은 FieldDestination이 이미 null이므로 조건에 해당하지 않는다.
+        bool wasGateApproaching = state.IsApproachingGate;
+        Sector gateApproachDestination = wasGateApproaching ? state.GateApproachDestinationSector : null;
+        bool wasFieldMoving = state.IsFieldTraveling || wasGateApproaching;
         state.AttachEmbodiment(go);
+        if (wasGateApproaching && gateApproachDestination != null && gateApproachDestination != state.CurrentSector)
+        {
+            state.CancelFieldTravel();
+            state.BeginEmbodiedGateExit(gateApproachDestination);
+        }
+        else if (wasFieldDeparting && fieldDepartureDestination != null && fieldDepartureDestination != state.CurrentSector)
+        {
+            state.CancelFieldTravel();
+            state.BeginEmbodiedGateExit(fieldDepartureDestination);
+        }
+        else if (wasFieldMoving)
+        {
+            state.CancelFieldTravel();
+        }
+
+        Character_ActionHandler actionHandler = go.GetComponent<Character_ActionHandler>();
+        actionHandler?.SetCharacterData(state.Data != null ? state.Data.Character : null, clearEquippedLoadout: true);
 
         Elite_Embodiment embodiment = go.GetComponent<Elite_Embodiment>();
         if (embodiment == null)
@@ -247,6 +288,45 @@ public sealed class Elite_Manager : IDisposable
         // 게이트 글라이드 도중 노출된다. 몸체가 Release(파괴)될 때만 대쉬를 끊는 게 올바른 수명.
         if (dashIn)
             DashInFromGateAsync(state, go, brain, arrival, go.GetCancellationTokenOnDestroy()).Forget();
+    }
+
+    public void ForceGateCrossingWithPlayer(SectorGate departureGate, SectorGate arrivalGate)
+    {
+        if (departureGate == null || arrivalGate == null)
+            return;
+
+        Sector from = departureGate.Sector;
+        Sector to = arrivalGate.Sector;
+        if (from == null || to == null || from == to)
+            return;
+
+        Vector3 gatePosition = departureGate.SpawnPosition;
+        float rangeSqr = PlayerGateCrossingRange * PlayerGateCrossingRange;
+
+        for (int i = 0; i < _elites.Count; i++)
+        {
+            Elite_State state = _elites[i];
+            if (state == null || !state.IsAlive || state.Embodiment == null)
+                continue;
+            if (state.CurrentSector != from)
+                continue;
+
+            Vector3 offset = state.Embodiment.transform.position - gatePosition;
+            offset.y = 0f;
+            bool closeEnough = offset.sqrMagnitude <= rangeSqr;
+            bool alreadyGoingThere = state.PendingExitSector == to
+                                     || state.GateApproachDestinationSector == to
+                                     || state.FieldDestinationSector == to;
+            if (!closeEnough && !alreadyGoingThere)
+                continue;
+
+            Elite_Brain brain = state.Embodiment.GetComponent<Elite_Brain>();
+            state.CancelFieldTravel();
+            state.BeginEmbodiedGateExit(to);
+
+            if (closeEnough)
+                BeginGateExitDash(state, brain, departureGate);
+        }
     }
 
     private const float GateEntryArcHeight = 0.6f;
@@ -309,8 +389,21 @@ public sealed class Elite_Manager : IDisposable
                 state.FinishGateArrival();
                 state.FieldThinkTimer = Mathf.Max(state.FieldThinkTimer, ResolveGateArrivalThinkDelay(state));
             }
-            if (action != null && actionWas) action.enabled = true;
-            if (brain != null) brain.enabled = brainWas;
+
+            bool releasedAfterArrival = false;
+            if (ownsState
+                && SectorManager.Instance != null
+                && state.CurrentSector != SectorManager.Instance.CurrentSector)
+            {
+                ReleaseEmbodiment(state);
+                releasedAfterArrival = true;
+            }
+
+            if (!releasedAfterArrival)
+            {
+                if (action != null && actionWas) action.enabled = true;
+                if (brain != null) brain.enabled = brainWas;
+            }
         }
     }
 
@@ -516,6 +609,20 @@ public sealed class Elite_Manager : IDisposable
 
     // 실체화 엘리트가 게이트까지 걸어와 통과 → 몸체를 해제하고 목적지 섹터의 매크로(비실체)로 인계한다.
     // 진입(매크로→게이트 대쉬→실체화)의 대칭 출구. Elite_Brain.TickGateExit가 게이트 도착 시 호출한다.
+    private static bool TryBeginObservedGateArrival(Elite_State state, Sector observedSector)
+    {
+        if (state == null || observedSector == null || state.Embodiment != null)
+            return false;
+        if (state.CurrentSector == observedSector)
+            return false;
+        if (state.FieldDestinationSector != observedSector)
+            return false;
+
+        state.CancelFieldTravel();
+        BeginObservedGateArrivalAfterRelease(state, observedSector);
+        return true;
+    }
+
     public void FinalizeGateExit(Elite_State state, Sector destination, SectorGate gate)
     {
         if (state == null || destination == null) return;
