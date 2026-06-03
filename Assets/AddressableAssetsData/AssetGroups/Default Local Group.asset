@@ -20,8 +20,28 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 0c034b3579ac8d949a31a04046c57e9b
+    m_Address: Effole 1
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 0fd41faf8901e154cb92fd6c6c278198
+    m_Address: Assets/05_Prefabs/Alive/Elite/Effole.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 10fc98fa6a854ef4b8e7e1ee670ff7e8
+    m_Address: Sector
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 110d0f382b989064282d78b391ed0f26
     m_Address: Hud_GameScene
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 13fef7660d3141740ba3f9420be4ef17
+    m_Address: Sector 1
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -30,8 +50,38 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 3fde12c609bc6124fbb1e53e6f1d065e
+    m_Address: Assets/01_Assets/Character/Model/Elite/Monster30_FreeTrial.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 49c1abcb18ebb3a44b979869992447a2
+    m_Address: SectorNode
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 57ba38c0a7ad440419c50dd42ce22470
+    m_Address: SO_Secter_AliveSetting
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 5d80fc8567abfcb42aa39483b8b2b535
     m_Address: Popup_Tutorial
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 6cb8d6db13e4b6e46b2996bd3a55fb29
+    m_Address: SO_Player_Data
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 6e30efd5dff4de94f86b2dd19c73895b
+    m_Address: SO_Sector_Catalog
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 9650ce321765c114fb328e9c1513bc87
+    m_Address: SectorManager
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -71,7 +121,7 @@ MonoBehaviour:
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: f491bd12ba7d5244ca5b8c1eddaf5e6b
-    m_Address: Player
+    m_Address: Effole
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

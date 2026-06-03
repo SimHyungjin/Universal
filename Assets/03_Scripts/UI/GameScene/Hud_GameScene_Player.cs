@@ -20,7 +20,7 @@ public sealed class Hud_GameScene_Player : MonoBehaviour
     [SerializeField] private Image           gaugeDelayedFill;
     [SerializeField] private float           gaugeDelayedFillSpeed = 1.5f;
 
-    private Player_ActionHandler _actionHandler;
+    private Character_ActionHandler _actionHandler;
     private float                _hpDelayedFillTarget;
     private float                _hpDelayedFillDelayTimer;
     private bool                 _isHpDelayedFillAnimating;
@@ -30,7 +30,7 @@ public sealed class Hud_GameScene_Player : MonoBehaviour
     // ───────────────────────────────────────────────
     #region Bind
 
-    public void Bind(Player_ActionHandler actionHandler)
+    public void Bind(Character_ActionHandler actionHandler)
     {
         Unbind();
         _actionHandler = actionHandler;
@@ -123,7 +123,7 @@ public sealed class Hud_GameScene_Player : MonoBehaviour
         }
 
         if (hpAmount != null)
-            hpAmount.text = max > 0f ? $"{current} / {max}" : string.Empty;
+            hpAmount.text = max > 0f ? $"{Mathf.CeilToInt(current)} / {Mathf.CeilToInt(max)}" : string.Empty;
     }
 
     #endregion

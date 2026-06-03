@@ -1,6 +1,7 @@
 using Unity.Burst;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Transforms;
 
 namespace MapNav.Ecs
 {
@@ -21,47 +22,27 @@ namespace MapNav.Ecs
     {
         public float DeltaTime;
 
-        void Execute(ref NavAgentLaunch launch)
+        void Execute(ref NavAgentLaunch launch, ref LocalTransform transform)
         {
-            if (launch.Height <= 0f || launch.Duration <= 0f)
-            {
-                launch.VisualYOffset = 0f;
+            if (launch.Airborne == 0)
                 return;
+
+            float y = transform.Position.y;
+            float ceiling = launch.GroundY + launch.Height;
+            LaunchPhysics.Integrate(ref y, ref launch.VerticalVelocity, LaunchPhysics.Gravity, DeltaTime, ref launch.SuspendTimer, ceiling);
+
+            // 낙하해서 지면(시작 높이) 이하로 내려오면 착지. y를 지면에 맞추고 Airborne 해제 →
+            // 다음 프레임부터 NavMovementSystem의 height snap이 다시 작동한다.
+            if (launch.VerticalVelocity <= 0f && y <= launch.GroundY)
+            {
+                y = launch.GroundY;
+                launch.VerticalVelocity = 0f;
+                launch.Airborne = 0;
             }
 
-            float totalDuration = launch.SuspendAtApex != 0
-                ? math.max(launch.Duration, launch.SuspendDuration)
-                : launch.Duration;
-
-            if (launch.Elapsed >= totalDuration)
-            {
-                launch.VisualYOffset = 0f;
-                return;
-            }
-
-            if (launch.FreezeTimer > 0f)
-                launch.FreezeTimer = math.max(0f, launch.FreezeTimer - DeltaTime);
-            else
-                launch.Elapsed += DeltaTime;
-
-            float t = GetLaunchCurveT(launch.Elapsed, launch.Duration, totalDuration, launch.SuspendAtApex != 0);
-            launch.VisualYOffset = 4f * launch.Height * t * (1f - t);
-        }
-
-        static float GetLaunchCurveT(float elapsed, float arcDuration, float totalDuration, bool suspendAtApex)
-        {
-            if (!suspendAtApex)
-                return math.clamp(elapsed / arcDuration, 0f, 1f);
-
-            float halfArcDuration = arcDuration * 0.5f;
-            if (elapsed < halfArcDuration)
-                return math.clamp(elapsed / arcDuration, 0f, 1f);
-
-            float fallStart = math.max(halfArcDuration, totalDuration - halfArcDuration);
-            if (elapsed < fallStart)
-                return 0.5f;
-
-            return math.clamp(0.5f + (elapsed - fallStart) / arcDuration, 0f, 1f);
+            float3 pos = transform.Position;
+            pos.y = y;
+            transform.Position = pos;
         }
     }
 }

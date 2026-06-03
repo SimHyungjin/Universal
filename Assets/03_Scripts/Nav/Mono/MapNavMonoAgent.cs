@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using MapNav.Core;
 using MapNav.Data;
+using MapNav.Ecs;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -41,15 +42,30 @@ public sealed class MapNavMonoAgent : MonoBehaviour
     private float _lastDistanceToWaypoint;
     private int _stuckRetryCount;
 
+    // steer-only(_drivesTransform=false) 모드에서 외부가 읽는, 현재 따라가야 할 평면 이동 방향(정규화). 경로 없으면 zero.
+    private Vector3 _desiredDirection;
+
+    // 런타임 전용(직렬화 안 함). true면 이 에이전트가 transform을 직접 이동(잡몹/기본).
+    // false면 경로/방향만 계산하고 DesiredDirection으로 노출(외부 mover가 이동). SetDrivesTransform로 토글.
+    // [SerializeField]로 두면 이 필드가 없는 기존 프리팹이 deserialize 때 false로 떨어지는 함정이 있어 런타임 필드로 둔다.
+    private bool _drivesTransform = true;
+
     private NavScratch _scratch;
     private NativeList<NavSpaceRef> _scratchNodes;
     private NativeList<NavPortal> _scratchPortals;
     private NativeList<float3> _scratchWaypoints;
     private bool _scratchInitialized;
 
+    // 구독한 매니저를 캐시해 두어, OnDisable 시점에 Instance가 바뀌어도 정확히 해지(누수 방지).
+    private SectorManager _subscribedManager;
+
     public bool HasPath => _hasPath;
     public bool Failed => _failed;
     public Vector3 Target => _target;
+
+    // steer-only 모드에서 외부 mover가 읽는 평면 이동 방향(정규화). 경로 없으면 Vector3.zero.
+    public Vector3 DesiredDirection => _desiredDirection;
+    public void SetDrivesTransform(bool value) => _drivesTransform = value;
     public IReadOnlyList<Vector3> Waypoints
     {
         get
@@ -63,14 +79,62 @@ public sealed class MapNavMonoAgent : MonoBehaviour
 
     private readonly List<Vector3> _publicWaypoints = new();
 
+    public void ConfigureAgent(float newMoveSpeed, float newAgentRadius, float newStopDistance)
+    {
+        moveSpeed = Mathf.Max(0.01f, newMoveSpeed);
+        agentRadius = Mathf.Max(0f, newAgentRadius);
+        stopDistance = Mathf.Max(0f, newStopDistance);
+
+        if (_hasPath)
+            RebuildPathToTarget();
+    }
+
     private void Reset()
     {
         map = FindFirstObjectByType<MapNavigationAuthoring>();
     }
 
+    private void OnEnable()
+    {
+        // Push 모델: 섹터 전환 통지를 구독한다. 단, 이 에이전트가 전환 이후에 스폰됐다면
+        // 변경 이벤트는 이미 지나갔으므로 현재 섹터로 한 번 즉시 동기화(pull)한다.
+        _subscribedManager = SectorManager.Instance;
+        if (_subscribedManager == null)
+            return;
+
+        _subscribedManager.SectorChanged += OnSectorChanged;
+        if (_subscribedManager.CurrentSector != null)
+            SetMap(_subscribedManager.CurrentSector.NavAuthoring);
+    }
+
+    private void OnDisable()
+    {
+        if (_subscribedManager == null)
+            return;
+
+        _subscribedManager.SectorChanged -= OnSectorChanged;
+        _subscribedManager = null;
+    }
+
     private void OnDestroy()
     {
         DisposeScratch();
+    }
+
+    private void OnSectorChanged(Sector sector)
+    {
+        SetMap(sector != null ? sector.NavAuthoring : null);
+    }
+
+    // 현재 nav 맵을 교체한다. 진행 중이던 경로는 이전 섹터 그래프 기준이라 무효이므로 폐기하고,
+    // 새 목표는 이 에이전트를 구동하는 상위 로직(장수 AI 등)이 다시 SetTarget으로 지정한다.
+    public void SetMap(MapNavigationAuthoring newMap)
+    {
+        if (map == newMap)
+            return;
+
+        map = newMap;
+        ClearPath();
     }
 
     private void EnsureScratchInitialized()
@@ -99,13 +163,16 @@ public sealed class MapNavMonoAgent : MonoBehaviour
 
         if (!_hasPath || _waypoints.Count == 0)
         {
-            ApplyHeightSnap();
+            _desiredDirection = Vector3.zero;
+            if (_drivesTransform)
+                ApplyHeightSnap();
             return;
         }
 
         AdvancePastReachedWaypoints();
         if (_waypointIndex >= _waypoints.Count)
         {
+            _desiredDirection = Vector3.zero;
             ClearPath(false);
             return;
         }
@@ -124,6 +191,7 @@ public sealed class MapNavMonoAgent : MonoBehaviour
             return;
         }
 
+        // 진행 정체(transform 기준) 감지 → 리패스. steer-only에서도 transform은 외부 mover가 움직이므로 유효하다.
         if (UpdateStuckProgress(planarDelta.magnitude))
             return;
 
@@ -133,6 +201,16 @@ public sealed class MapNavMonoAgent : MonoBehaviour
         Vector3 steering = NavAgentCore.ResolveSteering(steeringTarget, current, planarDelta);
 
         Vector3 direction = steering.normalized;
+
+        // 외부 mover가 읽을 평면 방향을 항상 갱신한다.
+        Vector3 planarDir = direction;
+        planarDir.y = 0f;
+        _desiredDirection = planarDir.sqrMagnitude > 0.0001f ? planarDir.normalized : Vector3.zero;
+
+        // steer-only: 방향만 제공하고 transform은 건드리지 않는다(Character_MoveController 등이 실제 이동).
+        if (!_drivesTransform)
+            return;
+
         float stepDistance = Mathf.Min(moveSpeed * Time.deltaTime, planarDelta.magnitude);
         Vector3 next = current + direction * stepDistance;
 
@@ -176,7 +254,7 @@ public sealed class MapNavMonoAgent : MonoBehaviour
             return false;
         }
 
-        BlobAssetReference<NavBlob> blob = map.NavBlobData;
+        BlobAssetReference<NavBlob> blob = ResolveBlob();
         if (!blob.IsCreated)
         {
             ClearPath(true);
@@ -312,9 +390,31 @@ public sealed class MapNavMonoAgent : MonoBehaviour
 
     private NavContext CreateContext()
     {
-        return map != null
-            ? new NavContext(map.NavBlobData, map.transform.localToWorldMatrix, map.transform.worldToLocalMatrix)
+        if (map == null)
+            return default;
+
+        BlobAssetReference<NavBlob> blob = ResolveBlob();
+        return blob.IsCreated
+            ? new NavContext(blob, map.transform.localToWorldMatrix, map.transform.worldToLocalMatrix)
             : default;
+    }
+
+    // authoring.NavBlobData를 직접 읽으면 dirty 상태에서 dispose-rebuild를 트리거해 ECS 싱글톤 blob까지
+    // dangling으로 만든다. 부트스트랩이 소유한 독립 blob을 공유받고, 부트스트랩 미초기화 시에만 폴백한다.
+    private BlobAssetReference<NavBlob> ResolveBlob()
+    {
+        if (map == null)
+            return default;
+
+        NavRuntimeBootstrap boot = NavRuntimeBootstrap.Instance;
+        if (boot != null)
+        {
+            BlobAssetReference<NavBlob> shared = boot.GetSharedBlob(map);
+            if (shared.IsCreated)
+                return shared;
+        }
+
+        return map.NavBlobData;
     }
 
     private void OnDrawGizmosSelected()

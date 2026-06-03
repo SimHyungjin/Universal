@@ -885,7 +885,7 @@ PlayerSettings:
   scriptingDefineSymbols:
     Android: DEBUG_ENABLE;UNITY_PIPELINE_URP
     Nintendo Switch: UNITY_SWITCH_FIXED_MAX_QUEUED_FRAMES
-    Standalone: UNITY_PIPELINE_URP
+    Standalone: DEBUG_ENABLE;UNITY_PIPELINE_URP
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:

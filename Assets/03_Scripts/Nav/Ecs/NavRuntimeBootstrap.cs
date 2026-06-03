@@ -22,7 +22,8 @@ namespace MapNav.Ecs
         [SerializeField] private int maxSampleAttempts = 64;
 
         [Header("Unit stats")]
-        [SerializeField] private SO_UnitStats unitStats;
+        [FormerlySerializedAs("unitStats")]
+        [SerializeField] private SO_Unit_Data unitData;
         [SerializeField] private float attackRangeRandomMin = 0.9f;
         [SerializeField] private float attackRangeRandomMax = 1.1f;
 
@@ -44,22 +45,38 @@ namespace MapNav.Ecs
         [SerializeField] private float separationStrength = 0.45f;
         [SerializeField] private int separationMaxNeighbors = 8;
 
+        [Header("Faction cluster spawn")]
+        [Tooltip("진영별 스폰을 모을 시드 클러스터 반경. 두 진영이 nav 영역 양 끝에 뭉쳐 전선을 이룬다.")]
+        [SerializeField] private float factionClusterRadius = 12f;
+        [Tooltip("이 비율만큼은 클러스터를 무시하고 전체 nav 영역에 랜덤 산개(난전 느낌).")]
+        [SerializeField, Range(0f, 1f)] private float spawnRandomFraction = 0.3f;
+
         [Header("Path build")]
         [SerializeField] private int maxPathsPerFrame = 32;
 
         private readonly List<MapNavRegion> _candidateRegions = new();
+        private readonly Dictionary<Entity, SO_Unit_Data> _agentData = new();
+        private readonly Dictionary<MapNavigationAuthoring, BlobAssetReference<NavBlob>> _mapBlobCache = new();
+        private readonly List<Vector3> _allySeeds = new();  // 현재 섹터의 진영별 스폰 시드(게이트 기반 전선).
+        private readonly List<Vector3> _enemySeeds = new();
         private BlobAssetReference<NavBlob> _ownedBlob;
         private Entity _singleton = Entity.Null;
         private World _ownedWorld;
 
-        private void Start() => Bootstrap();
+        public static NavRuntimeBootstrap Instance { get; private set; }
+        public SO_Unit_Data GetUnitData(Entity entity)
+            => _agentData.TryGetValue(entity, out SO_Unit_Data data) ? data : null;
+        public void ForgetUnitData(Entity entity) => _agentData.Remove(entity);
 
+        private void Awake()  { Instance = this; }
+        private void Start()  => Bootstrap();
         private void LateUpdate() => RefreshSingletonTransform();
 
         private void OnDestroy()
         {
+            if (Instance == this) Instance = null;
             DestroySingleton();
-            if (_ownedBlob.IsCreated) _ownedBlob.Dispose();
+            ClearCachedBlobReferences();
         }
 
         private void DestroySingleton()
@@ -273,6 +290,75 @@ namespace MapNav.Ecs
             Debug.Log(sb.ToString(), this);
         }
 
+        // 순간이동·넉백 벽뚫기·땅 박힘의 실제 원인을 런타임 값으로 드러내는 읽기 전용 진단.
+        // 플레이 중 컴포넌트 인스펙터에서 우클릭 → 실행. 게임 로직은 건드리지 않는다.
+        [ContextMenu("Probe Live Agent Nav State")]
+        public void ProbeLiveAgents()
+        {
+            World w = World.DefaultGameObjectInjectionWorld;
+            if (w == null || !w.IsCreated) { Debug.Log("No default ECS world."); return; }
+            EntityManager em = w.EntityManager;
+
+            EntityQuery navRefQuery = em.CreateEntityQuery(ComponentType.ReadOnly<NavBlobReference>());
+            if (navRefQuery.IsEmptyIgnoreFilter) { Debug.Log("No NavBlobReference singleton."); navRefQuery.Dispose(); return; }
+            NavBlobReference navRef = navRefQuery.GetSingleton<NavBlobReference>();
+            navRefQuery.Dispose();
+            if (!navRef.Blob.IsCreated) { Debug.Log("NavBlob NOT created (dangling!)."); return; }
+
+            NavContext ctx = new NavContext(navRef.Blob, navRef.LocalToWorld, navRef.WorldToLocal);
+            ref NavBlob blob = ref navRef.Blob.Value;
+
+            System.Text.StringBuilder sb = new();
+            float4x4 l2w = navRef.LocalToWorld;
+            sb.AppendLine($"[Probe] Regions={blob.Regions.Length} Transitions={blob.Transitions.Length} Obstacles={blob.Obstacles.Length}");
+            sb.AppendLine($"[Probe] map translation=({l2w.c3.x:F2},{l2w.c3.y:F2},{l2w.c3.z:F2})  basisX=({l2w.c0.x:F2},{l2w.c0.y:F2},{l2w.c0.z:F2})  basisY=({l2w.c1.x:F2},{l2w.c1.y:F2},{l2w.c1.z:F2})");
+
+            EntityQuery q = em.CreateEntityQuery(
+                ComponentType.ReadOnly<LocalTransform>(),
+                ComponentType.ReadOnly<NavAgentSettings>(),
+                ComponentType.ReadOnly<NavAgentKnockback>(),
+                ComponentType.ReadOnly<NavAgentLaunch>(),
+                ComponentType.ReadOnly<NavAgentMotion>(),
+                ComponentType.ReadOnly<NavAgentDeath>(),
+                ComponentType.ReadOnly<NavAgentWaypoint>());
+            NativeArray<Entity> entities = q.ToEntityArray(Allocator.Temp);
+
+            int probe = math.min(64, entities.Length);
+            sb.AppendLine($"[Probe] Probing {probe}/{entities.Length} live agents:");
+            for (int i = 0; i < probe; i++)
+            {
+                Entity e = entities[i];
+                LocalTransform tr = em.GetComponentData<LocalTransform>(e);
+                NavAgentSettings st = em.GetComponentData<NavAgentSettings>(e);
+                NavAgentKnockback kb = em.GetComponentData<NavAgentKnockback>(e);
+                NavAgentLaunch lf = em.GetComponentData<NavAgentLaunch>(e);
+                NavAgentMotion mo = em.GetComponentData<NavAgentMotion>(e);
+                NavAgentDeath dh = em.GetComponentData<NavAgentDeath>(e);
+                DynamicBuffer<NavAgentWaypoint> wps = em.GetBuffer<NavAgentWaypoint>(e);
+
+                float3 p = tr.Position;
+                bool cls = NavQuery.TryClassify(in ctx, p, st.BoundaryTolerance, out NavSpaceRef sp);
+                bool clear = NavQuery.IsClearOfObstaclePadding(in ctx, p, st.AgentRadius);
+                bool gotH = NavQuery.TryGetHeight(in ctx, p, st.BoundaryTolerance, out float h);
+                float dy = gotH ? (h + st.HeightOffset - p.y) : 0f;
+
+                sb.AppendLine(
+                    $"#{e.Index} pos=({p.x:F2},{p.y:F2},{p.z:F2}) classify={(cls ? sp.Kind.ToString() : "FAIL")} " +
+                    $"clearOfObstacle={clear} snapH={(gotH ? h.ToString("F2") : "FAIL")} dy={dy:F2} " +
+                    $"kbTimer={kb.Timer:F2} airborne={lf.Airborne} groundY={lf.GroundY:F2} vVel={lf.VerticalVelocity:F2} lHeight={lf.Height:F2} suspend={lf.SuspendTimer:F2} dying={dh.Dying} moving={mo.IsMoving} wp={wps.Length}");
+
+                for (int k = 0; k < math.min(3, wps.Length); k++)
+                {
+                    float3 wp = wps[k].Position;
+                    bool wcls = NavQuery.TryClassify(in ctx, wp, st.BoundaryTolerance, out NavSpaceRef wsp);
+                    sb.AppendLine($"    wp[{k}]=({wp.x:F2},{wp.y:F2},{wp.z:F2}) classify={(wcls ? wsp.Kind.ToString() : "FAIL")}");
+                }
+            }
+            entities.Dispose();
+            q.Dispose();
+            Debug.Log(sb.ToString(), this);
+        }
+
         [ContextMenu("Log Baked Graph Stats")]
         public void LogBakedGraphStats()
         {
@@ -321,10 +407,7 @@ namespace MapNav.Ecs
             // Don't fight over it — leave it untouched and skip baking our own copy.
             if (alreadyExists) return;
 
-            // Bake our own blob copy so we control its lifetime independently of MapNavigationAuthoring.
-            // (Authoring would otherwise dispose the BlobAsset via its own OnDestroy and leave ECS dangling.)
-            if (_ownedBlob.IsCreated) _ownedBlob.Dispose();
-            _ownedBlob = MapNavBaker.Build(map, Allocator.Persistent);
+            _ownedBlob = GetOrBuildCachedBlob(map);
 
             _ownedWorld = em.World;
             _singleton = em.CreateEntity(typeof(NavBlobReference), typeof(NavPathBuildBudget));
@@ -348,70 +431,263 @@ namespace MapNav.Ecs
             return spawned;
         }
 
+        // 섹터 진입 시 그 섹터 자신의 MapNavigationAuthoring으로 nav 그래프를 교체한다.
+        // 공유 맵을 옮기던 기존 AlignMapTo와 달리, 각 섹터는 이미 제자리에 자기 블롭을 갖고 있으므로
+        // 트랜스폼은 건드리지 않고 ECS 싱글톤이 가리키는 블롭/행렬만 그 섹터 것으로 바꾼다.
+        public void SwitchMap(MapNavigationAuthoring sectorMap)
+        {
+            if (sectorMap == null)
+            {
+                Debug.LogWarning($"[{nameof(NavRuntimeBootstrap)}] SwitchMap: 섹터에 MapNavigationAuthoring이 없습니다.", this);
+                return;
+            }
+
+            map = sectorMap;
+
+            World world = World.DefaultGameObjectInjectionWorld;
+            if (world == null || !world.IsCreated) return;
+            EntityManager em = world.EntityManager;
+
+            if (_singleton == Entity.Null)
+                EnsureSingleton(em);         // 최초 진입: 이 섹터 맵으로 싱글톤 생성
+            else
+                RebakeOwnedBlobAndApply(em); // 이후 진입: 소유 블롭을 이 섹터 맵으로 재베이크 후 교체
+        }
+
+        // 싱글톤이 가리키는 블롭을 이 부트스트랩이 소유한 복사본으로 유지한다.
+        // (authoring이 OnDestroy에서 자기 블롭을 dispose해도 앱-글로벌 ECS 월드가 댕글링되지 않도록.)
+        private void RebakeOwnedBlobAndApply(EntityManager em)
+        {
+            if (map == null || !em.Exists(_singleton)) return;
+
+            _ownedBlob = GetOrBuildCachedBlob(map);
+
+            NavBlobReference navRef = em.GetComponentData<NavBlobReference>(_singleton);
+            navRef.Blob         = _ownedBlob;
+            navRef.LocalToWorld = map.transform.localToWorldMatrix;
+            navRef.WorldToLocal = map.transform.worldToLocalMatrix;
+            em.SetComponentData(_singleton, navRef);
+        }
+
+        private BlobAssetReference<NavBlob> GetOrBuildCachedBlob(MapNavigationAuthoring source)
+        {
+            if (source == null)
+                return default;
+
+            if (_mapBlobCache.TryGetValue(source, out BlobAssetReference<NavBlob> cached) && cached.IsCreated)
+                return cached;
+
+            // authoring이 소유·Dispose하는 NavBlobData를 그대로 참조하면, authoring이 dirty 상태에서
+            // 재빌드할 때 그 blob을 Dispose해 ECS 싱글톤이 dangling이 된다(순간이동·넉백 벽뚫기·y 박힘).
+            // baker를 직접 호출해 부트스트랩이 소유하는 독립 복사본을 만들어 authoring 수명과 분리한다.
+            BlobAssetReference<NavBlob> blob = MapNavBaker.Build(source, Allocator.Persistent);
+            _mapBlobCache[source] = blob;
+            return blob;
+        }
+
+        public void PrewarmMap(MapNavigationAuthoring source)
+        {
+            if (source == null)
+                return;
+
+            GetOrBuildCachedBlob(source);
+        }
+
+        // 장수(Mono) 등 외부 소비자가 authoring.NavBlobData를 직접 읽으면 dirty 상태에서 dispose-rebuild를
+        // 트리거해 ECS 싱글톤 blob을 dangling으로 만든다. 부트스트랩이 소유한 독립 blob을 공유해 그 트리거를 없앤다.
+        public BlobAssetReference<NavBlob> GetSharedBlob(MapNavigationAuthoring source)
+            => GetOrBuildCachedBlob(source);
+
+        private void ClearCachedBlobReferences()
+        {
+            // 캐시된 blob은 이제 부트스트랩 소유(baker로 직접 빌드)이므로 여기서 Dispose 책임을 진다.
+            // _ownedBlob은 캐시 항목 중 하나를 가리키므로 별도 Dispose하지 않는다(중복 Dispose 방지).
+            foreach (BlobAssetReference<NavBlob> blob in _mapBlobCache.Values)
+            {
+                if (blob.IsCreated)
+                    blob.Dispose();
+            }
+            _mapBlobCache.Clear();
+            _ownedBlob = default;
+        }
+
+        public void DrainAllAgents()
+        {
+            World world = World.DefaultGameObjectInjectionWorld;
+            if (world == null || !world.IsCreated) return;
+
+            EntityManager em = world.EntityManager;
+            EntityQuery query = em.CreateEntityQuery(ComponentType.ReadOnly<NavAgentFaction>());
+            NativeArray<Entity> entities = query.ToEntityArray(Allocator.Temp);
+            em.DestroyEntity(entities);
+            entities.Dispose();
+            query.Dispose();
+            _agentData.Clear();
+        }
+
+        public int SpawnAgents(NavAgentSpawnEntry[] entries)
+        {
+            if (entries == null || entries.Length == 0) return 0;
+
+            World world = World.DefaultGameObjectInjectionWorld;
+            if (world == null || !world.IsCreated) return 0;
+
+            EntityManager em = world.EntityManager;
+            RebuildCandidates();
+            if (_candidateRegions.Count == 0) return 0;
+
+            int total = 0;
+            for (int i = 0; i < entries.Length; i++)
+                total += SpawnEntry(em, entries[i]);
+            return total;
+        }
+
+        public async Cysharp.Threading.Tasks.UniTask SpawnAgentsGradually(
+            NavAgentSpawnEntry[] entries,
+            int batchSize = 3,
+            System.Threading.CancellationToken ct = default)
+        {
+            if (entries == null || entries.Length == 0) return;
+
+            World world = World.DefaultGameObjectInjectionWorld;
+            if (world == null || !world.IsCreated) return;
+
+            EntityManager em = world.EntityManager;
+            RebuildCandidates();
+            if (_candidateRegions.Count == 0) return;
+
+            for (int i = 0; i < entries.Length; i++)
+            {
+                NavAgentSpawnEntry entry = entries[i];
+                if (entry.Data == null || entry.Count <= 0) continue;
+
+                SO_Unit_Stats stats = entry.Stats;
+                float clearance = stats != null ? stats.AgentRadius : 0.35f;
+                float rangeMin  = math.min(attackRangeRandomMin, attackRangeRandomMax);
+                float rangeMax  = math.max(attackRangeRandomMin, attackRangeRandomMax);
+                int remaining   = entry.Count;
+
+                while (remaining > 0)
+                {
+                    int batch = math.min(remaining, batchSize);
+                    for (int j = 0; j < batch; j++)
+                    {
+                        if (!TryFactionSpawnPoint(entry.Faction, clearance, out Vector3 pos)) continue;
+                        SpawnSingleAgent(em, entry.Data, pos, UnityEngine.Random.Range(rangeMin, rangeMax), entry.Faction);
+                    }
+                    remaining -= batch;
+                    await Cysharp.Threading.Tasks.UniTask.Yield(
+                        Cysharp.Threading.Tasks.PlayerLoopTiming.Update, ct);
+                }
+            }
+        }
+
+        private int SpawnEntry(EntityManager em, NavAgentSpawnEntry entry)
+        {
+            if (entry.Data == null || entry.Count <= 0) return 0;
+
+            float rangeMin  = math.min(attackRangeRandomMin, attackRangeRandomMax);
+            float rangeMax  = math.max(attackRangeRandomMin, attackRangeRandomMax);
+            SO_Unit_Stats stats = entry.Stats;
+            float clearance = stats != null ? stats.AgentRadius : 0.35f;
+            int spawned = 0;
+
+            for (int i = 0; i < entry.Count; i++)
+            {
+                if (!TryFactionSpawnPoint(entry.Faction, clearance, out Vector3 pos)) continue;
+                SpawnSingleAgent(em, entry.Data, pos, UnityEngine.Random.Range(rangeMin, rangeMax), entry.Faction);
+                spawned++;
+            }
+            return spawned;
+        }
+
+        private void SpawnSingleAgent(EntityManager em, SO_Unit_Data data, Vector3 pos, float attackRangeMultiplier, NavFaction faction)
+        {
+            SO_Unit_Stats stats = data != null ? data.StatsData : null;
+            Entity e = em.CreateEntity(
+                typeof(LocalTransform),
+                typeof(NavAgentSettings),
+                typeof(NavAgentMotion),
+                typeof(NavAgentTarget),
+                typeof(NavAgentPathRequest),
+                typeof(NavAgentPathStatus),
+                typeof(NavAgentSeparation),
+                typeof(NavAgentKnockback),
+                typeof(NavAgentLaunch),
+                typeof(NavAgentHealth),
+                typeof(NavAgentDeath),
+                typeof(NavAgentFaction),
+                typeof(NavAgentAttack),
+                typeof(NavAgentAttackProfile),
+                typeof(NavAgentCombatTarget));
+
+            em.SetComponentData(e, LocalTransform.FromPositionRotationScale(pos, quaternion.identity, 1f));
+            em.SetComponentData(e, CreateSettingsFor(data, attackRangeMultiplier));
+            float health = math.max(1f, stats != null ? stats.MaxHealth : 30f);
+            em.SetComponentData(e, new NavAgentHealth { Max = health, Current = health });
+            em.SetComponentData(e, new NavAgentFaction { Faction = faction });
+            em.SetComponentData(e, BakeAttackProfile(stats != null ? stats.EnemyAttack : null, stats != null ? stats.AttackPower : 0f));
+            em.AddBuffer<NavAgentWaypoint>(e);
+            if (data != null)
+                _agentData[e] = data;
+        }
+
         private int SpawnFaction(EntityManager em, NavFaction faction, int count)
         {
+            SO_Unit_Stats stats = unitData != null ? unitData.StatsData : null;
+            float clearance = stats != null ? stats.AgentRadius : 0.35f;
             int spawned = 0;
+            float rangeMin = math.min(attackRangeRandomMin, attackRangeRandomMax);
+            float rangeMax = math.max(attackRangeRandomMin, attackRangeRandomMax);
             for (int i = 0; i < math.max(0, count); i++)
             {
-                if (!TrySamplePoint(out Vector3 pos)) continue;
-
-                Entity e = em.CreateEntity(
-                    typeof(LocalTransform),
-                    typeof(NavAgentSettings),
-                    typeof(NavAgentMotion),
-                    typeof(NavAgentTarget),
-                    typeof(NavAgentPathRequest),
-                    typeof(NavAgentPathStatus),
-                    typeof(NavAgentSeparation),
-                    typeof(NavAgentKnockback),
-                    typeof(NavAgentLaunch),
-                    typeof(NavAgentHealth),
-                    typeof(NavAgentDeath),
-                    typeof(NavAgentFaction),
-                    typeof(NavAgentAttack),
-                    typeof(NavAgentAttackProfile),
-                    typeof(NavAgentCombatTarget));
-
-                em.SetComponentData(e, LocalTransform.FromPositionRotationScale(pos, quaternion.identity, 1f));
-                em.SetComponentData(e, CreateSettings(UnityEngine.Random.Range(
-                    math.min(attackRangeRandomMin, attackRangeRandomMax),
-                    math.max(attackRangeRandomMin, attackRangeRandomMax))));
-                float health = math.max(1f, AgentMaxHealth);
-                em.SetComponentData(e, new NavAgentHealth { Max = health, Current = health });
-                em.SetComponentData(e, new NavAgentFaction { Faction = faction });
-                em.SetComponentData(e, BakeAttackProfile(EnemyAttack, AttackPower));
-                em.AddBuffer<NavAgentWaypoint>(e);
+                if (!TrySamplePoint(out Vector3 pos, clearance)) continue;
+                SpawnSingleAgent(em, unitData, pos, UnityEngine.Random.Range(rangeMin, rangeMax), faction);
                 spawned++;
             }
             return spawned;
         }
 
         private NavAgentSettings CreateSettings(float attackRangeMultiplier = 1f)
+            => CreateSettingsFor(unitData, attackRangeMultiplier);
+
+        private NavAgentSettings CreateSettingsFor(SO_Unit_Data data, float attackRangeMultiplier = 1f)
         {
+            SO_Unit_Stats stats = data != null ? data.StatsData : null;
+            float agentRadius    = stats != null ? stats.AgentRadius   : 0.35f;
+            float stopDist       = stats != null ? stats.StopDistance  : 0.08f;
+            float moveSpeed      = stats != null ? stats.MoveSpeed     : 3.5f;
+            float defense        = stats != null ? stats.Defense       : 0f;
+            SO_Attack_Data attack = stats?.EnemyAttack;
+            float attackDamage   = attack != null ? attack.Damage      : 5f;
+            float attackRange    = attack != null ? attack.Hitbox.offset + AttackShapeUtility.GetPlanarReach(attack.Shape) : 1.4f;
+            float attackWindup   = attack != null ? attack.Duration * attack.Hitbox.timing : 0.4f;
+            float attackCooldown = attack != null ? attack.Duration * (1f - attack.Hitbox.timing) : 1.2f;
+
             return new NavAgentSettings
             {
-                AgentRadius = math.max(0f, AgentRadius),
-                StopDistance = math.max(0f, StopDistance),
-                MoveSpeed = math.max(0f, MoveSpeed),
+                AgentRadius             = math.max(0f, agentRadius),
+                StopDistance            = math.max(0f, stopDist),
+                MoveSpeed               = math.max(0f, moveSpeed),
                 WaypointAdvanceDistance = math.max(0f, waypointAdvanceDistance),
                 CornerLookAheadDistance = math.max(0f, cornerLookAheadDistance),
-                HeightOffset = heightOffset,
-                BoundaryTolerance = math.max(0f, boundaryTolerance),
-                TargetRepathDistance = math.max(0f, targetRepathDistance),
-                TargetRefreshDistance = math.max(targetRepathDistance, movingTargetRepathDistance),
-                TargetRefreshInterval = math.max(0f, movingTargetRepathInterval),
-                StuckRepathDelay = math.max(0f, stuckRepathDelay),
-                StuckRepathCooldown = math.max(0f, stuckRepathCooldown),
-                StuckProgressDistance = math.max(0f, stuckProgressDistance),
-                SeparationRadius = math.max(0f, separationRadius),
-                SeparationStrength = math.max(0f, separationStrength),
-                SeparationMaxNeighbors = math.max(0, separationMaxNeighbors),
-                StuckRetryLimit = math.max(0, stuckRetryLimit),
-                AttackDamage = math.max(0f, AttackDamage),
-                AttackRange = math.max(0f, AttackRange * math.max(0f, attackRangeMultiplier)),
-                AttackWindup = math.max(0f, AttackWindup),
-                AttackCooldown = math.max(0f, AttackCooldown),
-                Defense = math.max(0f, Defense)
+                HeightOffset            = heightOffset,
+                BoundaryTolerance       = math.max(0f, boundaryTolerance),
+                TargetRepathDistance    = math.max(0f, targetRepathDistance),
+                TargetRefreshDistance   = math.max(targetRepathDistance, movingTargetRepathDistance),
+                TargetRefreshInterval   = math.max(0f, movingTargetRepathInterval),
+                StuckRepathDelay        = math.max(0f, stuckRepathDelay),
+                StuckRepathCooldown     = math.max(0f, stuckRepathCooldown),
+                StuckProgressDistance   = math.max(0f, stuckProgressDistance),
+                SeparationRadius        = math.max(0f, separationRadius),
+                SeparationStrength      = math.max(0f, separationStrength),
+                SeparationMaxNeighbors  = math.max(0, separationMaxNeighbors),
+                StuckRetryLimit         = math.max(0, stuckRetryLimit),
+                AttackDamage            = math.max(0f, attackDamage),
+                AttackRange             = math.max(0f, attackRange * math.max(0f, attackRangeMultiplier)),
+                AttackWindup            = math.max(0f, attackWindup),
+                AttackCooldown          = math.max(0f, attackCooldown),
+                Defense                 = math.max(0f, defense)
             };
         }
 
@@ -428,9 +704,46 @@ namespace MapNav.Ecs
             }
         }
 
-        private bool TrySamplePoint(out Vector3 worldPosition)
+        // 진영별 스폰 시드를 설정한다(SectorManager가 진입 시 게이트별 인접 섹터 점령 진영으로 채운다).
+        public void SetFactionSeeds(IReadOnlyList<Vector3> allySeeds, IReadOnlyList<Vector3> enemySeeds)
         {
-            float clearance = math.max(0f, AgentRadius);
+            _allySeeds.Clear();
+            _enemySeeds.Clear();
+            if (allySeeds != null) _allySeeds.AddRange(allySeeds);
+            if (enemySeeds != null) _enemySeeds.AddRange(enemySeeds);
+        }
+
+        // 진영별 스폰 위치: spawnRandomFraction 확률로 전체 랜덤(난전), 아니면 진영 시드(게이트) 중 하나 근처(전선).
+        private bool TryFactionSpawnPoint(NavFaction faction, float clearance, out Vector3 pos)
+        {
+            List<Vector3> seeds = faction == NavFaction.Ally ? _allySeeds : _enemySeeds;
+            if (seeds.Count > 0 && UnityEngine.Random.value >= spawnRandomFraction)
+            {
+                Vector3 anchor = seeds[UnityEngine.Random.Range(0, seeds.Count)];
+                if (TrySampleNear(anchor, factionClusterRadius, clearance, out pos)) return true;
+            }
+            return TrySamplePoint(out pos, clearance);
+        }
+
+        // 앵커 반경 안에서 여러 번 샘플해 가장 가까운 점을 고른다. 반경 안을 못 찾으면 false(호출처가 랜덤 폴백).
+        private bool TrySampleNear(Vector3 anchor, float radius, float clearance, out Vector3 pos)
+        {
+            pos = default;
+            float bestSq = float.MaxValue;
+            bool found = false;
+            float radiusSq = radius * radius;
+            for (int i = 0; i < 8; i++)
+            {
+                if (!TrySamplePoint(out Vector3 p, clearance)) continue;
+                float d = (p - anchor).sqrMagnitude;
+                if (d <= radiusSq && d < bestSq) { bestSq = d; pos = p; found = true; }
+            }
+            return found;
+        }
+
+        private bool TrySamplePoint(out Vector3 worldPosition, float clearanceRadius = 0.35f)
+        {
+            float clearance = math.max(0f, clearanceRadius);
             int attemptsPerRegion = math.max(1, maxSampleAttempts / math.max(1, _candidateRegions.Count));
             for (int outer = 0; outer < maxSampleAttempts; outer++)
             {
@@ -445,19 +758,11 @@ namespace MapNav.Ecs
             return false;
         }
 
-        private float AgentRadius => unitStats != null ? unitStats.AgentRadius : 0.35f;
-        private float StopDistance => unitStats != null ? unitStats.StopDistance : 0.08f;
-        private float MoveSpeed => unitStats != null ? unitStats.MoveSpeed : 3.5f;
-        private float AgentMaxHealth => unitStats != null ? unitStats.MaxHealth : 30f;
-        private float AttackPower => unitStats != null ? unitStats.AttackPower : 0f;
-        private float Defense => unitStats != null ? unitStats.Defense : 0f;
-        private SO_AttackData EnemyAttack => unitStats != null ? unitStats.EnemyAttack : null;
-        private float AttackDamage => EnemyAttack != null ? EnemyAttack.Damage : 5f;
-        private float AttackRange => EnemyAttack != null ? EnemyAttack.Hitbox.offset + AttackShapeUtility.GetPlanarReach(EnemyAttack.Shape) : 1.4f;
-        private float AttackWindup => EnemyAttack != null ? EnemyAttack.Duration * EnemyAttack.Hitbox.timing : 0.4f;
-        private float AttackCooldown => EnemyAttack != null ? EnemyAttack.Duration * (1f - EnemyAttack.Hitbox.timing) : 1.2f;
+        private float AgentMaxHealth => unitData != null && unitData.StatsData != null ? unitData.StatsData.MaxHealth : 30f;
+        private float AttackPower    => unitData != null && unitData.StatsData != null ? unitData.StatsData.AttackPower : 0f;
+        private SO_Attack_Data EnemyAttack => unitData != null ? unitData.StatsData?.EnemyAttack : null;
 
-        private static NavAgentAttackProfile BakeAttackProfile(SO_AttackData attack, float attackerAttackPower)
+        private static NavAgentAttackProfile BakeAttackProfile(SO_Attack_Data attack, float attackerAttackPower)
         {
             if (attack == null) return default;
             FixedString64Bytes vfx = default;

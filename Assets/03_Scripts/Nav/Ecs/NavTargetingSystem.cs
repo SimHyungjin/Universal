@@ -7,7 +7,7 @@ using Unity.Transforms;
 
 namespace MapNav.Ecs
 {
-    // 각 유닛이 가장 가까운 적대 진영 대상(다른 진영 유닛 또는 플레이어)을 찾아 길찾기 타겟으로 삼는다.
+    // 각 유닛이 가장 가까운 적대 진영 대상(다른 진영 유닛 또는 캐릭터)을 찾아 길찾기 타겟으로 삼는다.
     // 공간 해시 그리드로 근접 유닛만 검사해 O(n^2) 전수 검사를 피한다.
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     [UpdateBefore(typeof(NavTargetResolveSystem))]
@@ -18,12 +18,17 @@ namespace MapNav.Ecs
         private const float SearchRadius = 20f;
 
         private EntityQuery _query;
+        private EntityQuery _characterQuery;
 
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
             _query = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<NavAgentFaction, NavAgentDeath, NavAgentSettings, LocalTransform, NavAgentTarget, NavAgentPathStatus, NavAgentPathRequest>()
+                .Build(ref state);
+            // 캐릭터(플레이어/장수)는 0명 이상일 수 있다. RequireForUpdate를 걸지 않아 캐릭터가 없어도 잡몹끼리 타겟팅한다.
+            _characterQuery = new EntityQueryBuilder(Allocator.Temp)
+                .WithAll<CharacterNavTarget>()
                 .Build(ref state);
             state.RequireForUpdate(_query);
         }
@@ -35,8 +40,8 @@ namespace MapNav.Ecs
             if (count <= 0)
                 return;
 
-            PlayerNavTarget player = default;
-            SystemAPI.TryGetSingleton(out player);
+            NativeArray<Entity> characterEntities = _characterQuery.ToEntityArray(Allocator.TempJob);
+            NativeArray<CharacterNavTarget> characters = _characterQuery.ToComponentDataArray<CharacterNavTarget>(Allocator.TempJob);
 
             NativeArray<Entity> entities = _query.ToEntityArray(Allocator.TempJob);
             NativeArray<LocalTransform> transforms = _query.ToComponentDataArray<LocalTransform>(Allocator.TempJob);
@@ -70,13 +75,19 @@ namespace MapNav.Ecs
                 CellSize = cellSize,
                 DeltaTime = SystemAPI.Time.DeltaTime,
                 SearchRadiusSq = SearchRadius * SearchRadius,
-                PlayerPosition = player.Position,
-                PlayerValid = player.HasValue,
+                Characters = characters,
+                CharacterEntities = characterEntities,
                 TargetLookup = SystemAPI.GetComponentLookup<NavAgentTarget>(),
-                CombatLookup = SystemAPI.GetComponentLookup<NavAgentCombatTarget>()
+                CombatLookup = SystemAPI.GetComponentLookup<NavAgentCombatTarget>(),
+                RequestLookup = SystemAPI.GetComponentLookup<NavAgentPathRequest>(),
+                StatusLookup = SystemAPI.GetComponentLookup<NavAgentPathStatus>(),
+                MotionLookup = SystemAPI.GetComponentLookup<NavAgentMotion>(),
+                WaypointLookup = SystemAPI.GetBufferLookup<NavAgentWaypoint>()
             };
 
             state.Dependency = job.Schedule(count, 32, state.Dependency);
+            state.Dependency = characters.Dispose(state.Dependency);
+            state.Dependency = characterEntities.Dispose(state.Dependency);
             state.Dependency = entities.Dispose(state.Dependency);
             state.Dependency = transforms.Dispose(state.Dependency);
             state.Dependency = factions.Dispose(state.Dependency);
@@ -108,13 +119,21 @@ namespace MapNav.Ecs
             public float CellSize;
             public float DeltaTime;
             public float SearchRadiusSq;
-            public float3 PlayerPosition;
-            public byte PlayerValid;
+            [ReadOnly] public NativeArray<CharacterNavTarget> Characters;
+            [ReadOnly] public NativeArray<Entity> CharacterEntities;
 
             [NativeDisableParallelForRestriction]
             public ComponentLookup<NavAgentTarget> TargetLookup;
             [NativeDisableParallelForRestriction]
             public ComponentLookup<NavAgentCombatTarget> CombatLookup;
+            [NativeDisableParallelForRestriction]
+            public ComponentLookup<NavAgentPathRequest> RequestLookup;
+            [NativeDisableParallelForRestriction]
+            public ComponentLookup<NavAgentPathStatus> StatusLookup;
+            [NativeDisableParallelForRestriction]
+            public ComponentLookup<NavAgentMotion> MotionLookup;
+            [NativeDisableParallelForRestriction]
+            public BufferLookup<NavAgentWaypoint> WaypointLookup;
 
             public void Execute(int index)
             {
@@ -128,7 +147,7 @@ namespace MapNav.Ecs
                 float3 bestPos = float3.zero;
                 Entity bestEntity = Entity.Null;
                 bool found = false;
-                bool targetIsPlayer = false;
+                bool targetIsCharacter = false;
 
                 int2 baseCell = CellOf(selfPos, CellSize);
                 for (int dz = -1; dz <= 1; dz++)
@@ -153,14 +172,14 @@ namespace MapNav.Ecs
                                 bestPos = Transforms[other].Position;
                                 bestEntity = Entities[other];
                                 found = true;
-                                targetIsPlayer = false;
+                                targetIsCharacter = false;
                             }
                         }
                         while (Grid.TryGetNextValue(out other, ref iterator));
                     }
                 }
 
-                // 적군 유닛은 플레이어(아군 진영)를 거리 제한 없이 추적한다.
+                // 적군 유닛은 브릿지로 등록된 캐릭터를 거리 제한 없이 추적한다.
                 // 더 가까운 아군 유닛이 SearchRadius 안에 있으면 그쪽을 우선한다.
                 // If no hostile unit is nearby, still pick the nearest hostile on the map so
                 // distant allies/enemies do not remain idle just because they spawned apart.
@@ -182,22 +201,29 @@ namespace MapNav.Ecs
                         bestPos = Transforms[other].Position;
                         bestEntity = Entities[other];
                         found = true;
-                        targetIsPlayer = false;
+                        targetIsCharacter = false;
                     }
                 }
 
-                if (PlayerValid != 0 && selfFaction == NavFaction.Enemy)
+                // GameObject 캐릭터(플레이어/장수)는 진영이 다르면 거리 제한 없이 타겟 후보가 된다.
+                // 더 가까운 적대 캐릭터가 여럿이면 최근접을 고른다.
+                for (int c = 0; c < Characters.Length; c++)
                 {
-                    float3 diff = PlayerPosition - selfPos;
+                    CharacterNavTarget ch = Characters[c];
+                    if (ch.HasValue == 0 || ch.Faction == selfFaction)
+                        continue;
+
+                    float3 diff = ch.Position - selfPos;
                     diff.y = 0f;
                     float distSq = math.lengthsq(diff);
-                    if (!found || distSq < bestDistSq)
-                    {
-                        bestPos = PlayerPosition;
-                        bestEntity = Entity.Null;
-                        found = true;
-                        targetIsPlayer = true;
-                    }
+                    if (found && distSq >= bestDistSq)
+                        continue;
+
+                    bestDistSq = distSq;
+                    bestPos = ch.Position;
+                    bestEntity = CharacterEntities[c];
+                    found = true;
+                    targetIsCharacter = true;
                 }
 
                 Entity self = Entities[index];
@@ -205,17 +231,20 @@ namespace MapNav.Ecs
                 NavAgentCombatTarget combat = CombatLookup[self];
                 bool targetChanged = combat.HasTarget == 0
                     || combat.TargetEntity != bestEntity
-                    || combat.IsPlayer != (byte)(targetIsPlayer ? 1 : 0);
+                    || combat.IsCharacterTarget != (byte)(targetIsCharacter ? 1 : 0);
 
                 combat.HasTarget = (byte)(found ? 1 : 0);
                 combat.TargetEntity = bestEntity;
-                combat.IsPlayer = (byte)(targetIsPlayer ? 1 : 0);
+                combat.IsCharacterTarget = (byte)(targetIsCharacter ? 1 : 0);
                 if (found)
                     combat.Position = bestPos;
                 CombatLookup[self] = combat;
 
                 if (!found)
+                {
+                    ClearNavigation(self, selfPos);
                     return;
+                }
 
                 NavAgentTarget target = TargetLookup[self];
                 target.RefreshCooldownRemaining = math.max(0f, target.RefreshCooldownRemaining - DeltaTime);
@@ -248,6 +277,39 @@ namespace MapNav.Ecs
                 target.Dirty = 1;
                 target.RefreshCooldownRemaining = GetRefreshCooldown(self, settings.TargetRefreshInterval);
                 TargetLookup[self] = target;
+            }
+
+            private void ClearNavigation(Entity self, float3 selfPos)
+            {
+                NavAgentTarget target = TargetLookup[self];
+                target.Dirty = 0;
+                target.Position = selfPos;
+                target.AcceptedPosition = selfPos;
+                target.RefreshCooldownRemaining = 0f;
+                TargetLookup[self] = target;
+
+                NavAgentPathRequest request = RequestLookup[self];
+                request.Pending = 0;
+                RequestLookup[self] = request;
+
+                NavAgentPathStatus status = StatusLookup[self];
+                status.HasPath = 0;
+                status.Waiting = 0;
+                status.Failed = 0;
+                StatusLookup[self] = status;
+
+                NavAgentMotion motion = MotionLookup[self];
+                motion.IsMoving = 0;
+                motion.WaypointIndex = 0;
+                motion.CurrentSpeed = 0f;
+                motion.StuckTimer = 0f;
+                motion.LastDistanceToWaypoint = 0f;
+                motion.LastWaypointAnchor = selfPos;
+                motion.Velocity = float3.zero;
+                MotionLookup[self] = motion;
+
+                if (WaypointLookup.HasBuffer(self))
+                    WaypointLookup[self].Clear();
             }
 
             private static float GetRefreshCooldown(Entity entity, float interval)

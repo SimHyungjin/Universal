@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8a5a69738353dce489507658f0a4a754, type: 3}
+  m_Name: SO_Character_DashRule
+  m_EditorClassIdentifier: Assembly-CSharp::SO_Character_DashRule
+  dashDuration: 0.16
+  dashCooldown: 0.32
+  dashInvincibleDuration: 0.12
+  dashSpeedMultiplier: 10
+  gateTransitionSpeed: 50
+  gateEntryGraceDuration: 0.35

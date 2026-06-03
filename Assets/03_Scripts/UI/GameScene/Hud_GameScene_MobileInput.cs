@@ -19,7 +19,7 @@ public sealed class Hud_GameScene_MobileInput : MonoBehaviour
     [Header("Skills (Loadout 4 Slots)")]
     [SerializeField] private Hud_GameScene_SkillSlot[] skillSlots = new Hud_GameScene_SkillSlot[SkillInput.SlotCount];
 
-    private Player_ActionHandler _actionHandler;
+    private Character_ActionHandler _actionHandler;
     private readonly UnityAction[] _skillClickHandlers = new UnityAction[SkillInput.SlotCount];
 
     // ───────────────────────────────────────────────
@@ -54,7 +54,7 @@ public sealed class Hud_GameScene_MobileInput : MonoBehaviour
     // ───────────────────────────────────────────────
     #region Bind
 
-    public void Bind(Player_ActionHandler actionHandler)
+    public void Bind(Character_ActionHandler actionHandler)
     {
         _actionHandler = actionHandler;
         RefreshSkillSlots();
@@ -79,7 +79,7 @@ public sealed class Hud_GameScene_MobileInput : MonoBehaviour
         {
             if (skillSlots[i] == null) continue;
 
-            SO_SkillData skill = _actionHandler != null ? _actionHandler.GetSkillData(i) : null;
+            SO_Skill_Data skill = _actionHandler != null ? _actionHandler.GetSkillData(i) : null;
             skillSlots[i].Bind(skill);
         }
 

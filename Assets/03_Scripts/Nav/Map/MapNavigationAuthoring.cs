@@ -32,7 +32,7 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
 
     private void Awake()
     {
-        RebuildRuntimeData();
+        RebuildRuntimeData(false);
     }
 
     private void OnValidate()

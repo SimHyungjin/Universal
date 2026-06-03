@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1efe1eb1e12942c6bbc51bee8a487496, type: 3}
+  m_Name: SO_Attack_ComboData_OneHand_0
+  m_EditorClassIdentifier: 
+  attacks:
+  - {fileID: 11400000, guid: fd85bf6e4d68b804f9f1e4e3d2a55091, type: 2}
+  - {fileID: 11400000, guid: 6699a48d4e239624b84a3e896faa586c, type: 2}
+  - {fileID: 11400000, guid: 5f4c437611f52174684ebfe37dfd4bb6, type: 2}
+  comboWindow: 0.35
+  lockMovementDuringComboWindow: 1

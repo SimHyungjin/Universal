@@ -116,6 +116,81 @@ namespace MapNav.Core
             if (!NavGraph.TryFindPath(in ctx, startSpace, startWorld, endSpace, endWorld, agentRadius, ref scratch, ref tmpNodes, ref tmpPortals))
                 return false;
 
+            return AssembleMacroPath(in ctx, startWorld, endWorld, agentRadius, ref tmpPortals, ref outWaypoints);
+        }
+
+        // 거시 경로 캐시를 쓰는 오버로드. 같은 리전 쌍을 반복 질의하는 추격 시나리오에서 상위 A*를
+        // 건너뛴다(캐시 히트). 경로 정밀도는 무캐시 버전과 동일 — funnel/refine이 실제 start/end로
+        // 매번 보정한다. cache가 미생성이면 자동으로 무캐시 동작(항상 미스 → A* → Store는 no-op).
+        public static bool TryBuild(
+            in NavContext ctx,
+            float3 startWorld,
+            float3 endWorld,
+            float agentRadius,
+            float boundaryTolerance,
+            ref NavScratch scratch,
+            ref NativeList<NavSpaceRef> tmpNodes,
+            ref NativeList<NavPortal> tmpPortals,
+            ref NativeList<float3> outWaypoints,
+            ref NavMacroPathCache cache)
+        {
+            outWaypoints.Clear();
+            if (!ctx.IsValid) return false;
+
+            if (!TryResolvePoint(in ctx, startWorld, agentRadius, boundaryTolerance, out startWorld, out NavSpaceRef startSpace))
+                return false;
+
+            if (!TryResolvePoint(in ctx, endWorld, agentRadius, boundaryTolerance, out endWorld, out NavSpaceRef endSpace))
+                return false;
+
+            return TryBuildFromSpaces(in ctx, startSpace, startWorld, endSpace, endWorld, agentRadius, ref scratch, ref tmpNodes, ref tmpPortals, ref outWaypoints, ref cache);
+        }
+
+        public static bool TryBuildFromSpaces(
+            in NavContext ctx,
+            NavSpaceRef startSpace, float3 startWorld,
+            NavSpaceRef endSpace, float3 endWorld,
+            float agentRadius,
+            ref NavScratch scratch,
+            ref NativeList<NavSpaceRef> tmpNodes,
+            ref NativeList<NavPortal> tmpPortals,
+            ref NativeList<float3> outWaypoints,
+            ref NavMacroPathCache cache)
+        {
+            outWaypoints.Clear();
+            if (CanTravelDirect(in ctx, startWorld, endWorld, agentRadius))
+            {
+                AddIfSeparated(startWorld, ref outWaypoints);
+                AddIfSeparated(endWorld, ref outWaypoints);
+                return true;
+            }
+
+            // startSpace==endSpace는 NavGraph가 즉시 반환하므로 캐시하지 않는다(cross-region만 이득).
+            bool haveMacro = startSpace != endSpace
+                && cache.TryGet(startSpace, endSpace, ref tmpNodes, ref tmpPortals);
+
+            if (!haveMacro)
+            {
+                if (!NavGraph.TryFindPath(in ctx, startSpace, startWorld, endSpace, endWorld, agentRadius, ref scratch, ref tmpNodes, ref tmpPortals))
+                    return false;
+
+                if (startSpace != endSpace)
+                    cache.Store(startSpace, endSpace, in tmpNodes, in tmpPortals);
+            }
+
+            return AssembleMacroPath(in ctx, startWorld, endWorld, agentRadius, ref tmpPortals, ref outWaypoints);
+        }
+
+        // 거시 경로(노드/포털 시퀀스)가 정해진 뒤 공통으로 도는 마무리: funnel 평활 → in-region
+        // corner 보강 → string pull. 무캐시/캐시 경로가 모두 공유한다.
+        private static bool AssembleMacroPath(
+            in NavContext ctx,
+            float3 startWorld,
+            float3 endWorld,
+            float agentRadius,
+            ref NativeList<NavPortal> tmpPortals,
+            ref NativeList<float3> outWaypoints)
+        {
             // NavFunnel: portal segment 양 끝(NavPortal.A/B)을 funnel로 풀어 꺾이는 점만 박는다.
             // portal endpoint를 강제 waypoint로 두지 않으므로 polygon vertex 경유 꺾임이 사라짐.
             NativeList<float3> funnelWaypoints = new NativeList<float3>(16, Allocator.Temp);

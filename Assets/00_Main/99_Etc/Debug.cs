@@ -34,4 +34,12 @@ public class Debug : MonoBehaviour
     [Conditional(DEBUG_SYMBOL), HideInCallstack]
     public static void Assert(bool condition, object message, Object context) 
         => UnityEngine.Debug.Assert(condition, message, context);
+
+    [Conditional(DEBUG_SYMBOL), HideInCallstack]
+    public static void DrawLine(Vector3 start, Vector3 end, Color color = default, float duration = 0f, bool depthTest = true)
+        => UnityEngine.Debug.DrawLine(start, end, color, duration, depthTest);
+
+    [Conditional(DEBUG_SYMBOL), HideInCallstack]
+    public static void DrawRay(Vector3 start, Vector3 direction, Color color = default, float duration = 0f, bool depthTest = true)
+        => UnityEngine.Debug.DrawRay(start, direction, color, duration, depthTest);
 }

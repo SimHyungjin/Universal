@@ -45,9 +45,9 @@ public class Main : MonoBehaviour
     public static DataManager Data         => Instance?._data;
     public static AudioManager Audio       => Instance?._audio;
     public static SceneManagerEx Scene     => Instance?._scene;
+    public static SafeAreaManager Safe     => Instance?._safe;
 
 #if UNITY_ANDROID || UNITY_IOS || UNITY_EDITOR
-    public static SafeAreaManager Safe     => Instance?._safe;
     public static HapticManager Haptic     => Instance?._haptic;
 #endif
     #endregion
@@ -63,9 +63,9 @@ public class Main : MonoBehaviour
     private readonly DataManager _data           = new();
     private readonly AudioManager _audio         = new();
     private readonly SceneManagerEx _scene       = new();
+    private readonly SafeAreaManager _safe       = new();
 
 #if UNITY_ANDROID || UNITY_IOS || UNITY_EDITOR
-    private readonly SafeAreaManager _safe   = new();
     private readonly HapticManager _haptic   = new();
 #endif
     #endregion

@@ -1,0 +1,210 @@
+using UnityEngine;
+
+[RequireComponent(typeof(CharacterController))]
+[DisallowMultipleComponent]
+public class Character_MoveController : LoopMonoBehaviour
+{
+    private SO_Character_Stats stats;
+    private SO_Character_LocomotionFeel locomotionFeel;
+    private SO_WorldPhysics worldPhysics;
+
+    private CharacterController _cc;
+    private Vector3 _planarVelocity;
+    private float _verticalVelocity;
+    private Vector3 _lungeDirection;
+    private float _lungeDistance;
+    private float _lungeDuration;
+    private float _lungeElapsed;
+    private float _lungeTimer;
+    private AnimationCurve _lungeSpeedCurve;
+
+    public bool IsGrounded => _cc != null && _cc.isGrounded;
+    public float VerticalVelocity => _verticalVelocity;
+
+    private void Awake()
+    {
+        _cc = GetComponent<CharacterController>();
+    }
+
+    public void SetMovementData(SO_Character_Stats stats, SO_Character_LocomotionFeel feel, SO_WorldPhysics physics)
+    {
+        if (stats != null) this.stats = stats;
+        if (feel != null) this.locomotionFeel = feel;
+        if (physics != null) this.worldPhysics = physics;
+    }
+
+    public void StartLunge(Vector3 direction, float distance, float duration)
+        => StartLunge(direction, distance, duration, null);
+
+    public void StartLunge(Vector3 direction, AttackLungeData lunge)
+    {
+        if (lunge.moveType == AttackMoveType.None)
+        {
+            StopLunge();
+            return;
+        }
+
+        StartLunge(direction, lunge.distance, lunge.duration, lunge.speedCurve);
+    }
+
+    public void StopLunge()
+    {
+        _lungeTimer = 0f;
+        _lungeElapsed = 0f;
+        _lungeDistance = 0f;
+        _lungeDuration = 0f;
+        _lungeSpeedCurve = null;
+    }
+
+    private void StartLunge(Vector3 direction, float distance, float duration, AnimationCurve speedCurve)
+    {
+        if (distance <= 0f || duration <= 0f) return;
+
+        _lungeDirection = new Vector3(direction.x, 0f, direction.z).normalized;
+        _lungeDistance = distance;
+        _lungeDuration = duration;
+        _lungeElapsed = 0f;
+        _lungeTimer = duration;
+        _lungeSpeedCurve = speedCurve;
+    }
+
+    public void TickLocomotion(Vector3 input, float deltaTime)
+    {
+        Vector3 targetVelocity = Vector3.ClampMagnitude(input, 1f) * MaxSpeed;
+        float speedChange = input.sqrMagnitude > 0.0001f ? Acceleration : Deceleration;
+        _planarVelocity = Vector3.MoveTowards(_planarVelocity, targetVelocity, speedChange * deltaTime);
+
+        TickGravity(deltaTime);
+
+        Vector3 velocity = _planarVelocity;
+        velocity.y = _verticalVelocity;
+
+        Rotate(input, deltaTime);
+        _cc.Move(velocity * deltaTime);
+    }
+
+    public void TickGravity(float deltaTime)
+    {
+        if (_cc.isGrounded && _verticalVelocity < 0f)
+            _verticalVelocity = GroundedStickVelocity;
+
+        _verticalVelocity += Gravity * deltaTime;
+    }
+
+    public void MoveVertical(float deltaTime)
+    {
+        TickGravity(deltaTime);
+        _cc.Move(new Vector3(0f, _verticalVelocity * deltaTime, 0f));
+    }
+
+    public void MoveVerticalUntilApexThenSuspend(float deltaTime)
+    {
+        if (_verticalVelocity > 0f)
+            TickGravity(deltaTime);
+
+        if (_verticalVelocity < 0f)
+            _verticalVelocity = 0f;
+
+        _cc.Move(new Vector3(0f, _verticalVelocity * deltaTime, 0f));
+    }
+
+    public void MoveDisplacement(Vector3 displacement)
+    {
+        _cc.Move(displacement);
+    }
+
+    public void MoveVelocity(Vector3 velocity, float deltaTime, bool applyGravity)
+    {
+        if (applyGravity)
+        {
+            TickGravity(deltaTime);
+            velocity.y = _verticalVelocity;
+        }
+
+        _cc.Move(velocity * deltaTime);
+    }
+
+    public void Jump(float height)
+    {
+        _verticalVelocity = Mathf.Sqrt(Mathf.Max(0f, height) * -2f * Gravity);
+    }
+
+    public void MoveDown(float speed, float deltaTime)
+    {
+        _cc.Move(Vector3.down * Mathf.Abs(speed) * deltaTime);
+    }
+
+    public void StopPlanar()
+    {
+        _planarVelocity = Vector3.zero;
+    }
+
+    public void RotateTowards(Vector3 direction, float deltaTime)
+    {
+        Rotate(direction, deltaTime);
+    }
+
+    protected override void OnGameUpdate(float gdt)
+    {
+        base.OnGameUpdate(gdt);
+        if (_lungeTimer <= 0f) return;
+
+        float previousElapsed = _lungeElapsed;
+        _lungeElapsed = Mathf.Min(_lungeDuration, _lungeElapsed + gdt);
+        _lungeTimer = Mathf.Max(0f, _lungeDuration - _lungeElapsed);
+
+        float previousT = _lungeDuration > 0f ? previousElapsed / _lungeDuration : 1f;
+        float currentT = _lungeDuration > 0f ? _lungeElapsed / _lungeDuration : 1f;
+        float previousDistanceT = EvaluateLungeDistanceT(previousT);
+        float currentDistanceT = EvaluateLungeDistanceT(currentT);
+        float distanceDelta = Mathf.Max(0f, currentDistanceT - previousDistanceT) * _lungeDistance;
+
+        _cc.Move(_lungeDirection * distanceDelta);
+    }
+
+    private float EvaluateLungeDistanceT(float t)
+    {
+        if (!HasUsableLungeCurve())
+            return t;
+
+        return Mathf.Clamp01(_lungeSpeedCurve.Evaluate(t));
+    }
+
+    private bool HasUsableLungeCurve()
+    {
+        if (_lungeSpeedCurve == null || _lungeSpeedCurve.length < 2)
+            return false;
+
+        float start = _lungeSpeedCurve.Evaluate(0f);
+        float end = _lungeSpeedCurve.Evaluate(1f);
+        return end > start + 0.0001f;
+    }
+
+    private void Rotate(Vector3 input, float deltaTime)
+    {
+        if (input.sqrMagnitude <= 0.0001f) return;
+
+        Quaternion targetRotation = Quaternion.LookRotation(input);
+        transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, RotationInterpolationSpeed * deltaTime);
+    }
+
+    public static Vector3 GetCameraRelativeInput(Vector2 input)
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return new Vector3(input.x, 0f, input.y);
+
+        float yaw = cam.transform.eulerAngles.y;
+        Quaternion yawOnly = Quaternion.Euler(0f, yaw, 0f);
+        Vector3 forward = yawOnly * Vector3.forward;
+        Vector3 right   = yawOnly * Vector3.right;
+
+        return Vector3.ClampMagnitude((right * input.x) + (forward * input.y), 1f);
+    }
+
+    private float MaxSpeed => stats != null ? stats.MoveSpeed : 5f;
+    private float Acceleration => locomotionFeel != null ? locomotionFeel.Acceleration : 80f;
+    private float Deceleration => locomotionFeel != null ? locomotionFeel.Deceleration : 100f;
+    private float RotationInterpolationSpeed => locomotionFeel != null ? locomotionFeel.RotationInterpolationSpeed : 30f;
+    private float Gravity => worldPhysics != null ? worldPhysics.Gravity : -15f;
+    private float GroundedStickVelocity => worldPhysics != null ? worldPhysics.GroundedStickVelocity : -1f;
+}

@@ -97,21 +97,19 @@ namespace MapNav.Ecs
         public byte   IsHeavy;
     }
 
-    // 비주얼 전용 띄우기 트리거. ECS 시뮬 좌표는 평면 유지하며 NavVisualShell이 Version 변경을 감지해
-    // 로컬에서 경과 시간을 추적하고 y 오프셋을 가산한다. 시뮬 시스템이 매 프레임 쓸 필드가 없도록 의도적으로 트리거만 둠.
-    // 실제 y축 물리로 승격할 때 이 컴포넌트를 통째로 제거하고 NavAgentKnockback에 vertical velocity를 도입하면 폐기가 깔끔.
+    // 실제 y축 부양. 잡몹 시뮬 좌표(LocalTransform.Position.y)를 실제로 띄운다.
+    // NavLaunchSystem이 LaunchPhysics(초기속도+중력)로 y를 적분하고, NavMovementSystem은
+    // Airborne 동안 height snap을 건너뛴다. 캐릭터(Character_ActionHandler)와 동일한 수직 물리 모델.
     public struct NavAgentLaunch : IComponentData
     {
         // ── 트리거 (HitboxProcessor가 새 launch 시 설정) ────────────────────
         public float Height;
-        public float Duration;
         public float SuspendDuration;
-        public byte  SuspendAtApex;
         // ── 시뮬레이션 상태 (NavLaunchSystem이 매 프레임 tick) ───────────────
-        public float Elapsed;      // 발사 경과 시간
-        public float FreezeTimer;  // >0이면 Elapsed 진행 정지 (타격마다 HitboxProcessor가 설정)
-        // ── 출력 (NavLaunchSystem이 계산, Shell·HitboxProcessor가 읽음) ──────
-        public float VisualYOffset;
+        public float VerticalVelocity; // 현재 수직 속도
+        public float GroundY;          // launch 시작 시의 지면 y (착지 기준)
+        public float SuspendTimer;     // 정점 체공 남은 시간
+        public byte  Airborne;         // 1이면 공중 — NavMovementSystem이 height snap을 건너뜀
     }
 
     public enum NavFaction : byte
@@ -157,7 +155,7 @@ namespace MapNav.Ecs
         public Entity TargetEntity;
         public float3 Position;
         public byte   HasTarget;
-        public byte   IsPlayer;
+        public byte   IsCharacterTarget;
     }
 
     public struct NavPathBuildBudget : IComponentData
@@ -165,17 +163,21 @@ namespace MapNav.Ecs
         public int MaxPathsPerFrame;
     }
 
-    // 플레이어 위치를 ECS로 전달하는 싱글톤. MonoBehaviour 브릿지가 매 프레임 갱신한다.
-    // HitRadius: 잡몹 공격 판정 시 플레이어를 점이 아닌 반경으로 취급해 1프레임 stale·넉백 미끄러짐을 흡수한다.
-    public struct PlayerNavTarget : IComponentData
+    // GameObject로 존재하는 캐릭터(플레이어/장수)를 ECS 잡몹이 타겟·타격하기 위한 다리.
+    // 캐릭터 1명당 1엔티티(더 이상 싱글톤 아님). 같은 엔티티에 CharacterIncomingHit 버퍼가 붙는다.
+    // MonoBehaviour 브릿지(Character_EcsBridge)가 매 프레임 위치/진영을 갱신한다.
+    // HitRadius: 잡몹 공격 판정 시 캐릭터를 점이 아닌 반경으로 취급해 1프레임 stale·넉백 미끄러짐을 흡수한다.
+    // Faction: 잡몹은 자신과 다른 진영의 캐릭터만 타겟·타격한다.
+    public struct CharacterNavTarget : IComponentData
     {
-        public float3 Position;
-        public byte   HasValue;
-        public float  HitRadius;
+        public float3     Position;
+        public byte       HasValue;
+        public float      HitRadius;
+        public NavFaction Faction;
     }
 
-    // SO_AttackData를 ECS 친화 raw 값으로 베이크한 잡몹 공격 프로파일.
-    // NavRuntimeBootstrap이 스폰 시점에 SO_AttackData에서 값을 추출해 잡몹 entity에 부착한다.
+    // SO_Attack_Data를 ECS 친화 raw 값으로 베이크한 잡몹 공격 프로파일.
+    // NavRuntimeBootstrap이 스폰 시점에 SO_Attack_Data에서 값을 추출해 잡몹 entity에 부착한다.
     public struct NavAgentAttackProfile : IComponentData
     {
         public float Damage;
@@ -204,9 +206,9 @@ namespace MapNav.Ecs
         public float AttackTransition;
     }
 
-    // 적군의 공격 판정이 플레이어에 적중한 이벤트. PlayerNavTarget 싱글톤 엔티티에 버퍼로 부착.
-    // NavAttackResolveSystem이 푸시하고, Player_HitReceiver가 매 프레임 드레인한다.
-    public struct PlayerIncomingHit : IBufferElementData
+    // 적군의 공격 판정이 캐릭터에 적중한 이벤트. CharacterNavTarget 싱글톤 엔티티에 버퍼로 부착.
+    // NavAttackResolveSystem이 푸시하고, Character_EcsHitReceiver가 매 프레임 드레인한다.
+    public struct CharacterIncomingHit : IBufferElementData
     {
         public float3 SourcePosition;
         public NavAgentAttackProfile Attack;

@@ -13,11 +13,11 @@ public class SampleScene : SceneBase
 
         Hud_GameScene hud = await App.ShowHud<Hud_GameScene>(token: token);
 
-        Player player = await App.Instantiate<Player>(token: token);
+        Player_Actor player = await App.Instantiate<Player_Actor>(token: token);
         player.transform.position = new Vector3(0, 5, 0);
 
         if (hud != null)
-            hud.Bind(player.GetComponent<Player_ActionHandler>());
+            hud.Bind(player.GetComponent<Character_ActionHandler>());
     }
 
     public override void ExitScene()

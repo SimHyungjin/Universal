@@ -1,0 +1,32 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6cdea557b60023f4e980f3b61458dfa3, type: 3}
+  m_Name: SO_Character_Data_Elite_TestEnemyDuelist
+  m_EditorClassIdentifier: 
+  displayName: Elite
+  markerSprite: {fileID: 21300000, guid: 27d9505364b58994dbbf918b6597769a, type: 3}
+  battleRole: 2
+  prefab:
+    m_AssetGUID: 0fd41faf8901e154cb92fd6c6c278198
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_SubObjectGUID: 
+    m_EditorAssetChanged: 0
+  statsData: {fileID: 11400000, guid: e11e57a751a700d0c0b0a09080706050, type: 2}
+  defaultLoadout: {fileID: 11400000, guid: 2c5dca10d77949d0a26e0b49c3145329, type: 2}
+  animationData: {fileID: 11400000, guid: c81410fa52b445159267cc666da98ca9, type: 2}
+  locomotionFeel: {fileID: 11400000, guid: ef22eb0c1e38a144ea2b92bd85f84daf, type: 2}
+  worldPhysics: {fileID: 11400000, guid: cd089d2e62f3a9b4fb2d2e3211c36987, type: 2}
+  inputBuffering: {fileID: 11400000, guid: 62b7f124778aadb4cb55f12fcf8fe206, type: 2}
+  jumpFeel: {fileID: 11400000, guid: 51ac0b1897685ea4da8139d6dd0da15d, type: 2}
+  dashRule: {fileID: 11400000, guid: db0b5f77f8806a74da3d2e81539b94b9, type: 2}
+  actionRecovery: {fileID: 11400000, guid: b5ab2f8a3a9049a46a1547219c344ccc, type: 2}

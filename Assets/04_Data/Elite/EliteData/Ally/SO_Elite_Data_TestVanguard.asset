@@ -1,0 +1,16 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 24ddd16e3480ad343878a9a4eb75094f, type: 3}
+  m_Name: SO_Elite_Data_TestVanguard
+  m_EditorClassIdentifier: 
+  character: {fileID: 11400000, guid: 02ef4e9d2e14fbe4cb5671295d972300, type: 2}
+  stats: {fileID: 11400000, guid: e3da2e5c11ba505408d31f0672ef7f72, type: 2}

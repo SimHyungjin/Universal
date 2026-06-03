@@ -3,8 +3,8 @@ using UnityEngine;
 
 public interface IHitboxProcessor
 {
-    bool Process(SO_AttackData data, Transform attacker, AttackHitRegistry hitRegistry, float finalDamage, float targetSuspendDuration);
-    bool ProcessExtra(SO_AttackData data, AttackExtraHit extra, int extraIndex, Transform attacker, AttackHitRegistry hitRegistry, float finalDamage, float targetSuspendDuration);
+    bool Process(SO_Attack_Data data, Transform attacker, AttackHitRegistry hitRegistry, float finalDamage, float targetSuspendDuration);
+    bool ProcessExtra(SO_Attack_Data data, AttackExtraHit extra, int extraIndex, Transform attacker, AttackHitRegistry hitRegistry, float finalDamage, float targetSuspendDuration);
 }
 
 public sealed class AttackHitRegistry

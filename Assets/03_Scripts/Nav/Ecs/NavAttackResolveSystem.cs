@@ -5,8 +5,8 @@ using Unity.Transforms;
 
 namespace MapNav.Ecs
 {
-    // NavAttackSystem이 HitPending=1로 세운 적군 공격을 소비해 플레이어 피격 이벤트로 변환한다.
-    // 판정 프레임에 플레이어 현재 위치와 AttackRange로 사거리를 재검증해 회피 여지를 남긴다.
+    // NavAttackSystem이 HitPending=1로 세운 적군 공격을 소비해 캐릭터 피격 이벤트로 변환한다.
+    // 판정 프레임에 캐릭터 현재 위치와 AttackRange로 사거리를 재검증해 회피 여지를 남긴다.
     // 적군(NavFaction.Enemy)만 다룬다. 아군 잡몹의 HitPending은 별도 시스템이 처리한다.
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     [UpdateAfter(typeof(NavAttackSystem))]
@@ -20,12 +20,6 @@ namespace MapNav.Ecs
         public void OnUpdate(ref SystemState state)
         {
             EntityManager em = state.EntityManager;
-            bool hasPlayer = SystemAPI.TryGetSingleton(out PlayerNavTarget player) && player.HasValue != 0;
-            Entity playerEntity = hasPlayer ? SystemAPI.GetSingletonEntity<PlayerNavTarget>() : Entity.Null;
-            bool hasPlayerInbox = hasPlayer && em.HasBuffer<PlayerIncomingHit>(playerEntity);
-            DynamicBuffer<PlayerIncomingHit> inbox = default;
-            if (hasPlayerInbox)
-                inbox = em.GetBuffer<PlayerIncomingHit>(playerEntity);
 
             foreach (var (attack, settings, profile, faction, death, combat, transform) in
                 SystemAPI.Query<
@@ -56,15 +50,25 @@ namespace MapNav.Ecs
                     math.mul(transform.ValueRO.Rotation, new float3(0f, 0f, 1f)),
                     new float3(0f, 0f, 1f));
 
-                if (combat.ValueRO.IsPlayer != 0)
+                if (combat.ValueRO.IsCharacterTarget != 0)
                 {
-                    if (faction.ValueRO.Faction == NavFaction.Enemy && hasPlayerInbox && IsInAttackShape(transform.ValueRO.Position, forward, player.Position, player.HitRadius, profile.ValueRO))
+                    // 타겟 캐릭터 엔티티의 inbox에 직접 기록한다(싱글톤 아님). 진영이 다를 때만.
+                    Entity characterEntity = combat.ValueRO.TargetEntity;
+                    if (characterEntity != Entity.Null
+                        && em.HasComponent<CharacterNavTarget>(characterEntity)
+                        && em.HasBuffer<CharacterIncomingHit>(characterEntity))
                     {
-                        inbox.Add(new PlayerIncomingHit
+                        CharacterNavTarget character = em.GetComponentData<CharacterNavTarget>(characterEntity);
+                        if (character.HasValue != 0
+                            && character.Faction != faction.ValueRO.Faction
+                            && IsInAttackShape(transform.ValueRO.Position, forward, character.Position, character.HitRadius, profile.ValueRO))
                         {
-                            SourcePosition = transform.ValueRO.Position,
-                            Attack = profile.ValueRO
-                        });
+                            em.GetBuffer<CharacterIncomingHit>(characterEntity).Add(new CharacterIncomingHit
+                            {
+                                SourcePosition = transform.ValueRO.Position,
+                                Attack = profile.ValueRO
+                            });
+                        }
                     }
                 }
                 else if (TryGetValidUnitTarget(em, combat.ValueRO.TargetEntity, faction.ValueRO.Faction, out LocalTransform targetTransform, out float targetRadius))

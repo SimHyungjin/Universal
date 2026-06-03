@@ -15,3 +15,34 @@ public static class CombatFormula
         return incoming * mult;
     }
 }
+
+public static class SectorPowerFormula
+{
+    public static float Calculate(SO_Character_Data character, float fallbackPower = 0f)
+        => Calculate(
+            character != null ? character.StatsData : null,
+            character != null ? character.DefaultLoadout : null,
+            fallbackPower);
+
+    public static float Calculate(
+        SO_Character_Stats stats,
+        SO_Character_Loadout loadout,
+        float fallbackPower = 0f)
+        => Calculate(stats, loadout != null ? loadout.EquippedSkills : null, fallbackPower);
+
+    public static float Calculate(
+        SO_Character_Stats stats,
+        SO_Skill_Data[] equippedSkills,
+        float fallbackPower = 0f)
+    {
+        float power = stats != null ? stats.BaseSectorPower : fallbackPower;
+
+        if (equippedSkills != null)
+        {
+            for (int i = 0; i < equippedSkills.Length; i++)
+                power += equippedSkills[i] != null ? equippedSkills[i].SectorPowerBonus : 0f;
+        }
+
+        return power > 0f ? power : 0f;
+    }
+}

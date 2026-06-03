@@ -4,7 +4,7 @@ using UnityEngine;
 
 public static class CombatFeedback
 {
-    public static void PlayHitFeedback(SO_AttackData data, Vector3 position, CancellationToken token)
+    public static void PlayHitFeedback(SO_Attack_Data data, Vector3 position, CancellationToken token)
     {
         if (data == null) return;
         PlayHitFeedback(data.HitSfx, data.HitVfxAddress, position, token);

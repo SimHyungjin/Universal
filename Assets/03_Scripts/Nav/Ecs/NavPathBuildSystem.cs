@@ -12,11 +12,37 @@ namespace MapNav.Ecs
     [BurstCompile]
     public partial struct NavPathBuildSystem : ISystem
     {
+        // 거시 경로 캐시. 추격처럼 같은 리전 쌍을 반복 질의할 때 상위 A*(가장 비싼 단계)를 건너뛴다.
+        // 메인스레드 foreach에서만 접근하므로 잠금이 필요 없다.
+        private NavMacroPathCache _macroCache;
+        private BlobAssetReference<NavBlob> _cachedForBlob;
+        private float4x4 _cachedLocalToWorld;
+
+        [BurstCompile]
+        public void OnCreate(ref SystemState state)
+        {
+            _macroCache = new NavMacroPathCache(256, Allocator.Persistent);
+        }
+
+        [BurstCompile]
+        public void OnDestroy(ref SystemState state)
+        {
+            if (_macroCache.IsCreated) _macroCache.Dispose();
+        }
+
         [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
             if (!SystemAPI.TryGetSingleton<NavBlobReference>(out NavBlobReference navRef) || !navRef.Blob.IsCreated)
                 return;
+
+            // 맵(블롭/transform)이 바뀌면 캐시된 거시 경로가 무효 — 통째 비운다.
+            if (!navRef.Blob.Equals(_cachedForBlob) || !_cachedLocalToWorld.Equals(navRef.LocalToWorld))
+            {
+                _macroCache.Clear();
+                _cachedForBlob = navRef.Blob;
+                _cachedLocalToWorld = navRef.LocalToWorld;
+            }
 
             int budget = 16;
             if (SystemAPI.TryGetSingleton<NavPathBuildBudget>(out NavPathBuildBudget b))
@@ -78,7 +104,7 @@ namespace MapNav.Ecs
 
                     bool built = NavPath.TryBuild(
                         in ctx, startWorld, targetWorld, radius, tol,
-                        ref scratch, ref nodes, ref portals, ref waypointsBuf);
+                        ref scratch, ref nodes, ref portals, ref waypointsBuf, ref _macroCache);
 
                     if (built)
                     {

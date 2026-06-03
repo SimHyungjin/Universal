@@ -22,13 +22,14 @@ namespace MapNav.Ecs
             if (SystemAPI.TryGetSingleton<NavBlobReference>(out NavBlobReference navRef) && navRef.Blob.IsCreated)
                 ctx = new NavContext(navRef.Blob, navRef.LocalToWorld, navRef.WorldToLocal);
 
-            foreach (var (knockback, pathStatus, target, settings, transform, waypoints) in
+            foreach (var (knockback, pathStatus, target, settings, transform, launch, waypoints) in
                 SystemAPI.Query<
                     RefRW<NavAgentKnockback>,
                     RefRW<NavAgentPathStatus>,
                     RefRW<NavAgentTarget>,
                     RefRO<NavAgentSettings>,
                     RefRW<LocalTransform>,
+                    RefRO<NavAgentLaunch>,
                     DynamicBuffer<NavAgentWaypoint>>())
             {
                 float timer     = knockback.ValueRO.Timer;
@@ -37,7 +38,8 @@ namespace MapNav.Ecs
                 if (timer <= 0f && lockTimer <= 0f) continue;
 
                 float newTimer     = math.max(0f, timer     - dt);
-                float newLockTimer = math.max(0f, lockTimer - dt);
+                float lockDelta = launch.ValueRO.Airborne != 0 ? 0f : dt;
+                float newLockTimer = math.max(0f, lockTimer - lockDelta);
 
                 knockback.ValueRW.Timer           = newTimer;
                 knockback.ValueRW.MotionLockTimer = newLockTimer;

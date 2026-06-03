@@ -45,9 +45,17 @@ namespace MapNav.Ecs
             in NavAgentSeparation separation,
             in NavAgentKnockback knockback,
             in NavAgentAttack attack,
+            in NavAgentLaunch launch,
             DynamicBuffer<NavAgentWaypoint> waypoints)
         {
             motion.RepathCooldownRemaining = math.max(0f, motion.RepathCooldownRemaining - DeltaTime);
+
+            // 공중 부양 중에는 NavLaunchSystem이 y를 전담한다. xz 이동·height snap을 멈춰 y를 보존한다.
+            if (launch.Airborne != 0)
+            {
+                Stop(ref motion);
+                return;
+            }
 
             if (knockback.Timer > 0f || knockback.MotionLockTimer > 0f)
             {
