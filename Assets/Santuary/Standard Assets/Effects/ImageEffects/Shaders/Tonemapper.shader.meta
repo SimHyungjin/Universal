@@ -1,0 +1,11 @@
+fileFormatVersion: 2
+guid: 003377fc2620a44939dadde6fe3f8190
+ShaderImporter:
+  userData: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 62519
+  packageName: Sanctuary
+  packageVersion: 1.0
+  assetPath: Assets/Santuary/Standard Assets/Effects/ImageEffects/Shaders/Tonemapper.shader
+  uploadId: 117819

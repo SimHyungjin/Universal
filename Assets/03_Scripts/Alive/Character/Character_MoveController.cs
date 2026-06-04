@@ -83,6 +83,16 @@ public class Character_MoveController : LoopMonoBehaviour
         _cc.Move(velocity * deltaTime);
     }
 
+    public void TickPlanarLocomotion(Vector3 input, float deltaTime)
+    {
+        Vector3 targetVelocity = Vector3.ClampMagnitude(input, 1f) * MaxSpeed;
+        float speedChange = input.sqrMagnitude > 0.0001f ? Acceleration : Deceleration;
+        _planarVelocity = Vector3.MoveTowards(_planarVelocity, targetVelocity, speedChange * deltaTime);
+
+        Rotate(input, deltaTime);
+        _cc.Move(_planarVelocity * deltaTime);
+    }
+
     public void TickGravity(float deltaTime)
     {
         if (_cc.isGrounded && _verticalVelocity < 0f)
@@ -95,6 +105,11 @@ public class Character_MoveController : LoopMonoBehaviour
     {
         TickGravity(deltaTime);
         _cc.Move(new Vector3(0f, _verticalVelocity * deltaTime, 0f));
+    }
+
+    public void SetVerticalVelocity(float velocity)
+    {
+        _verticalVelocity = velocity;
     }
 
     public void MoveVerticalUntilApexThenSuspend(float deltaTime)

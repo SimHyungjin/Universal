@@ -33,6 +33,7 @@ public sealed class PoolManager : CoreManager
     private readonly Dictionary<Component, string>   _instanceToAddress = new();
     private readonly Dictionary<GameObject, Component> _goToComponent   = new();
     private readonly Dictionary<string, UniTask>     _loadingTasks      = new();
+    private readonly HashSet<string>                 _runtimePools      = new();
     private GameObject _root;
 
     public async UniTask<T> SpawnAsync<T>(
@@ -109,8 +110,27 @@ public sealed class PoolManager : CoreManager
         if (_pools.Remove(address, out var pool))
         {
             pool.Dispose();
-            Main.Resource.Release(address);
+            if (!_runtimePools.Remove(address))
+                Main.Resource.Release(address);
         }
+    }
+
+    public bool RegisterPrefab<T>(string address, T prefab, PoolConfig? config = null) where T : Component
+    {
+        if (string.IsNullOrWhiteSpace(address) || prefab == null) return false;
+        Debug.Assert(PlayerLoopHelper.IsMainThread);
+
+        if (_pools.ContainsKey(address))
+            return false;
+
+        EnsureRoot();
+
+        PoolConfig resolved = config ?? PoolConfig.Default;
+        var pool = new Pool<T>(address, prefab, _root.transform,
+            comp => _instanceToAddress.Remove(comp), resolved.InitialSize, resolved.MaxSize);
+        _pools[address] = pool;
+        _runtimePools.Add(address);
+        return true;
     }
 
     public override void Clear()
@@ -121,6 +141,7 @@ public sealed class PoolManager : CoreManager
         _instanceToAddress.Clear();
         _goToComponent.Clear();
         _loadingTasks.Clear();
+        _runtimePools.Clear();
         if (_root != null)
         {
             Object.Destroy(_root);

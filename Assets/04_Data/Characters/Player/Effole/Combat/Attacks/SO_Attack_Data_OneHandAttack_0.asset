@@ -26,9 +26,11 @@ MonoBehaviour:
       m_PostInfinity: 2
       m_RotationOrder: 4
     stopOnHit: 0
+    slamDescentSpeed: 0
   jump:
     enabled: 0
     height: 2
+    suspendAtApex: 0
   duration: 0.5
   shape:
     type: 2
@@ -52,21 +54,20 @@ MonoBehaviour:
   knockback:
     type: 1
     force: 30
-    duration: 0.1
     friction: 12
-  down:
-    enabled: 0
-    duration: 0.5
   launch:
     enabled: 0
     height: 1.5
+    suspendDuration: 0
+  down:
+    enabled: 0
     duration: 0.5
   lifeSteal:
     enabled: 0
     ratio: 0.1
     maxPerHit: 0
   superArmor:
-    value: 0
+    value: 1
     breakPower: 0
   cameraCue:
     enabled: 0

@@ -16,7 +16,7 @@ MonoBehaviour:
     stateName: SwordAndShield_Slash
     transition: 0.05
   lunge:
-    moveType: 0
+    moveType: 3
     distance: 0
     duration: 0.5
     speedCurve:
@@ -40,7 +40,7 @@ MonoBehaviour:
     width: 2
   hitbox:
     timing: 0.8
-    offset: 0
+    offset: 1
     yOffset: 0
     verticalTolerance: 2
   repeat:
@@ -54,12 +54,10 @@ MonoBehaviour:
   knockback:
     type: 1
     force: 5
-    duration: 0.1
     friction: 12
   launch:
     enabled: 0
     height: 1.5
-    duration: 0.6
     suspendDuration: 0
   down:
     enabled: 0

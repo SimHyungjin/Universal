@@ -31,7 +31,7 @@ MonoBehaviour:
     enabled: 1
     height: 5
     suspendAtApex: 1
-  duration: 0.5
+  duration: 10
   shape:
     type: 2
     radius: 2
@@ -49,17 +49,15 @@ MonoBehaviour:
     hitSameTargetOnce: 1
     cancelOnMiss: 0
   additionalHits: []
-  damage: 10
+  damage: 0.5
   hitType: 1
   knockback:
     type: 1
     force: 30
-    duration: 0.1
     friction: 12
   launch:
     enabled: 1
     height: 5
-    duration: 0.5
     suspendDuration: 0
   down:
     enabled: 0

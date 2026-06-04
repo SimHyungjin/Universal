@@ -213,7 +213,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Sector
   displayName: SectorNode
-  enemies: []
+  capacity: 0
+  minimapSprite: {fileID: 0}
+  minimapFootprint: []
 --- !u!1 &3518899520202000621
 GameObject:
   m_ObjectHideFlags: 0

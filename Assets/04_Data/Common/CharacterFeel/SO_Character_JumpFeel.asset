@@ -12,8 +12,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fa1e93bc7aa15f940b260d1963211ffe, type: 3}
   m_Name: SO_Character_JumpFeel
   m_EditorClassIdentifier: Assembly-CSharp::SO_Character_JumpFeel
-  jumpAnticipationTime: 0.2
-  jumpAnticipationMoveScale: 0.2
-  jumpLandingRecoveryTime: 0.15
-  jumpLandingMoveScale: 0.1
-  jumpHeightPerSpeed: 0.4
+  jumpAnticipationTime: 0
+  jumpAnticipationMoveScale: 1
+  jumpLandingRecoveryTime: 0
+  jumpLandingMoveScale: 1
+  jumpHeightPerSpeed: 1
+  maxJumpCount: 2
+  jumpRiseTime: 0.4
+  jumpApexHoldTime: 0.02
+  jumpAirMoveScale: 1

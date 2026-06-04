@@ -163,6 +163,8 @@ public static class App
     }
 
     public static void Despawn(GameObject go) => Main.Pool.Despawn(go);
+    public static bool RegisterPoolPrefab<T>(string address, T prefab, PoolConfig? config = null) where T : Component
+        => Main.Pool.RegisterPrefab(address, prefab, config);
 
     #endregion
 

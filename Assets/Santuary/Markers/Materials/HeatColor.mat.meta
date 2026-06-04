@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 6ac3eef1301af284bbf0d07b0f3d3256
+timeCreated: 1460274418
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 62519
+  packageName: Sanctuary
+  packageVersion: 1.0
+  assetPath: Assets/Santuary/Markers/Materials/HeatColor.mat
+  uploadId: 117819

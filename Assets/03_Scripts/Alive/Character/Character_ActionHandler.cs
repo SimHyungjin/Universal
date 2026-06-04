@@ -129,8 +129,10 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private float _launchDownDuration;
     private float _coyoteTimer;
     private float _jumpBufferTimer;
-    private bool _jumpLeftGround;
-    private bool _jumpLiftStarted;
+    private float _jumpArcElapsed;
+    private float _jumpGroundY;
+    private int _jumpCount;
+    private bool _jumpFallingStarted;
     private bool _jumpIdlePlayed;
     private bool _jumpEndPlayed;
     private static readonly RaycastHit[] LaunchGroundHits = new RaycastHit[8];
@@ -271,11 +273,15 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
                 _state = Character_ActionState.Normal;
             }
             if (_attackController.IsSlamDescending)
+            {
+                CompleteBlockedActionJumpLandingIfGrounded();
                 return;
+            }
             else if (_attackController.SuspendsAtApex)
                 _moveController.MoveVerticalUntilApexThenSuspend(gdt);
             else
                 _moveController.MoveVertical(gdt);
+            CompleteBlockedActionJumpLandingIfGrounded();
             return;
         }
 
@@ -505,18 +511,24 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
 
     private void EnterJump()
     {
+        _jumpCount = 1;
+        StartJumpArc();
+    }
+
+    private void StartJumpArc()
+    {
         _jumpBufferTimer = 0f;
         _coyoteTimer = 0f;
-        _jumpLeftGround = false;
-        _jumpLiftStarted = false;
+        _jumpArcElapsed = 0f;
+        _jumpGroundY = transform.position.y;
+        _jumpFallingStarted = false;
         _jumpIdlePlayed = false;
         _jumpEndPlayed = false;
         _state = Character_ActionState.Jump;
-        _stateTimer = Mathf.Max(0f, JumpAnticipationTime);
+        _stateTimer = 0f;
+        _moveController.SetVerticalVelocity(0f);
         PlayAction(JumpStartStateName);
-
-        if (_stateTimer <= 0f)
-            StartJumpLift();
+        _vfx?.PlayJumpAfterimages();
     }
 
     private void TickJump(float deltaTime)
@@ -529,49 +541,23 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
             return;
         }
 
-        if (!_jumpLiftStarted)
-        {
-            TickJumpAnticipation(worldInput, deltaTime);
-            return;
-        }
-
         if (_jumpEndPlayed)
         {
             TickJumpLanding(worldInput, deltaTime);
             return;
         }
 
-        _moveController.TickLocomotion(worldInput, deltaTime);
+        if (TryStartAirJump())
+            return;
 
-        if (!_moveController.IsGrounded)
-            _jumpLeftGround = true;
+        _moveController.TickPlanarLocomotion(worldInput * JumpAirMoveScale, deltaTime);
+        TickArcadeJumpArc(deltaTime);
 
         if (ShouldPlayJumpIdle())
         {
             _jumpIdlePlayed = true;
             PlayAction(JumpIdleStateName);
         }
-
-        if (!_jumpLeftGround || !_moveController.IsGrounded || _moveController.VerticalVelocity > 0f)
-            return;
-
-        if (!_jumpEndPlayed)
-        {
-            _jumpEndPlayed = true;
-            _stateTimer = Mathf.Max(0f, JumpLandingRecoveryTime);
-            PlayAction(JumpEndStateName);
-            return;
-        }
-    }
-
-    private void TickJumpAnticipation(Vector3 worldInput, float deltaTime)
-    {
-        _stateTimer -= deltaTime;
-        _moveController.TickLocomotion(worldInput * JumpAnticipationMoveScale, deltaTime);
-
-        if (_stateTimer > 0f) return;
-
-        StartJumpLift();
     }
 
     private void TickJumpLanding(Vector3 worldInput, float deltaTime)
@@ -586,12 +572,89 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         EnterNormal();
     }
 
-    private void StartJumpLift()
+    private bool TryStartAirJump()
     {
-        if (_jumpLiftStarted) return;
+        if (_jumpBufferTimer <= 0f || _jumpCount >= MaxJumpCount)
+            return false;
 
-        _jumpLiftStarted = true;
-        _moveController.Jump(JumpHeight);
+        _jumpCount++;
+        StartJumpArc();
+        return true;
+    }
+
+    public void InterruptJumpArcForAttack()
+    {
+        if (_state != Character_ActionState.Jump || _jumpEndPlayed)
+            return;
+
+        _jumpArcElapsed = JumpAscentDuration;
+        _jumpFallingStarted = true;
+        _jumpIdlePlayed = false;
+    }
+
+    private void TickArcadeJumpArc(float deltaTime)
+    {
+        _jumpArcElapsed += deltaTime;
+
+        if (_jumpArcElapsed <= JumpAscentDuration)
+        {
+            float desiredY = _jumpGroundY + EvaluateJumpAscentHeight(_jumpArcElapsed);
+            _moveController.MoveDisplacement(new Vector3(0f, desiredY - transform.position.y, 0f));
+            return;
+        }
+
+        if (!_jumpFallingStarted)
+        {
+            _jumpFallingStarted = true;
+            _moveController.SetVerticalVelocity(0f);
+        }
+
+        _moveController.MoveVertical(deltaTime);
+        if (!_moveController.IsGrounded)
+            return;
+
+        CompleteJumpLanding();
+    }
+
+    private void CompleteJumpLanding()
+    {
+        _jumpEndPlayed = true;
+        _stateTimer = Mathf.Max(0f, JumpLandingRecoveryTime);
+        if (!string.IsNullOrWhiteSpace(JumpEndStateName))
+            PlayAction(JumpEndStateName);
+
+        if (_stateTimer <= 0f)
+            EnterNormal();
+    }
+
+    private void CompleteBlockedActionJumpLandingIfGrounded()
+    {
+        if (_state != Character_ActionState.Jump || !_moveController.IsGrounded)
+            return;
+
+        _state = Character_ActionState.Normal;
+        _jumpCount = 0;
+        _jumpIdlePlayed = false;
+        _jumpEndPlayed = false;
+        _jumpFallingStarted = false;
+    }
+
+    private float EvaluateJumpAscentHeight(float elapsed)
+    {
+        float riseTime = JumpRiseTime;
+        float holdTime = JumpApexHoldTime;
+        float height = JumpHeight;
+
+        if (elapsed <= riseTime)
+        {
+            float t = Mathf.Clamp01(elapsed / riseTime);
+            return height * EaseOutCubic(t);
+        }
+
+        if (elapsed <= riseTime + holdTime)
+            return height;
+
+        return height;
     }
 
     private bool ShouldPlayJumpIdle()
@@ -600,9 +663,9 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
             return false;
 
         if (string.IsNullOrWhiteSpace(JumpStartStateName))
-            return _jumpLeftGround && _moveController.VerticalVelocity <= 0f;
+            return _jumpArcElapsed >= JumpRiseTime;
 
-        return _animator.HasCurrentStateReachedEnd(JumpStartStateName);
+        return _jumpArcElapsed >= JumpRiseTime || _animator.HasCurrentStateReachedEnd(JumpStartStateName);
     }
 
     private void EnterDash(Vector3 input, float deltaTime)
@@ -826,6 +889,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     {
         _state = Character_ActionState.Normal;
         _hitReactionDurationScale = 1f;
+        _jumpCount = 0;
         _animator.ReleaseLocomotion();
     }
 
@@ -910,6 +974,11 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private float JumpAnticipationMoveScale => jumpFeel != null ? jumpFeel.JumpAnticipationMoveScale : 0.2f;
     private float JumpLandingRecoveryTime => jumpFeel != null ? jumpFeel.JumpLandingRecoveryTime : 0.15f;
     private float JumpLandingMoveScale => jumpFeel != null ? jumpFeel.JumpLandingMoveScale : 0.1f;
+    private int MaxJumpCount => jumpFeel != null ? Mathf.Max(1, jumpFeel.MaxJumpCount) : 2;
+    private float JumpRiseTime => jumpFeel != null ? Mathf.Max(0.01f, jumpFeel.JumpRiseTime) : 0.1f;
+    private float JumpApexHoldTime => jumpFeel != null ? Mathf.Max(0f, jumpFeel.JumpApexHoldTime) : 0.02f;
+    private float JumpAirMoveScale => jumpFeel != null ? jumpFeel.JumpAirMoveScale : 1f;
+    private float JumpAscentDuration => JumpRiseTime + JumpApexHoldTime;
     private float CoyoteTime => inputBuffering != null ? inputBuffering.CoyoteTime : 0.08f;
     private float JumpBufferTime => inputBuffering != null ? inputBuffering.JumpBufferTime : 0.1f;
     private float DashDistance => (dashRule != null && statsData != null) ? LocomotionFormula.ScaleDashDistance(statsData.MoveSpeed, dashRule.DashSpeedMultiplier, dashRule.DashDuration) : 4f;
@@ -936,4 +1005,12 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private string WakeupStateName => animationData != null ? animationData.WakeupStateName : "";
     private string DeathStateName => animationData != null ? animationData.DeathStateName : "";
     private float ActionTransition => animationData != null ? animationData.ActionTransition : 0.05f;
+
+    private static float EaseOutCubic(float t)
+    {
+        t = Mathf.Clamp01(t);
+        float inv = 1f - t;
+        return 1f - inv * inv * inv;
+    }
+
 }

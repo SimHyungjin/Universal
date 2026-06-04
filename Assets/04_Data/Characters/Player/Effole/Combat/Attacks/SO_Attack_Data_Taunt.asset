@@ -30,7 +30,7 @@ MonoBehaviour:
   jump:
     enabled: 0
     height: 2
-    suspendAtApex: 0
+    suspendAtApex: 1
   duration: 1.5
   shape:
     type: 0
@@ -42,7 +42,7 @@ MonoBehaviour:
     timing: 0.2
     offset: 0
     yOffset: 0
-    verticalTolerance: 5
+    verticalTolerance: 8
   repeat:
     enabled: 1
     interval: 0.2
@@ -51,7 +51,7 @@ MonoBehaviour:
   additionalHits:
   - shape:
       type: 0
-      radius: 5
+      radius: 10
       angle: 360
       length: 3
       width: 2
@@ -61,7 +61,7 @@ MonoBehaviour:
       yOffset: 0
       verticalTolerance: 5
     repeat:
-      enabled: 1
+      enabled: 0
       interval: 0.2
       hitSameTargetOnce: 1
       cancelOnMiss: 0
@@ -91,7 +91,7 @@ MonoBehaviour:
     suspendDuration: 0
   down:
     enabled: 0
-    duration: 0.5
+    duration: 0.25
   lifeSteal:
     enabled: 1
     ratio: 1

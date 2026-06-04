@@ -1,0 +1,11 @@
+fileFormatVersion: 2
+guid: 6f1418cffd12146f2a83be795f6fa5a7
+ShaderImporter:
+  userData: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 62519
+  packageName: Sanctuary
+  packageVersion: 1.0
+  assetPath: Assets/Santuary/Standard Assets/Effects/ImageEffects/Shaders/_Antialiasing/FXAAPreset2.shader
+  uploadId: 117819

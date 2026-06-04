@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: e2c47bf365bdc5a45a5694d94e2db403
+timeCreated: 1461326139
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 62519
+  packageName: Sanctuary
+  packageVersion: 1.0
+  assetPath: Assets/Santuary/Characters/SenctuaryGuardian_A.controller
+  uploadId: 117819

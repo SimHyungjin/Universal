@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: ad34cc71d391b204a9cac5544d2bfc02
+timeCreated: 1456469877
+licenseType: Store
+DefaultImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 62519
+  packageName: Sanctuary
+  packageVersion: 1.0
+  assetPath: Assets/Santuary/Scenes/Sanctuary.unity
+  uploadId: 117819

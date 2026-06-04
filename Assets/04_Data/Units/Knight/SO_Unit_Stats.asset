@@ -13,8 +13,10 @@ MonoBehaviour:
   m_Name: SO_Unit_Stats
   m_EditorClassIdentifier: Assembly-CSharp::SO_Unit_Stats
   maxHealth: 100
+  attackPower: 0
+  defense: 0
   moveSpeed: 3.5
-  agentRadius: 0.2
+  agentRadius: 0.5
   stopDistance: 0.08
   enemyAttack: {fileID: 11400000, guid: 0649488150adb384fa87c91463376bfd, type: 2}
   sectorPower: 1

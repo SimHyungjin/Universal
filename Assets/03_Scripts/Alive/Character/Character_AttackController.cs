@@ -337,6 +337,7 @@ public class Character_AttackController : LoopMonoBehaviour
         _slamLandingFired = false;
         _attackHitRegistry.Clear();
 
+        _actionHandler?.InterruptJumpArcForAttack();
         InitExtraHitState(_currentData);
         _playerAnimator?.PlayAttack(_currentData.Animation);
         if (_currentData.Lunge.moveType == AttackMoveType.Slam)
@@ -349,7 +350,9 @@ public class Character_AttackController : LoopMonoBehaviour
             _moveController?.StartLunge(transform.forward, _currentData.Lunge);
         }
         if (_currentData.Jump.enabled)
+        {
             _moveController?.Jump(_currentData.Jump.height);
+        }
         if (ShouldPlayDashVfx(_currentData.Lunge))
         {
             _vfx?.PlayDashStart(transform.forward);

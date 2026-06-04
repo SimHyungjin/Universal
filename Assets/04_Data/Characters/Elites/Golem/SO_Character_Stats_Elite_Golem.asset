@@ -16,6 +16,7 @@ MonoBehaviour:
   attackPower: 20
   defense: 0
   moveSpeed: 3
+  bodyRadius: 2
   gaugeMax: 100
   gaugeGainPerDamage: 0.5
   gaugeGainOnReceive: 15

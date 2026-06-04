@@ -2,42 +2,94 @@ using System;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 [DisallowMultipleComponent]
 public sealed class Character_Vfx : MonoBehaviour
 {
-    [Header("Dash")]
-    [SerializeField] private TrailRenderer[] dashTrails;
+    private const string MotionAfterimagePoolAddress = "MotionAfterimage";
+
+    [Header("Dash VFX")]
     [SerializeField] private string dashStartVfxAddress;
     [SerializeField] private string dashEndVfxAddress;
     [SerializeField] private float dashStartVfxForwardOffset;
     [SerializeField] private float dashEndVfxForwardOffset;
     [SerializeField] private float dashVfxHeight = 0.6f;
-    [SerializeField] private bool clearDashTrailsOnStart = true;
     [SerializeField] private bool rotateDashParticlesAgainstDirection = true;
+
+    [Header("Dash Trails")]
+    [SerializeField] private TrailRenderer[] dashTrails;
+    [SerializeField] private bool clearDashTrailsOnStart = true;
+
+    [Header("Dash Follow Particles")]
     [SerializeField] private ParticleSystem[] dashFollowParticles;
     [SerializeField] private bool clearDashFollowParticlesOnStart = true;
     [SerializeField] private ParticleSystemStopBehavior dashFollowStopBehavior = ParticleSystemStopBehavior.StopEmitting;
 
+    [Header("Motion Afterimages")]
+    [SerializeField] private bool enableMotionAfterimages = true;
+    [FormerlySerializedAs("dashAfterimageSources")]
+    [SerializeField] private SkinnedMeshRenderer[] motionAfterimageSources;
+    [FormerlySerializedAs("dashAfterimageMaterial")]
+    [SerializeField] private Material motionAfterimageMaterial;
+    [FormerlySerializedAs("dashAfterimageColor")]
+    [SerializeField] private Color motionAfterimageColor = new(0.45f, 0.95f, 1f, 0.45f);
+    [FormerlySerializedAs("dashAfterimagePoolSize")]
+    [SerializeField, Min(1)] private int motionAfterimagePoolSize = 24;
+    [FormerlySerializedAs("dashAfterimageLifetime")]
+    [SerializeField, Min(0.01f)] private float motionAfterimageLifetime = 0.22f;
+    [FormerlySerializedAs("dashAfterimageAutoCollectSources")]
+    [SerializeField] private bool motionAfterimageAutoCollectSources = true;
+
+    [Header("Dash Afterimages")]
+    [SerializeField] private bool enableDashAfterimages = true;
+    [SerializeField, Min(0.01f)] private float dashAfterimageInterval = 0.04f;
+
+    [Header("Jump Afterimages")]
+    [SerializeField] private bool enableJumpAfterimages = true;
+    [SerializeField, Min(1)] private int jumpAfterimageCount = 2;
+    [SerializeField, Min(0.01f)] private float jumpAfterimageInterval = 0.04f;
+
     [Header("Swing Trails")]
-    [Tooltip("무기 위치. 자식의 모든 TrailRenderer를 자동 수집한다. 무기 교체 시 RefreshWeaponTrails() 호출.")]
-    [SerializeField] private Transform weaponRoot;
+    [Tooltip("Weapon roots. Child TrailRenderers are auto-collected. Use one entry for one weapon, multiple entries for dual wield.")]
+    [SerializeField] private Transform[] weaponRoots;
     [SerializeField] private bool clearSwingTrailsOnStart = true;
 
+    private static DashAfterimage _motionAfterimagePrefab;
+    private static Material _defaultAfterimageMaterial;
+
     private TrailRenderer[] _swingTrails = Array.Empty<TrailRenderer>();
+    private bool _dashAfterimagesPlaying;
+    private float _dashAfterimageTimer;
+    private int _jumpAfterimagesRemaining;
+    private float _jumpAfterimageTimer;
+    private Material _resolvedAfterimageMaterial;
 
     private void Awake()
     {
+        EnsureMotionAfterimageSources();
+        EnsureMotionAfterimagePoolRegistered(motionAfterimagePoolSize);
         StopDash();
         StopDashFollowParticles(ParticleSystemStopBehavior.StopEmittingAndClear);
         RefreshWeaponTrails();
     }
 
+    private void Update()
+    {
+        TickDashAfterimages(Time.deltaTime);
+        TickJumpAfterimages(Time.deltaTime);
+    }
+
     public void RefreshWeaponTrails()
     {
-        _swingTrails = weaponRoot != null
-            ? weaponRoot.GetComponentsInChildren<TrailRenderer>(true)
-            : Array.Empty<TrailRenderer>();
+        System.Collections.Generic.List<TrailRenderer> trails = new();
+        if (weaponRoots != null)
+        {
+            for (int i = 0; i < weaponRoots.Length; i++)
+                AppendSwingTrails(weaponRoots[i], trails);
+        }
+
+        _swingTrails = trails.Count > 0 ? trails.ToArray() : Array.Empty<TrailRenderer>();
         StopAllSwingTrails();
     }
 
@@ -45,6 +97,7 @@ public sealed class Character_Vfx : MonoBehaviour
     {
         SetDashTrailsEmitting(true);
         PlayDashFollowParticles();
+        StartDashAfterimages();
         SpawnDashVfx(dashStartVfxAddress, direction, dashStartVfxForwardOffset);
     }
 
@@ -52,6 +105,7 @@ public sealed class Character_Vfx : MonoBehaviour
     {
         SetDashTrailsEmitting(false);
         StopDashFollowParticles(dashFollowStopBehavior);
+        _dashAfterimagesPlaying = false;
         SpawnDashVfx(dashEndVfxAddress, direction, dashEndVfxForwardOffset);
     }
 
@@ -59,6 +113,12 @@ public sealed class Character_Vfx : MonoBehaviour
     {
         SetDashTrailsEmitting(false);
         StopDashFollowParticles(dashFollowStopBehavior);
+        _dashAfterimagesPlaying = false;
+    }
+
+    public void PlayJumpAfterimages()
+    {
+        StartJumpAfterimages();
     }
 
     public void PlaySwingTrails(string[] ids)
@@ -107,6 +167,19 @@ public sealed class Character_Vfx : MonoBehaviour
         return false;
     }
 
+    private static void AppendSwingTrails(Transform root, System.Collections.Generic.List<TrailRenderer> target)
+    {
+        if (root == null) return;
+
+        TrailRenderer[] trails = root.GetComponentsInChildren<TrailRenderer>(true);
+        for (int i = 0; i < trails.Length; i++)
+        {
+            TrailRenderer trail = trails[i];
+            if (trail != null && !target.Contains(trail))
+                target.Add(trail);
+        }
+    }
+
     private void SetDashTrailsEmitting(bool emitting)
     {
         if (dashTrails == null) return;
@@ -149,6 +222,155 @@ public sealed class Character_Vfx : MonoBehaviour
             if (particle == null) continue;
 
             particle.Stop(true, stopBehavior);
+        }
+    }
+
+    private void EnsureMotionAfterimageSources()
+    {
+        if (!motionAfterimageAutoCollectSources) return;
+        if (motionAfterimageSources != null && motionAfterimageSources.Length > 0) return;
+
+        motionAfterimageSources = GetComponentsInChildren<SkinnedMeshRenderer>(true);
+    }
+
+    private static void EnsureMotionAfterimagePoolRegistered(int maxPoolSize)
+    {
+        if (_motionAfterimagePrefab == null)
+        {
+            GameObject prefabObject = new(MotionAfterimagePoolAddress, typeof(DashAfterimage));
+            prefabObject.SetActive(false);
+            prefabObject.hideFlags = HideFlags.HideAndDontSave;
+            DontDestroyOnLoad(prefabObject);
+            _motionAfterimagePrefab = prefabObject.GetComponent<DashAfterimage>();
+        }
+
+        App.RegisterPoolPrefab(
+            MotionAfterimagePoolAddress,
+            _motionAfterimagePrefab,
+            new PoolConfig { InitialSize = 0, MaxSize = Mathf.Max(1, maxPoolSize) });
+    }
+
+    private Material ResolveMotionAfterimageMaterial()
+    {
+        if (motionAfterimageMaterial != null)
+            return motionAfterimageMaterial;
+
+        if (_resolvedAfterimageMaterial != null)
+            return _resolvedAfterimageMaterial;
+
+        _resolvedAfterimageMaterial = GetDefaultAfterimageMaterial();
+        return _resolvedAfterimageMaterial;
+    }
+
+    private static Material GetDefaultAfterimageMaterial()
+    {
+        if (_defaultAfterimageMaterial != null)
+            return _defaultAfterimageMaterial;
+
+        Shader shader = Shader.Find("Universal Render Pipeline/Unlit")
+                        ?? Shader.Find("Unlit/Color")
+                        ?? Shader.Find("Sprites/Default");
+        if (shader == null) return null;
+
+        _defaultAfterimageMaterial = new Material(shader)
+        {
+            name = "Runtime Dash Afterimage",
+            renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent
+        };
+        ConfigureTransparentMaterial(_defaultAfterimageMaterial);
+        return _defaultAfterimageMaterial;
+    }
+
+    private static void ConfigureTransparentMaterial(Material material)
+    {
+        if (material == null) return;
+
+        if (material.HasProperty("_Surface"))
+            material.SetFloat("_Surface", 1f);
+        if (material.HasProperty("_SrcBlend"))
+            material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        if (material.HasProperty("_DstBlend"))
+            material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        if (material.HasProperty("_ZWrite"))
+            material.SetFloat("_ZWrite", 0f);
+
+        material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        material.DisableKeyword("_ALPHATEST_ON");
+    }
+
+    private void StartDashAfterimages()
+    {
+        if (!CanPlayMotionAfterimages() || !enableDashAfterimages) return;
+
+        _dashAfterimagesPlaying = true;
+        _dashAfterimageTimer = 0f;
+        EmitMotionAfterimage();
+    }
+
+    private void TickDashAfterimages(float deltaTime)
+    {
+        if (!_dashAfterimagesPlaying) return;
+
+        _dashAfterimageTimer -= deltaTime;
+        while (_dashAfterimageTimer <= 0f)
+        {
+            EmitMotionAfterimage();
+            _dashAfterimageTimer += dashAfterimageInterval;
+        }
+    }
+
+    private void StartJumpAfterimages()
+    {
+        if (!CanPlayMotionAfterimages() || !enableJumpAfterimages) return;
+
+        _jumpAfterimagesRemaining = Mathf.Max(1, jumpAfterimageCount);
+        _jumpAfterimageTimer = 0f;
+        TickJumpAfterimages(0f);
+    }
+
+    private void TickJumpAfterimages(float deltaTime)
+    {
+        if (_jumpAfterimagesRemaining <= 0) return;
+
+        _jumpAfterimageTimer -= deltaTime;
+        while (_jumpAfterimagesRemaining > 0 && _jumpAfterimageTimer <= 0f)
+        {
+            EmitMotionAfterimage();
+            _jumpAfterimagesRemaining--;
+            _jumpAfterimageTimer += jumpAfterimageInterval;
+        }
+    }
+
+    private bool CanPlayMotionAfterimages()
+    {
+        return enableMotionAfterimages
+               && motionAfterimageSources != null
+               && motionAfterimageSources.Length > 0
+               && ResolveMotionAfterimageMaterial() != null;
+    }
+
+    private void EmitMotionAfterimage()
+    {
+        SpawnMotionAfterimageAsync(destroyCancellationToken).Forget();
+    }
+
+    private async UniTaskVoid SpawnMotionAfterimageAsync(CancellationToken token)
+    {
+        try
+        {
+            DashAfterimage afterimage = await App.SpawnAsync<DashAfterimage>(
+                MotionAfterimagePoolAddress,
+                token: token);
+            if (afterimage == null) return;
+
+            afterimage.Capture(
+                motionAfterimageSources,
+                ResolveMotionAfterimageMaterial(),
+                motionAfterimageColor,
+                motionAfterimageLifetime);
+        }
+        catch (OperationCanceledException)
+        {
         }
     }
 

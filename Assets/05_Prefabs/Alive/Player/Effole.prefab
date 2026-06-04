@@ -371,7 +371,7 @@ CharacterController:
   m_StepOffset: 0.5
   m_SkinWidth: 0.08
   m_MinMoveDistance: 0.001
-  m_Center: {x: 0, y: 0.8, z: 0}
+  m_Center: {x: 0, y: 0.75, z: 0}
 --- !u!114 &1944878349156392441
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -409,20 +409,31 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d874d9d59d9e173458f82a6d54872762, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Character_Vfx
-  dashTrails:
-  - {fileID: 2795019809238847017}
   dashStartVfxAddress: CFXR Water Ripples
   dashEndVfxAddress: 
   dashStartVfxForwardOffset: 0
   dashEndVfxForwardOffset: 0
-  dashVfxHeight: 0.6
+  dashVfxHeight: 2
+  rotateDashParticlesAgainstDirection: 1
+  dashTrails: []
   clearDashTrailsOnStart: 1
-  rotateDashParticlesAgainstDirection: 0
-  dashFollowParticles:
-  - {fileID: 8659490500443126405}
+  dashFollowParticles: []
   clearDashFollowParticlesOnStart: 1
   dashFollowStopBehavior: 1
-  weaponRoot: {fileID: 5009526662215587948}
+  enableMotionAfterimages: 1
+  motionAfterimageSources: []
+  motionAfterimageMaterial: {fileID: 0}
+  motionAfterimageColor: {r: 0, g: 1, b: 0.9450445, a: 0.78431374}
+  motionAfterimagePoolSize: 5
+  motionAfterimageLifetime: 0.22
+  motionAfterimageAutoCollectSources: 1
+  enableDashAfterimages: 1
+  dashAfterimageInterval: 0.04
+  enableJumpAfterimages: 1
+  jumpAfterimageCount: 2
+  jumpAfterimageInterval: 0.04
+  weaponRoots:
+  - {fileID: 5009526662215587948}
   clearSwingTrailsOnStart: 1
 --- !u!114 &6924760205926501161
 MonoBehaviour:
@@ -513,7 +524,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cd4f3d26138bd054bad7c400d03a406f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Character_EcsBridge
-  hitRadius: 0.5
 --- !u!114 &3127557224295628091
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -908,7 +918,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &3175532727174993520
 Transform:
   m_ObjectHideFlags: 0
@@ -977,6 +987,22 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 8015904898626303004, guid: 83e40a92594234b4ba8a25611c29e143, type: 3}
+      propertyPath: InitialModule.startSpeed.scalar
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 8015904898626303004, guid: 83e40a92594234b4ba8a25611c29e143, type: 3}
+      propertyPath: InitialModule.startLifetime.scalar
+      value: 0.3
+      objectReference: {fileID: 0}
+    - target: {fileID: 8015904898626303004, guid: 83e40a92594234b4ba8a25611c29e143, type: 3}
+      propertyPath: InitialModule.startLifetime.minScalar
+      value: 0.1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8015904898626303004, guid: 83e40a92594234b4ba8a25611c29e143, type: 3}
+      propertyPath: InitialModule.startLifetime.minMaxState
+      value: 3
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -985,11 +1011,6 @@ PrefabInstance:
 --- !u!4 &5706642005285031502 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 6350241607625818327, guid: 83e40a92594234b4ba8a25611c29e143, type: 3}
-  m_PrefabInstance: {fileID: 1662540419300789913}
-  m_PrefabAsset: {fileID: 0}
---- !u!198 &8659490500443126405 stripped
-ParticleSystem:
-  m_CorrespondingSourceObject: {fileID: 8015904898626303004, guid: 83e40a92594234b4ba8a25611c29e143, type: 3}
   m_PrefabInstance: {fileID: 1662540419300789913}
   m_PrefabAsset: {fileID: 0}
 --- !u!1001 &2657478052033416615

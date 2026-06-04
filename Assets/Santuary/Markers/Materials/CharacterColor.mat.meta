@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 652176d9a6cf1d44f878fd56cf1fc8fe
+timeCreated: 1460274226
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 62519
+  packageName: Sanctuary
+  packageVersion: 1.0
+  assetPath: Assets/Santuary/Markers/Materials/CharacterColor.mat
+  uploadId: 117819
