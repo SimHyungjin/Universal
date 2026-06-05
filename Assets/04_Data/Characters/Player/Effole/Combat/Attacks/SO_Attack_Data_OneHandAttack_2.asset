@@ -40,7 +40,7 @@ MonoBehaviour:
     width: 2
   hitbox:
     timing: 0.7
-    offset: 0
+    offset: 1
     yOffset: 0
     verticalTolerance: 2
   repeat:
@@ -118,8 +118,8 @@ MonoBehaviour:
     - 1
     - 2
     swingSfx: 0
-    timingVfxAddress: FX_Weapon Effect
-    timingVfxOffset: {x: 0, y: -0.5, z: 1}
+    timingVfxAddress: Lava_Eruption 1
+    timingVfxOffset: {x: 0, y: 0, z: 1}
     hitVfxAddress: CFXR3 Hit Fire B (Air)
     hitSfx: 0
   hitVfxAddress: 

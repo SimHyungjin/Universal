@@ -29,4 +29,4 @@ MonoBehaviour:
   enemyElites:
   - data: {fileID: 11400000, guid: 77d65b0c0a3915d46bd7cc54faf3a609, type: 2}
     faction: 1
-    count: 5
+    count: 1

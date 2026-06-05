@@ -80,6 +80,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 920b620f005c1cc44a0ca7780d549e17
+    m_Address: Lava_Eruption 1
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 9650ce321765c114fb328e9c1513bc87
     m_Address: SectorManager
     m_ReadOnly: 0

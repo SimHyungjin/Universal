@@ -628,6 +628,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         txt.alignment = TextAnchor.MiddleCenter;
         txt.horizontalOverflow = HorizontalWrapMode.Overflow;
         txt.verticalOverflow = VerticalWrapMode.Overflow;
+        txt.lineSpacing = 0.55f;
         txt.color = color;
         txt.raycastTarget = false;
         return txt;

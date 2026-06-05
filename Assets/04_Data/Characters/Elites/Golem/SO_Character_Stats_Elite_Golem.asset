@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 47be47d7e728b7a4ab4a8c3668e9e4a1, type: 3}
   m_Name: SO_Character_Stats_Elite_Golem
   m_EditorClassIdentifier: 
-  maxHealth: 3000
+  maxHealth: 1000
   attackPower: 20
   defense: 0
   moveSpeed: 3

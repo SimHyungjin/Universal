@@ -61,18 +61,18 @@ MonoBehaviour:
   duration: 2
   shape:
     type: 0
-    radius: 3
+    radius: 5
     angle: 90
     length: 1
     width: 3
   hitbox:
-    timing: 0.7
+    timing: 0.6
     offset: 0
     yOffset: 0
     verticalTolerance: 3
   repeat:
     enabled: 1
-    interval: 0.01
+    interval: 0.001
     hitSameTargetOnce: 1
     cancelOnMiss: 0
   additionalHits: []
@@ -80,11 +80,11 @@ MonoBehaviour:
   hitType: 1
   knockback:
     type: 1
-    force: 20
+    force: 50
     friction: 12
   launch:
     enabled: 1
-    height: 0.5
+    height: 0.1
     suspendDuration: 0
   down:
     enabled: 1

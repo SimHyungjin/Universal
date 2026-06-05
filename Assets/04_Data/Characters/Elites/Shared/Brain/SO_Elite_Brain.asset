@@ -15,7 +15,7 @@ MonoBehaviour:
   agentRadius: 1
   stopDistance: 0.08
   aggroRange: 18
-  attackRangePadding: 0.25
+  attackRangePadding: 0
   attackCooldown: 1.2
   targetRefreshInterval: 0.2
   preferredRangeRatio: 1.15

@@ -34,7 +34,7 @@ MonoBehaviour:
   duration: 0.5
   shape:
     type: 0
-    radius: 5
+    radius: 10
     angle: 360
     length: 3
     width: 2
@@ -73,7 +73,7 @@ MonoBehaviour:
     enabled: 1
     trigger: 0
     duration: 0
-    fovOverride: 38
+    fovOverride: 60
     distanceOverride: 2.2
     heightDelta: -0.35
     yawVelocity: 18
@@ -118,7 +118,7 @@ MonoBehaviour:
     - 1
     - 2
     swingSfx: 0
-    timingVfxAddress: FX_Weapon Effect
+    timingVfxAddress: Lava_Eruption 1
     timingVfxOffset: {x: 0, y: 0, z: 1}
     hitVfxAddress: CFXR3 Hit Fire B (Air)
     hitSfx: 0

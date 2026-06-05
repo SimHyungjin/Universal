@@ -4212,7 +4212,7 @@ MonoBehaviour:
   corridorThickness: 2
   sectorVisualScale: 2.5
   boundsPaddingCells: 0.25
-  backgroundColor: {r: 0.05, g: 0.06, b: 0.09, a: 0.85}
+  backgroundColor: {r: 0.05, g: 0.06, b: 0.09, a: 0.4117647}
   corridorColor: {r: 0.34, g: 0.4, b: 0.54, a: 1}
   unexploredTint: {r: 0.34, g: 0.36, b: 0.45, a: 1}
   markerSmoothing: 12

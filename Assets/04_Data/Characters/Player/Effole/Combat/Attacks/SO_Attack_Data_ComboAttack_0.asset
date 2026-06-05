@@ -33,8 +33,8 @@ MonoBehaviour:
     suspendAtApex: 1
   duration: 0.5
   shape:
-    type: 2
-    radius: 2
+    type: 0
+    radius: 5
     angle: 90
     length: 3
     width: 2
@@ -68,7 +68,7 @@ MonoBehaviour:
     maxPerHit: 0
   superArmor:
     value: 1
-    breakPower: 0
+    breakPower: 100
   cameraCue:
     enabled: 0
     trigger: 0

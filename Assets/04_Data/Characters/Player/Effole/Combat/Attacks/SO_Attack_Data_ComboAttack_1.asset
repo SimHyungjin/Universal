@@ -34,7 +34,7 @@ MonoBehaviour:
   duration: 3
   shape:
     type: 0
-    radius: 3
+    radius: 5
     angle: 360
     length: 3
     width: 2
@@ -49,16 +49,16 @@ MonoBehaviour:
     hitSameTargetOnce: 0
     cancelOnMiss: 1
   additionalHits: []
-  damage: 2
+  damage: 10
   hitType: 1
   knockback:
-    type: 1
-    force: 0
+    type: 0
+    force: 0.5
     friction: 12
   launch:
-    enabled: 0
-    height: 0
-    suspendDuration: 0.2
+    enabled: 1
+    height: 5
+    suspendDuration: 0
   down:
     enabled: 0
     duration: 0.5
@@ -68,15 +68,15 @@ MonoBehaviour:
     maxPerHit: 0
   superArmor:
     value: 1
-    breakPower: 0
+    breakPower: 100
   cameraCue:
     enabled: 1
     trigger: 0
     duration: 0
-    fovOverride: 38
+    fovOverride: 80
     distanceOverride: 4.4
     heightDelta: -0.35
-    yawVelocity: 18
+    yawVelocity: 30
   releaseEffects:
     shake:
       enabled: 1
@@ -111,7 +111,7 @@ MonoBehaviour:
     forwardOffset: 2
     followAttacker: 0
   feedback:
-    castVfxAddress: 
+    castVfxAddress: Slash_Aoe_A 1
     castVfxOffset: {x: 0, y: 0.5, z: 0}
     swingTrailIds:
     - 0
