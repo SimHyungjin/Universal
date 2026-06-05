@@ -34,7 +34,7 @@ public sealed class Elite_Brain : LoopMonoBehaviour
     private Vector3 _cachedTargetPos;
     private int _strafeSign = 1;
 
-    // 최근접 적 잡몹(ECS) 조회용 캐시. Character_HitboxProcessor.EnsureHitQuery 패턴과 동일.
+    // 최근접 적 잡몹(ECS) 조회용 캐시. AttackHitEmitter.EnsureHitQuery 패턴과 동일.
     private World _cachedWorld;
     private EntityManager _em;
     private EntityQuery _mobQuery;
@@ -176,7 +176,7 @@ public sealed class Elite_Brain : LoopMonoBehaviour
     }
 
     // 자기 진영과 다른 최근접 적대 대상을 찾는다. 후보: 플레이어 + 실체화된 적 장수 + 적 잡몹(ECS).
-    // 실제 타격은 Character_HitboxProcessor(진영 필터 정상)가 처리하므로 여기선 위치만 정한다.
+    // 실제 타격은 AttackHitEmitter(진영 필터 정상)가 처리하므로 여기선 위치만 정한다.
     private bool TryGetCachedHostileTarget(float dt, out Vector3 targetPos)
     {
         _targetResolveTimer -= dt;

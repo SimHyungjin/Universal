@@ -179,32 +179,6 @@ namespace MapNav.Ecs
                     }
                 }
 
-                // 적군 유닛은 브릿지로 등록된 캐릭터를 거리 제한 없이 추적한다.
-                // 더 가까운 아군 유닛이 SearchRadius 안에 있으면 그쪽을 우선한다.
-                // If no hostile unit is nearby, still pick the nearest hostile on the map so
-                // distant allies/enemies do not remain idle just because they spawned apart.
-                if (!found)
-                {
-                    bestDistSq = float.MaxValue;
-                    for (int other = 0; other < Entities.Length; other++)
-                    {
-                        if (other == index) continue;
-                        if (Deaths[other].Dying != 0) continue;
-                        if (Factions[other].Faction == selfFaction) continue;
-
-                        float3 diff = Transforms[other].Position - selfPos;
-                        diff.y = 0f;
-                        float distSq = math.lengthsq(diff);
-                        if (distSq >= bestDistSq) continue;
-
-                        bestDistSq = distSq;
-                        bestPos = Transforms[other].Position;
-                        bestEntity = Entities[other];
-                        found = true;
-                        targetIsCharacter = false;
-                    }
-                }
-
                 // GameObject 캐릭터(플레이어/장수)는 감지 반경(SearchRadius) 안에 들어오면 더 가까운 잡몹이
                 // 있어도 무조건 우선 타겟이 된다 — 반경 안에서는 항상 플레이어 우선. 반경 밖이면 무시하고
                 // 잡몹은 진영전(유닛 타겟)을 유지한다(맵 전역 잡몹이 플레이어로 수렴하지 않게). 반경 밖에서
@@ -227,6 +201,49 @@ namespace MapNav.Ecs
                     bestEntity = CharacterEntities[c];
                     found = true;
                     targetIsCharacter = true;
+                }
+
+                // 감지 반경(SearchRadius) 안에 적 유닛도 캐릭터도 없으면, 범위를 무제한으로 넓혀
+                // 맵 전체에서 최근접 적(유닛 또는 플레이어/장수)을 찾는다. 멀리 떨어져 스폰된 유닛이
+                // 가만히 있거나, 적 유닛이 없을 때 플레이어가 반경 밖이라고 멈춰 서는 것을 막는다.
+                if (!found)
+                {
+                    bestDistSq = float.MaxValue;
+                    for (int other = 0; other < Entities.Length; other++)
+                    {
+                        if (other == index) continue;
+                        if (Deaths[other].Dying != 0) continue;
+                        if (Factions[other].Faction == selfFaction) continue;
+
+                        float3 diff = Transforms[other].Position - selfPos;
+                        diff.y = 0f;
+                        float distSq = math.lengthsq(diff);
+                        if (distSq >= bestDistSq) continue;
+
+                        bestDistSq = distSq;
+                        bestPos = Transforms[other].Position;
+                        bestEntity = Entities[other];
+                        found = true;
+                        targetIsCharacter = false;
+                    }
+                    for (int c = 0; c < Characters.Length; c++)
+                    {
+                        CharacterNavTarget ch = Characters[c];
+                        if (ch.HasValue == 0 || ch.Faction == selfFaction)
+                            continue;
+
+                        float3 diff = ch.Position - selfPos;
+                        diff.y = 0f;
+                        float distSq = math.lengthsq(diff);
+                        if (distSq >= bestDistSq)
+                            continue;
+
+                        bestDistSq = distSq;
+                        bestPos = ch.Position;
+                        bestEntity = CharacterEntities[c];
+                        found = true;
+                        targetIsCharacter = true;
+                    }
                 }
 
                 Entity self = Entities[index];

@@ -4,7 +4,6 @@ using UnityEngine;
 [RequireComponent(typeof(Character_ActionHandler))]
 [RequireComponent(typeof(Character_Animator))]
 [RequireComponent(typeof(Character_AttackController))]
-[RequireComponent(typeof(Character_HitboxProcessor))]
 [RequireComponent(typeof(Player_InputCommandSource))]
 [RequireComponent(typeof(CharacterController))]
 public class Player_Actor : MonoBehaviour

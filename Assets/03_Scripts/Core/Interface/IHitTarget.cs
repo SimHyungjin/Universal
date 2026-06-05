@@ -3,7 +3,7 @@ using UnityEngine;
 // GameObject(IHitTarget) 공격이 피격자에게 전달하는 히트 결과 묶음.
 // 메인 hitbox와 additionalHits(extra)가 동일한 계약으로 결과를 넘기기 위한 통합 구조.
 // hitstop/superArmorBreak는 공격 SO 레벨 공유값, knockback/launch/down은 hit별 고유값이다
-// (Character_HitboxProcessor.HitContext의 ECS 경로 규칙과 동일).
+// (AttackHitEmitter의 ECS 경로 규칙과 동일).
 public readonly struct AttackHitInfo
 {
     public readonly AttackKnockbackData Knockback;

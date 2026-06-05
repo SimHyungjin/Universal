@@ -50,6 +50,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 3b5533a3da4ace440883deb294d1c16d
+    m_Address: FX_Fireball 1
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 3fde12c609bc6124fbb1e53e6f1d065e
     m_Address: Assets/01_Assets/Character/Model/Elite/Monster30_FreeTrial.prefab
     m_ReadOnly: 0
@@ -77,6 +82,11 @@ MonoBehaviour:
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 6e30efd5dff4de94f86b2dd19c73895b
     m_Address: SO_Sector_Catalog
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 8ee920e654b0bde43b1f1d8017468483
+    m_Address: Slash Projectile VFX Water_1
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -127,6 +137,11 @@ MonoBehaviour:
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: f491bd12ba7d5244ca5b8c1eddaf5e6b
     m_Address: Effole
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: f7967f33aeac15f48a3732e3fd3ac36c
+    m_Address: Slash Projectile VFX Water
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

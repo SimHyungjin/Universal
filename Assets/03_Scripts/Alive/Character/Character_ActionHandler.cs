@@ -387,7 +387,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         }
 
         // launch.enabled가 아니어도, 이미 공중에 떠 있을 때 suspendDuration>0이면 체공 타이머만 갱신해
-        // juggle을 유지한다(잡몹 Character_HitboxProcessor와 동일 규칙). 상태를 Knockback/Hitstun으로
+        // juggle을 유지한다(잡몹 AttackHitEmitter와 동일 규칙). 상태를 Knockback/Hitstun으로
         // 떨어뜨리지 않는다 — ComboAttack 2타처럼 launch 없이 suspendDuration만으로 묶는 경우.
         if (_state == Character_ActionState.Launched && launch.suspendDuration > 0f)
         {

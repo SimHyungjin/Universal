@@ -319,7 +319,6 @@ GameObject:
   - component: {fileID: 7198636059952104821}
   - component: {fileID: 8531269072957618353}
   - component: {fileID: 5825685958293631843}
-  - component: {fileID: 578367144769916483}
   - component: {fileID: 9071750097683020078}
   - component: {fileID: 8962790408040097452}
   - component: {fileID: 3127557224295628091}
@@ -488,18 +487,6 @@ MonoBehaviour:
   drawAttackGizmosAlways: 1
   gizmoAttackIndex: 0
   attackGizmoColor: {r: 1, g: 0.2, b: 0.2, a: 0.35}
---- !u!114 &578367144769916483
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7612322823134115492}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e67f7f8cbcb58d945952d897584849c8, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Character_HitboxProcessor
 --- !u!114 &9071750097683020078
 MonoBehaviour:
   m_ObjectHideFlags: 0

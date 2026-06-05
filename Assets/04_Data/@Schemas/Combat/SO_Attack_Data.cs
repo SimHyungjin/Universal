@@ -43,6 +43,17 @@ public enum AttackCueTrigger
     End = 2
 }
 
+// 장판(AttackFieldData)이 스폰되는 위치 기준.
+public enum FieldOrigin
+{
+    // attacker 전방으로 forwardOffset만큼 떨어진 고정 지점. (followAttacker로 추종 가능)
+    ForwardOffset = 0,
+    // 조준/전방 방향의 최근접 적 발밑(없으면 forwardOffset을 최대 사거리로 한 전방 끝점). 번개형.
+    AimTarget = 1,
+    // 발사체(Projectile)가 도착/적중해 소멸하는 위치. projectile.enabled와 함께 쓴다. 투척 폭발형.
+    ProjectileImpact = 2
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 1 — Setup: 공격 발동 전 단계
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,6 +116,8 @@ public struct AttackRepeatData
     public bool hitSameTargetOnce;
     [Tooltip("틱 1회 발동 시 적중 0이면 공격 즉시 종료")]
     public bool cancelOnMiss;
+    [Tooltip("총 발동 횟수 상한(첫 발동 포함). 0=무제한(duration 동안 interval마다). 예: 2 = 딱 2발/2타.")]
+    [Min(0)] public int maxCount;
 }
 
 [Serializable]
@@ -265,6 +278,12 @@ public struct AttackProjectileData
     [Min(0f)] public float lifetime;
     [Tooltip("attacker forward 방향 기준 스폰 오프셋")]
     public Vector3 spawnOffset;
+    [Tooltip("true면 적중해도 소멸하지 않고 lifetime/maxDistance까지 관통하며 각 적을 1회 타격한다. false면 첫 적중 시 소멸.")]
+    public bool pierce;
+    [Tooltip("한 번에 발사할 발사체 수. 1=단발.")]
+    [Min(1)] public int count;
+    [Tooltip("멀티샷 퍼짐 각도(도). count>1일 때 전방 기준 부채꼴로 균등 분산. 0=평행 동일방향, 360 이상=전방위 균등.")]
+    [Range(0f, 360f)] public float spreadAngle;
 }
 
 // 지속 장판/소환. attacker가 지정 위치에 prefab을 스폰하고 일정 시간 유지. tickInterval마다 데미지 판정.
@@ -275,10 +294,13 @@ public struct AttackFieldData
     public bool enabled;
     [Tooltip("Addressable field prefab 주소")]
     public string prefabAddress;
+    [Tooltip("스폰 위치 기준. ForwardOffset=전방 고정거리, AimTarget=조준/최근접 적 위치, ProjectileImpact=발사체 도착 위치")]
+    public FieldOrigin origin;
     [Min(0f)] public float duration;
     [Min(0.01f)] public float tickInterval;
-    [Tooltip("attacker 기준 스폰 오프셋 (forward 방향)")]
+    [Tooltip("ForwardOffset 모드: 전방 스폰 거리. AimTarget 모드: 타겟 탐색 최대 사거리.")]
     public float forwardOffset;
+    [Tooltip("ForwardOffset 모드에서만 의미. true면 장판이 attacker를 추종한다.")]
     public bool followAttacker;
 }
 
@@ -396,22 +418,15 @@ public sealed class SO_Attack_Data : ScriptableObject, ISerializationCallbackRec
     };
     [SerializeField] private AttackSuperArmorData superArmor;
 
-    [Header("Camera")]
-    [SerializeField] private AttackCameraCueData cameraCue;
-
-    // ── Phase 5: Global Effects ──────────────────────────────────────────────
-    [Header("Global Effects")]
-    [SerializeField] private AttackReleaseEffectData releaseEffects;
-    [SerializeField] private AttackHitEffectData hitEffects;
-
-    // ── Phase 6: Alternative Delivery ────────────────────────────────────────
+    // ── Alternative Delivery ─────────────────────────────────────────────────
     [Header("Alternative Delivery")]
     [SerializeField] private AttackProjectileData projectile = new()
     {
         enabled = false,
         speed = 15f,
         maxDistance = 12f,
-        lifetime = 1.5f
+        lifetime = 1.5f,
+        count = 1
     };
     [SerializeField] private AttackFieldData field = new()
     {
@@ -420,10 +435,21 @@ public sealed class SO_Attack_Data : ScriptableObject, ISerializationCallbackRec
         tickInterval = 0.5f,
         forwardOffset = 2f
     };
+    [Tooltip("발사체/장판이 enabled여도 근접 메인 hitbox를 함께 발동한다(예: 검 휘두르며 충격파). 기본 false=발사체/장판만 나가고 근접 판정은 스킵.")]
+    [SerializeField] private bool meleeAlongsideDelivery;
 
-    // ── Phase 7: Feedback ────────────────────────────────────────────────────
+    // ── Feedback ─────────────────────────────────────────────────────────────
     [Header("Feedback")]
     [SerializeField] private AttackFeedbackData feedback;
+
+    // ── Global Effects ───────────────────────────────────────────────────────
+    [Header("Global Effects")]
+    [SerializeField] private AttackReleaseEffectData releaseEffects;
+    [SerializeField] private AttackHitEffectData hitEffects;
+
+    // ── Camera ───────────────────────────────────────────────────────────────
+    [Header("Camera")]
+    [SerializeField] private AttackCameraCueData cameraCue;
 
     // 레거시 필드 — ISerializationCallbackReceiver를 통해 feedback으로 1회 이관 후 비워짐
     [SerializeField, HideInInspector] private string hitVfxAddress;
@@ -452,20 +478,21 @@ public sealed class SO_Attack_Data : ScriptableObject, ISerializationCallbackRec
     public AttackSuperArmorData SuperArmorData => superArmor;
     public float SuperArmor => superArmor.value;
     public float SuperArmorBreak => superArmor.breakPower;
-    // Camera
-    public AttackCameraCueData CameraCue => cameraCue;
+    // Alternative Delivery
+    public AttackProjectileData Projectile => projectile;
+    public AttackFieldData Field => field;
+    public bool MeleeAlongsideDelivery => meleeAlongsideDelivery;
+    // Feedback
+    public AttackFeedbackData Feedback => feedback;
+    public string HitVfxAddress => feedback.hitVfxAddress;
+    public SfxType HitSfx => feedback.hitSfx;
     // Global Effects
     public AttackReleaseEffectData ReleaseEffects => releaseEffects;
     public AttackHitEffectData HitEffects => hitEffects;
     public AttackCameraShakeData CameraShake => hitEffects.shake;
     public AttackSlowMoData SlowMo => releaseEffects.slowMo;
-    // Alternative Delivery
-    public AttackProjectileData Projectile => projectile;
-    public AttackFieldData Field => field;
-    // Feedback
-    public AttackFeedbackData Feedback => feedback;
-    public string HitVfxAddress => feedback.hitVfxAddress;
-    public SfxType HitSfx => feedback.hitSfx;
+    // Camera
+    public AttackCameraCueData CameraCue => cameraCue;
 
     public void OnBeforeSerialize() { }
 

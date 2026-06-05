@@ -57,6 +57,8 @@ public sealed class SO_Skill_Data : ScriptableObject
 
     [Header("Attack")]
     [SerializeField] private SO_Attack_Data[] attackSequence;
+    [Tooltip("true면 각 타가 명중하지 않아도 다음 타로 진행한다(발사체/장판 등 비동기로 맞는 스킬용). false(기본)=명중해야 진행.")]
+    [SerializeField] private bool advanceWithoutHit;
 
     [Header("Sector Battle")]
     [Tooltip("Additional background sector-battle influence granted while this skill is equipped.")]
@@ -72,6 +74,7 @@ public sealed class SO_Skill_Data : ScriptableObject
     public float InvincibleDuration => invincibleDuration;
     public UltimateOverlayData Overlay => overlay;
     public SO_Attack_Data[] AttackSequence => attackSequence;
+    public bool AdvanceWithoutHit => advanceWithoutHit;
     public float SectorPowerBonus => sectorPowerBonus;
     public bool IsUltimate => category == SkillCategory.Ultimate;
     public bool HasAttackSequence => attackSequence != null && attackSequence.Length > 0 && attackSequence[0] != null;

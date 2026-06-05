@@ -43,6 +43,7 @@ public class Character_AttackController : LoopMonoBehaviour
     private Vector3       _pendingLookDirection;
     private SO_Attack_Data _currentData;
     private bool          _hitboxFired;
+    private int           _hitboxFireCount;
     private float         _nextHitboxElapsed;
     private bool          _attackMoveVfxPlaying;
     private AutoDespawn   _castVfxInstance;
@@ -54,16 +55,18 @@ public class Character_AttackController : LoopMonoBehaviour
     private SO_Skill_Data[] _skills;
     private readonly float[] _skillCooldowns = new float[SkillInput.SlotCount];
     private SO_Attack_Data[] _skillSequence;
+    private SO_Skill_Data   _skillData;
     private int             _skillSequenceIndex;
     private bool  _skillSequenceAnyHit;
     private bool _hitCameraCuePlayed;
     private bool[]  _extraHitFired;
     private float[] _extraNextHitboxElapsed;
-    private readonly Collider[] _hitboxOverlapBuffer = new Collider[128];
     private readonly Collider[] _autoAimOverlapBuffer = new Collider[128];
     private readonly AttackHitRegistry _attackHitRegistry = new();
 
-    private IHitboxProcessor _hitboxProcessor;
+    // 근접·발사체·장판이 공유하는 히트 판정 구현(GameObject + ECS).
+    private readonly AttackHitEmitter _emitter = new();
+    private Character_EcsBridge _ecsBridge;
     private Character_CommandSource _commandSource;
     private bool _drivesCameraFollowAlignment;
 
@@ -77,7 +80,7 @@ public class Character_AttackController : LoopMonoBehaviour
         _moveController = GetComponent<Character_MoveController>();
         _vfx = GetComponent<Character_Vfx>();
         _actionHandler = GetComponent<Character_ActionHandler>();
-        _hitboxProcessor = GetComponent<IHitboxProcessor>();
+        _ecsBridge = GetComponent<Character_EcsBridge>();
         _commandSource = GetComponent<Character_CommandSource>();
         _drivesCameraFollowAlignment = GetComponent<Player_Actor>() != null;
     }
@@ -162,6 +165,7 @@ public class Character_AttackController : LoopMonoBehaviour
 
         _skillCooldowns[slot] = skill.Cooldown;
         _skillSequence = sequence;
+        _skillData = skill;
         _skillSequenceIndex = 0;
         StartAttackDataWithEffects(sequence[0]);
         return true;
@@ -331,6 +335,7 @@ public class Character_AttackController : LoopMonoBehaviour
         _comboTimer = 0f;
         _attackTimer = _currentData.Duration;
         _hitboxFired = false;
+        _hitboxFireCount = 0;
         _hitCameraCuePlayed = false;
         _nextHitboxElapsed = 0f;
         _skillSequenceAnyHit = false;
@@ -389,9 +394,12 @@ public class Character_AttackController : LoopMonoBehaviour
         // ?ㅽ궗 ?쒗??吏꾪뻾 以묒씠硫??ㅼ쓬 attack???먮룞 諛쒖궗. ?쒗?ㅺ? ?앸굹硫??쇰컲 肄ㅻ낫 ?곹깭濡?蹂듦?.
         if (_skillSequence != null)
         {
-            if (!_skillSequenceAnyHit && !CanAdvanceSkillSequenceWithoutHit(_currentData))
+            // AdvanceWithoutHit이면 명중과 무관하게 다음 타로 진행(발사체/장판처럼 비동기로 맞는 스킬용).
+            bool requireHit = _skillData == null || !_skillData.AdvanceWithoutHit;
+            if (requireHit && !_skillSequenceAnyHit && !CanAdvanceSkillSequenceWithoutHit(_currentData))
             {
                 _skillSequence = null;
+                _skillData = null;
                 _skillSequenceIndex = 0;
                 ResetCombo();
                 return;
@@ -404,6 +412,7 @@ public class Character_AttackController : LoopMonoBehaviour
                 return;
             }
             _skillSequence = null;
+            _skillData = null;
             _skillSequenceIndex = 0;
             ResetCombo();
             return;
@@ -446,6 +455,7 @@ public class Character_AttackController : LoopMonoBehaviour
         _nextQueued = false;
         _pendingLookDirection = Vector3.zero;
         _hitboxFired = false;
+        _hitboxFireCount = 0;
         _nextHitboxElapsed = 0f;
         _skillSequenceAnyHit = false;
         _hitCameraCuePlayed = false;
@@ -477,6 +487,7 @@ public class Character_AttackController : LoopMonoBehaviour
             _vfx?.StopSwingTrails(_currentData.Feedback.swingTrailIds);
         }
         _skillSequence = null;
+        _skillData = null;
         _skillSequenceIndex = 0;
         ResetCombo();
     }
@@ -492,7 +503,8 @@ public class Character_AttackController : LoopMonoBehaviour
             {
                 _slamLandingFired = true;
                 _slamDescending = false;
-                FireHitbox(data);
+                if (ShouldFireMeleeHitbox(data)) FireHitbox(data);
+                TrySpawnRangedDelivery(data, includeField: true);
             }
             return;
         }
@@ -507,8 +519,10 @@ public class Character_AttackController : LoopMonoBehaviour
                 return;
 
             _hitboxFired = true;
+            _hitboxFireCount = 1;
             _nextHitboxElapsed = elapsed + Mathf.Max(0.01f, repeat.interval);
-            FireHitbox(data);
+            if (ShouldFireMeleeHitbox(data)) FireHitbox(data);
+            TrySpawnRangedDelivery(data, includeField: true);
             return;
         }
 
@@ -518,12 +532,20 @@ public class Character_AttackController : LoopMonoBehaviour
             return;
         }
 
+        // repeat.maxCount > 0이면 첫 발동 포함 그 횟수만큼만 발동. 0=무제한(duration 동안).
+        bool limited = repeat.maxCount > 0;
+        bool fireMelee = ShouldFireMeleeHitbox(data);
         float repeatInterval = Mathf.Max(0.01f, repeat.interval);
         while (_nextHitboxElapsed <= elapsed)
         {
-            bool hit = FireHitbox(data);
+            if (limited && _hitboxFireCount >= repeat.maxCount)
+                break;
+
+            bool hit = fireMelee && FireHitbox(data);
+            TrySpawnRangedDelivery(data, includeField: false); // 연사: 발사체만 재발사, 장판은 첫 발동 1회
+            _hitboxFireCount++;
             _nextHitboxElapsed += repeatInterval;
-            if (!hit && repeat.cancelOnMiss)
+            if (fireMelee && !hit && repeat.cancelOnMiss)
             {
                 _attackTimer = 0f;
                 break;
@@ -574,7 +596,6 @@ public class Character_AttackController : LoopMonoBehaviour
     private bool FireExtraHit(SO_Attack_Data data, AttackExtraHit extra, int extraIndex, float scaledBaseDamage)
     {
         float finalDamage = CombatFormula.ScaleAttackDamage(_attackPower, extra.hitResult.damage);
-        float suspendDuration = extra.hitResult.launch.suspendDuration;
 
         string timingVfx = data.Feedback.timingVfxAddress;
         if (!string.IsNullOrEmpty(timingVfx))
@@ -585,11 +606,11 @@ public class Character_AttackController : LoopMonoBehaviour
             CombatFeedback.SpawnVfxAtPosition(timingVfx, center, destroyCancellationToken, vfxDuration);
         }
 
-        bool didHit = FireExtraHitInstance(data, extra, extraIndex, finalDamage);
-
-        if (_hitboxProcessor != null &&
-            _hitboxProcessor.ProcessExtra(data, extra, extraIndex, transform, _attackHitRegistry, finalDamage, suspendDuration))
-            didHit = true;
+        bool didHit = _emitter.Emit(
+            transform.position, transform.forward, extra.hitbox, extra.shape,
+            AttackHitInfo.FromExtra(data, extra), extra.hitResult.hitType, finalDamage,
+            AttackerFaction, ResolveAttackerEntity(),
+            _attackHitRegistry, extraIndex + 10, extra.repeat.hitSameTargetOnce, data);
 
         _skillSequenceAnyHit |= didHit;
         if (!didHit) return false;
@@ -600,47 +621,9 @@ public class Character_AttackController : LoopMonoBehaviour
             PlayAttackCameraCue(data, AttackCueTrigger.Hit);
         }
 
-        if (data.LifeSteal.enabled)
-        {
-            float heal = finalDamage * data.LifeSteal.ratio;
-            if (data.LifeSteal.maxPerHit > 0f)
-                heal = Mathf.Min(heal, data.LifeSteal.maxPerHit);
-            _actionHandler?.Heal(heal);
-        }
-
-        _actionHandler?.AddGauge(finalDamage * (_playerStats != null ? _playerStats.GaugeGainPerDamage : 0f));
-        TriggerHitstop(data.HitEffects.hitstop).Forget();
+        CombatOnHit.ApplyAttackerGains(data, finalDamage, _actionHandler, _playerStats != null ? _playerStats.GaugeGainPerDamage : 0f);
+        CombatOnHit.TriggerHitstop(data.HitEffects.hitstop, destroyCancellationToken).Forget();
         return true;
-    }
-
-    private bool FireExtraHitInstance(SO_Attack_Data data, AttackExtraHit extra, int extraIndex, float finalDamage)
-    {
-        Vector3 center = AttackShapeUtility.GetQueryCenter(transform.position, transform.forward, extra.hitbox, extra.shape);
-        float queryRadius = AttackShapeUtility.GetQueryRadius(extra.hitbox, extra.shape);
-        bool didHit = false;
-
-        int hitCount = Physics.OverlapSphereNonAlloc(center, queryRadius, _hitboxOverlapBuffer);
-        for (int i = 0; i < hitCount; i++)
-        {
-            Collider col = _hitboxOverlapBuffer[i];
-            if (!col.TryGetComponent(out IHitTarget target)) continue;
-            if (!target.IsHittable) continue; // 사망 연출 중/무적 → 시체 타격 연출·게이지 방지
-            if (!IsHostileHitTarget(col)) continue;
-            Vector3 targetPoint = col.ClosestPoint(center);
-            // 공중에 뜬 피격자(launched)는 수직 허용범위를 벗어나도 맞도록 수직 차이를 제거하고 평면으로 판정한다.
-            if (target.IsAirborneHittable)
-                targetPoint.y = transform.position.y + extra.hitbox.yOffset;
-            if (!AttackShapeUtility.Contains(transform.position, transform.forward, targetPoint, extra.hitbox, extra.shape))
-                continue;
-            if (!_attackHitRegistry.TryRegister(col.GetInstanceID(), extraIndex + 10, extra.repeat.hitSameTargetOnce))
-                continue;
-
-            target.ReceiveHit(transform.position, transform.forward, AttackHitInfo.FromExtra(data, extra), finalDamage);
-            SpawnHitFeedback(data, targetPoint);
-            didHit = true;
-        }
-
-        return didHit;
     }
 
     private bool FireHitbox(SO_Attack_Data data)
@@ -656,11 +639,11 @@ public class Character_AttackController : LoopMonoBehaviour
             CombatFeedback.SpawnVfxAtPosition(timingVfx, center, destroyCancellationToken, timingVfxDuration);
         }
 
-        bool didHit = FireHitInstance(data, data.Hitbox, data.Shape, finalDamage);
-
-        float targetSuspendDuration = GetTargetSuspendDuration(data);
-        if (_hitboxProcessor != null && _hitboxProcessor.Process(data, transform, _attackHitRegistry, finalDamage, targetSuspendDuration))
-            didHit = true;
+        bool didHit = _emitter.Emit(
+            transform.position, transform.forward, data.Hitbox, data.Shape,
+            AttackHitInfo.FromMain(data), data.HitType, finalDamage,
+            AttackerFaction, ResolveAttackerEntity(),
+            _attackHitRegistry, 1, data.Repeat.hitSameTargetOnce, data);
 
         _skillSequenceAnyHit |= didHit;
         if (!didHit) return false;
@@ -671,15 +654,7 @@ public class Character_AttackController : LoopMonoBehaviour
             PlayAttackCameraCue(data, AttackCueTrigger.Hit);
         }
 
-        if (data.LifeSteal.enabled)
-        {
-            float heal = finalDamage * data.LifeSteal.ratio;
-            if (data.LifeSteal.maxPerHit > 0f)
-                heal = Mathf.Min(heal, data.LifeSteal.maxPerHit);
-            _actionHandler?.Heal(heal);
-        }
-
-        _actionHandler?.AddGauge(finalDamage * (_playerStats != null ? _playerStats.GaugeGainPerDamage : 0f));
+        CombatOnHit.ApplyAttackerGains(data, finalDamage, _actionHandler, _playerStats != null ? _playerStats.GaugeGainPerDamage : 0f);
 
         if (data.Lunge.stopOnHit)
         {
@@ -687,41 +662,8 @@ public class Character_AttackController : LoopMonoBehaviour
             StopAttackMoveVfx(true);
         }
 
-        TriggerHitstop(data.HitEffects.hitstop).Forget();
+        CombatOnHit.TriggerHitstop(data.HitEffects.hitstop, destroyCancellationToken).Forget();
         return true;
-    }
-
-    private static float GetTargetSuspendDuration(SO_Attack_Data data)
-        => data != null ? data.Launch.suspendDuration : 0f;
-
-    private bool FireHitInstance(SO_Attack_Data data, AttackHitboxData hitbox, AttackShapeData shape, float finalDamage)
-    {
-        Vector3 center = AttackShapeUtility.GetQueryCenter(transform.position, transform.forward, hitbox, shape);
-        float queryRadius = AttackShapeUtility.GetQueryRadius(hitbox, shape);
-        bool didHit = false;
-
-        int hitCount = Physics.OverlapSphereNonAlloc(center, queryRadius, _hitboxOverlapBuffer);
-        for (int i = 0; i < hitCount; i++)
-        {
-            Collider col = _hitboxOverlapBuffer[i];
-            if (!col.TryGetComponent(out IHitTarget target)) continue;
-            if (!target.IsHittable) continue; // 사망 연출 중/무적 → 시체 타격 연출·게이지 방지
-            if (!IsHostileHitTarget(col)) continue;
-            Vector3 targetPoint = col.ClosestPoint(center);
-            // 공중에 뜬 피격자(launched)는 수직 허용범위를 벗어나도 맞도록 수직 차이를 제거하고 평면으로 판정한다.
-            if (target.IsAirborneHittable)
-                targetPoint.y = transform.position.y + hitbox.yOffset;
-            if (!AttackShapeUtility.Contains(transform.position, transform.forward, targetPoint, hitbox, shape))
-                continue;
-            if (!_attackHitRegistry.TryRegister(col.GetInstanceID(), 1, data.Repeat.hitSameTargetOnce))
-                continue;
-
-            target.ReceiveHit(transform.position, transform.forward, AttackHitInfo.FromMain(data), finalDamage);
-            SpawnHitFeedback(data, targetPoint);
-            didHit = true;
-        }
-
-        return didHit;
     }
 
     public void UpdateLookDirection(Vector3 worldInput)
@@ -809,19 +751,164 @@ public class Character_AttackController : LoopMonoBehaviour
         return true;
     }
 
+    // 발사체/장판이 그 공격의 전달 수단이면 근접 메인 hitbox는 스킵한다(Shape·damage를 공유하므로).
+    // MeleeAlongsideDelivery가 켜져 있으면 근접도 함께 발동(검 휘두르며 충격파 등).
+    private static bool ShouldFireMeleeHitbox(SO_Attack_Data data)
+    {
+        bool hasDelivery = data.Projectile.enabled || data.Field.enabled;
+        return !hasDelivery || data.MeleeAlongsideDelivery;
+    }
+
+    // 공격자(이 캐릭터)의 ECS 엔티티. 잡몹이 강제 어그로 대상으로 매칭하는 CharacterNavTarget 엔티티다.
+    private Entity ResolveAttackerEntity()
+    {
+        if (_ecsBridge == null) _ecsBridge = GetComponent<Character_EcsBridge>();
+        return _ecsBridge != null ? _ecsBridge.CharacterEntity : Entity.Null;
+    }
+
+    // 발사체/장판 발사. includeField=false면 장판은 건너뛰고 발사체만 쏜다.
+    // repeat 틱마다 호출되면 발사체는 매 틱 재발사(=연사)되고, 장판은 첫 발동(includeField=true) 1회만 깔린다.
+    // 데미지는 공격력으로 스케일한 값을 스냅샷으로 넘긴다(스폰 후 공격자 상태와 무관하게 일관).
+    private void TrySpawnRangedDelivery(SO_Attack_Data data, bool includeField)
+    {
+        AttackProjectileData proj = data.Projectile;
+        AttackFieldData field = data.Field;
+        bool wantProjectile = proj.enabled && !string.IsNullOrEmpty(proj.prefabAddress);
+        bool wantField = includeField && field.enabled && !string.IsNullOrEmpty(field.prefabAddress);
+        if (!wantProjectile && !wantField) return;
+
+        float finalDamage = CombatFormula.ScaleAttackDamage(_attackPower, data.Damage);
+        RangedOwner owner = new RangedOwner(
+            AttackerFaction,
+            ResolveAttackerEntity(),
+            _actionHandler,
+            _playerStats != null ? _playerStats.GaugeGainPerDamage : 0f);
+
+        // ProjectileImpact 장판은 발사체가 도착 시 자체 스폰하므로 컨트롤러는 직접 깔지 않는다.
+        bool fieldByProjectile = field.enabled && field.origin == FieldOrigin.ProjectileImpact;
+
+        if (wantProjectile)
+            SpawnProjectiles(data, finalDamage, owner, fieldByProjectile);
+        if (wantField && !fieldByProjectile)
+            SpawnFieldAsync(data, finalDamage, owner).Forget();
+    }
+
+    // 멀티샷 발사. count개를 전방 기준 spreadAngle 부채꼴로 균등 분산해 동시에 쏜다.
+    private void SpawnProjectiles(SO_Attack_Data data, float finalDamage, RangedOwner owner, bool spawnFieldOnImpact)
+    {
+        AttackProjectileData proj = data.Projectile;
+        int count = Mathf.Max(1, proj.count);
+        Vector3 forward = transform.forward;
+        Vector3 spawnPos = transform.position + transform.rotation * proj.spawnOffset;
+
+        if (count == 1)
+        {
+            SpawnOneProjectileAsync(data, finalDamage, owner, spawnFieldOnImpact, spawnPos, forward).Forget();
+            return;
+        }
+
+        float spread = proj.spreadAngle;
+        float step, start;
+        if (spread >= 360f) { step = 360f / count; start = 0f; }       // 전방위 균등(끝 겹침 방지)
+        else { step = spread / (count - 1); start = -spread * 0.5f; }   // 부채꼴 균등
+
+        for (int i = 0; i < count; i++)
+        {
+            Vector3 dir = Quaternion.AngleAxis(start + step * i, Vector3.up) * forward;
+            SpawnOneProjectileAsync(data, finalDamage, owner, spawnFieldOnImpact, spawnPos, dir).Forget();
+        }
+    }
+
+    private async UniTaskVoid SpawnOneProjectileAsync(SO_Attack_Data data, float finalDamage, RangedOwner owner, bool spawnFieldOnImpact, Vector3 spawnPos, Vector3 direction)
+    {
+        Quaternion rot = Quaternion.LookRotation(direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector3.forward);
+
+        Projectile_Hitbox projectile = await App.SpawnAsync<Projectile_Hitbox>(data.Projectile.prefabAddress, token: destroyCancellationToken);
+        if (projectile == null) return;
+        projectile.transform.SetPositionAndRotation(spawnPos, rot);
+        projectile.Launch(data, finalDamage, owner, direction, spawnFieldOnImpact);
+    }
+
+    private async UniTaskVoid SpawnFieldAsync(SO_Attack_Data data, float finalDamage, RangedOwner owner)
+    {
+        AttackFieldData field = data.Field;
+        Vector3 forward = transform.forward;
+        Vector3 spawnPos;
+        Transform follow = null;
+        if (field.origin == FieldOrigin.AimTarget)
+        {
+            spawnPos = ResolveAimTargetPosition(owner.Faction, Mathf.Max(0f, field.forwardOffset));
+        }
+        else // ForwardOffset
+        {
+            spawnPos = transform.position + forward * field.forwardOffset;
+            follow = field.followAttacker ? transform : null;
+        }
+
+        Field_Hitbox instance = await App.SpawnAsync<Field_Hitbox>(field.prefabAddress, token: destroyCancellationToken);
+        if (instance == null) return;
+        instance.transform.position = spawnPos;
+        instance.Activate(data, finalDamage, owner, forward, follow);
+    }
+
+    // 번개형 장판의 타겟 위치. 전방(조준 반영) 사거리 내 최근접 적 발밑을 우선, 없으면 전방 끝점.
+    private Vector3 ResolveAimTargetPosition(NavFaction faction, float maxRange)
+    {
+        Vector3 myPos = transform.position;
+        float searchRange = maxRange > 0f ? maxRange : 9999f;
+        float bestDistSq = float.MaxValue;
+        Vector3 best = Vector3.zero;
+        bool found = false;
+
+        // GameObject 적 (장수·파괴물 등)
+        int hitCount = Physics.OverlapSphereNonAlloc(myPos, searchRange, _autoAimOverlapBuffer);
+        for (int i = 0; i < hitCount; i++)
+        {
+            Collider col = _autoAimOverlapBuffer[i];
+            if (!col.TryGetComponent(out IHitTarget target) || !target.IsHittable) continue;
+            if (!IsHostileHitTarget(col)) continue;
+            Vector3 p = col.transform.position;
+            Vector3 diff = p - myPos; diff.y = 0f;
+            float d = diff.sqrMagnitude;
+            if (d >= bestDistSq) continue;
+            bestDistSq = d; best = p; found = true;
+        }
+
+        // ECS 잡몹
+        if (EnsureAutoAimQuery())
+        {
+            NativeArray<LocalTransform> transforms = _autoAimQuery.ToComponentDataArray<LocalTransform>(Allocator.Temp);
+            NativeArray<NavAgentDeath> deaths = _autoAimQuery.ToComponentDataArray<NavAgentDeath>(Allocator.Temp);
+            NativeArray<NavAgentFaction> factions = _autoAimQuery.ToComponentDataArray<NavAgentFaction>(Allocator.Temp);
+            float rangeSq = searchRange * searchRange;
+            for (int i = 0; i < transforms.Length; i++)
+            {
+                if (deaths[i].Dying != 0) continue;
+                if (factions[i].Faction == faction) continue;
+                var f = transforms[i].Position;
+                Vector3 pos = new Vector3(f.x, f.y, f.z);
+                Vector3 diff = pos - myPos; diff.y = 0f;
+                float d = diff.sqrMagnitude;
+                if (d > rangeSq || d >= bestDistSq) continue;
+                bestDistSq = d; best = pos; found = true;
+            }
+            transforms.Dispose();
+            deaths.Dispose();
+            factions.Dispose();
+        }
+
+        if (found) return best;
+
+        Vector3 dir = transform.forward; dir.y = 0f;
+        dir = dir.sqrMagnitude > 0.0001f ? dir.normalized : Vector3.forward;
+        return myPos + dir * (maxRange > 0f ? maxRange : 0f);
+    }
+
     private SO_Attack_Data GetData(int index)
         => _attacks != null && _attacks.Length > 0
             ? _attacks[Mathf.Clamp(index, 0, _attacks.Length - 1)]
             : null;
 
-    // hit VFX??罹먮┃?곗쓽 媛??諛??믪씠?먯꽌 ?좎빞 ?먯뿰?ㅻ읇?? 諛??꾩튂 湲곗??쇰줈 +0.5m 蹂댁젙.
-    private const float HitVfxHeightOffset = 0.5f;
-
-    private void SpawnHitFeedback(SO_Attack_Data data, Vector3 position)
-    {
-        position.y += HitVfxHeightOffset;
-        CombatFeedback.PlayHitFeedback(data, position, destroyCancellationToken);
-    }
 
     private async Cysharp.Threading.Tasks.UniTaskVoid SpawnCastVfxAsync(string address, Vector3 offset, Vector3 euler, float duration, float timing)
     {
@@ -875,18 +962,6 @@ public class Character_AttackController : LoopMonoBehaviour
     private static bool ShouldPlayDashVfx(AttackLungeData lunge)
         => lunge.moveType == AttackMoveType.Dash || lunge.moveType == AttackMoveType.RushTrack;
 
-    private async UniTaskVoid TriggerHitstop(AttackHitstopData hitstop)
-    {
-        if (hitstop.duration <= 0f) return;
-
-        Main.Loop.SetGameSpeed(hitstop.timeScale);
-        await UniTask.Delay(
-            TimeSpan.FromSeconds(hitstop.duration),
-            ignoreTimeScale: true,
-            cancellationToken: destroyCancellationToken);
-        Main.Loop.SetGameSpeed(1f);
-    }
-
     private async UniTaskVoid TriggerSlowMo(AttackSlowMoData slowMo)
     {
         if (slowMo.duration <= 0f) return;
@@ -904,6 +979,7 @@ public class Character_AttackController : LoopMonoBehaviour
     {
         _castVfxSpawnCts?.Cancel();
         _castVfxSpawnCts?.Dispose();
+        _emitter.Dispose();
         if (_cachedWorld != null && _cachedWorld.IsCreated)
             _autoAimQuery.Dispose();
     }
