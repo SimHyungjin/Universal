@@ -206,6 +206,8 @@ public sealed class MapNavObstacle
 {
     public List<Vector2> Points = new();
     public float CornerPadding = 0.25f;
+    // 장애물 윗면의 region 표면 기준 상대 높이. 콜라이더에서 자동 추출되며, 에이전트 StepHeight 이하면 밟고 통과한다.
+    public float Height;
     [NonSerialized] public Vector2 BoundsMin;
     [NonSerialized] public Vector2 BoundsMax;
     [NonSerialized] public bool HasBounds;

@@ -181,8 +181,10 @@ namespace MapNav.Ecs
 
             float3 nextPosition = current + step;
 
+            // 이 에이전트의 StepHeight를 ctx에 실어 밟기 가능한 장애물을 통과 허용한다.
+            NavContext stepCtx = new NavContext(Ctx.Blob, Ctx.LocalToWorld, Ctx.WorldToLocal, settings.StepHeight);
             if (!TryResolveConstrainedPosition(
-                    in Ctx,
+                    in stepCtx,
                     current,
                     nextPosition,
                     wp,
@@ -222,7 +224,9 @@ namespace MapNav.Ecs
 
         private void ApplyHeightSnap(ref LocalTransform transform, in NavAgentSettings settings)
         {
-            if (NavAgentCore.TrySnapHeight(in Ctx, transform.Position, settings.BoundaryTolerance, settings.HeightOffset, out float3 snapped))
+            // StepHeight를 ctx에 실어, 밟는 장애물 위에서는 그 윗면 높이로 스냅되도록 한다(밟고 올라감).
+            NavContext ctx = new NavContext(Ctx.Blob, Ctx.LocalToWorld, Ctx.WorldToLocal, settings.StepHeight);
+            if (NavAgentCore.TrySnapHeight(in ctx, transform.Position, settings.BoundaryTolerance, settings.HeightOffset, out float3 snapped))
                 transform.Position = snapped;
         }
 

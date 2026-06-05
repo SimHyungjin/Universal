@@ -250,17 +250,19 @@ public class Character_HitboxProcessor : MonoBehaviour, IHitboxProcessor
         if (launch.Airborne == 0 || (ctx.Launch.enabled && ctx.Launch.height > 0f))
             return false;
 
+        NavAgentKnockback knockback = _em.GetComponentData<NavAgentKnockback>(entity);
+        knockback.HitType = (int)ctx.HitType;
+        knockback.SuperArmorBreak = ctx.SuperArmorBreak;
+        knockback.HitVersion++;
+
         if (ctx.Down.enabled)
         {
-            NavAgentKnockback knockback = _em.GetComponentData<NavAgentKnockback>(entity);
             knockback.MotionLockTimer = math.max(knockback.MotionLockTimer, ctx.Down.duration);
             knockback.WakeupTimer = 0f;
-            knockback.HitType = (int)ctx.HitType;
-            knockback.SuperArmorBreak = ctx.SuperArmorBreak;
-            knockback.HitVersion++;
             knockback.IsHeavy = 1;
-            _em.SetComponentData(entity, knockback);
         }
+
+        _em.SetComponentData(entity, knockback);
 
         if (ctx.SuspendDuration > 0f)
         {

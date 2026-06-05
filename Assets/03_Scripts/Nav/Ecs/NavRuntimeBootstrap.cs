@@ -667,6 +667,7 @@ namespace MapNav.Ecs
         {
             SO_Unit_Stats stats = data != null ? data.StatsData : null;
             float agentRadius    = stats != null ? stats.AgentRadius   : 0.35f;
+            float stepHeight     = stats != null ? stats.StepHeight    : 0f;
             float stopDist       = stats != null ? stats.StopDistance  : 0.08f;
             float moveSpeed      = stats != null ? stats.MoveSpeed     : 3.5f;
             float wakeupRecovery = data != null && data.ActionRecovery != null ? data.ActionRecovery.WakeupDuration : 1f;
@@ -680,6 +681,7 @@ namespace MapNav.Ecs
             return new NavAgentSettings
             {
                 AgentRadius             = math.max(0f, agentRadius),
+                StepHeight              = math.max(0f, stepHeight),
                 StopDistance            = math.max(0f, stopDist),
                 MoveSpeed               = math.max(0f, moveSpeed),
                 WaypointAdvanceDistance = math.max(0f, waypointAdvanceDistance),

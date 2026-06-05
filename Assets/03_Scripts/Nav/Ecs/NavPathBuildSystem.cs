@@ -48,8 +48,6 @@ namespace MapNav.Ecs
             if (SystemAPI.TryGetSingleton<NavPathBuildBudget>(out NavPathBuildBudget b))
                 budget = math.max(1, b.MaxPathsPerFrame);
 
-            NavContext ctx = new NavContext(navRef.Blob, navRef.LocalToWorld, navRef.WorldToLocal);
-
             NavScratch scratch = new NavScratch(64, Allocator.Temp);
             NativeList<NavSpaceRef> nodes = new NativeList<NavSpaceRef>(16, Allocator.Temp);
             NativeList<NavPortal> portals = new NativeList<NavPortal>(16, Allocator.Temp);
@@ -101,6 +99,8 @@ namespace MapNav.Ecs
                     float3 targetWorld = request.ValueRO.TargetWorld;
                     float radius = math.max(0f, settings.ValueRO.AgentRadius);
                     float tol = math.max(0f, settings.ValueRO.BoundaryTolerance);
+                    // 이 에이전트의 StepHeight를 ctx에 실어 장애물 밟기 판정에 반영한다.
+                    NavContext ctx = new NavContext(navRef.Blob, navRef.LocalToWorld, navRef.WorldToLocal, settings.ValueRO.StepHeight);
 
                     bool built = NavPath.TryBuild(
                         in ctx, startWorld, targetWorld, radius, tol,

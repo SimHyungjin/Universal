@@ -34,7 +34,7 @@ MonoBehaviour:
   duration: 1.2
   shape:
     type: 0
-    radius: 3
+    radius: 8
     angle: 90
     length: 3
     width: 2
@@ -49,7 +49,7 @@ MonoBehaviour:
     hitSameTargetOnce: 1
     cancelOnMiss: 0
   additionalHits: []
-  damage: 30
+  damage: 100
   hitType: 1
   knockback:
     type: 0

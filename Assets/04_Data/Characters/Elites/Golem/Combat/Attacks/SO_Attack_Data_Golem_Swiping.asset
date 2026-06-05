@@ -17,7 +17,7 @@ MonoBehaviour:
     transition: 0.05
   lunge:
     moveType: 0
-    distance: 5
+    distance: 20
     duration: 1.5
     speedCurve:
       serializedVersion: 2
@@ -76,7 +76,7 @@ MonoBehaviour:
     hitSameTargetOnce: 1
     cancelOnMiss: 0
   additionalHits: []
-  damage: 30
+  damage: 100
   hitType: 1
   knockback:
     type: 1
@@ -117,12 +117,12 @@ MonoBehaviour:
   hitEffects:
     shake:
       enabled: 0
-      amplitude: 0.15
-      duration: 1
-      frequency: 25
+      amplitude: 0
+      duration: 0
+      frequency: 0
     hitstop:
       duration: 0
-      timeScale: 0.02
+      timeScale: 0
   projectile:
     enabled: 0
     prefabAddress: 

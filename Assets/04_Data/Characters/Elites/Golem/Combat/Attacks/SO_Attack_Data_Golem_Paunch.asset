@@ -54,12 +54,10 @@ MonoBehaviour:
   knockback:
     type: 1
     force: 30
-    duration: 0.1
     friction: 12
   launch:
     enabled: 0
     height: 1.5
-    duration: 0.5
     suspendDuration: 0
   down:
     enabled: 0
@@ -91,13 +89,13 @@ MonoBehaviour:
       duration: 0.5
   hitEffects:
     shake:
-      enabled: 1
-      amplitude: 0.15
-      duration: 0.18
-      frequency: 25
+      enabled: 0
+      amplitude: 0
+      duration: 0
+      frequency: 0
     hitstop:
-      duration: 0.2
-      timeScale: 0.02
+      duration: 0
+      timeScale: 0
   projectile:
     enabled: 0
     prefabAddress: 

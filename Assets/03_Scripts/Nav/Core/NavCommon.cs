@@ -9,12 +9,17 @@ namespace MapNav.Core
         public readonly BlobAssetReference<NavBlob> Blob;
         public readonly float4x4 LocalToWorld;
         public readonly float4x4 WorldToLocal;
+        // 이 쿼리를 수행하는 에이전트가 밟고 넘을 수 있는 최대 장애물 높이. 장애물 판정·분류·높이 샘플이
+        // 이 값 이하의 NavObstacle을 "없는 셈" 친다. 맵 데이터가 아니라 쿼리 주체의 능력이므로, 호출 측이
+        // 에이전트별 값을 주입한다(미지정 시 0 = 모든 장애물 우회, 기존 동작과 동일).
+        public readonly float StepHeight;
 
-        public NavContext(BlobAssetReference<NavBlob> blob, float4x4 localToWorld, float4x4 worldToLocal)
+        public NavContext(BlobAssetReference<NavBlob> blob, float4x4 localToWorld, float4x4 worldToLocal, float stepHeight = 0f)
         {
             Blob = blob;
             LocalToWorld = localToWorld;
             WorldToLocal = worldToLocal;
+            StepHeight = stepHeight;
         }
 
         public bool IsValid => Blob.IsCreated;

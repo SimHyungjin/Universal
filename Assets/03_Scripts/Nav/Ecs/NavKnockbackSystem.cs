@@ -39,6 +39,10 @@ namespace MapNav.Ecs
 
                 if (!isMoving && lockTimer <= 0f && wakeupTimer <= 0f) continue;
 
+                // 이 잡몹의 StepHeight를 ctx에 실어, 밟는 장애물 위 위치를 장애물 밖으로 밀어내지 않도록 한다.
+                if (ctx.IsValid)
+                    ctx = new NavContext(navRef.Blob, navRef.LocalToWorld, navRef.WorldToLocal, settings.ValueRO.StepHeight);
+
                 float lockDelta = launch.ValueRO.Airborne != 0 ? 0f : dt;
                 float newLockTimer = math.max(0f, lockTimer - lockDelta);
                 float newWakeupTimer = math.max(0f, wakeupTimer - dt);

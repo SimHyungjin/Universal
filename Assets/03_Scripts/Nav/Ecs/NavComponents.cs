@@ -7,6 +7,8 @@ namespace MapNav.Ecs
     public struct NavAgentSettings : IComponentData
     {
         public float AgentRadius;
+        // 밟고 넘을 수 있는 최대 장애물 높이. 이 값 이하의 NavObstacle은 우회 없이 직진 통과한다(0이면 모두 우회).
+        public float StepHeight;
         public float StopDistance;
         public float MoveSpeed;
         public float WaypointAdvanceDistance;

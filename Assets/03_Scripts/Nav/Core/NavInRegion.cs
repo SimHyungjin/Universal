@@ -42,7 +42,7 @@ namespace MapNav.Core
         {
             ref NavBlob blob = ref ctx.Blob.Value;
 
-            if (!SegmentBlockedByNavigation(ref blob, in region, a, b, agentRadius))
+            if (!SegmentBlockedByNavigation(ref blob, in region, a, b, agentRadius, ctx.StepHeight))
                 return true;
 
             // Build visibility nodes: 0 = start, 1 = goal, obstacle corners, region reflex corners.
@@ -95,7 +95,7 @@ namespace MapNav.Core
                 for (int next = 0; next < n; next++)
                 {
                     if (next == current || closed[next]) continue;
-                    if (SegmentBlockedByNavigation(ref blob, in region, nodes[current], nodes[next], agentRadius))
+                    if (SegmentBlockedByNavigation(ref blob, in region, nodes[current], nodes[next], agentRadius, ctx.StepHeight))
                         continue;
                     float tentativeG = gScore[current] + math.distance(nodes[current], nodes[next]);
                     if (tentativeG < gScore[next])
@@ -249,7 +249,7 @@ namespace MapNav.Core
 
             // region.Cost is a per-distance traversal multiplier (clamped >= 1 at bake time,
             // so the straight-line A* heuristic in NavGraph stays admissible).
-            if (!SegmentBlockedByNavigation(ref blob, in region, a, b, agentRadius))
+            if (!SegmentBlockedByNavigation(ref blob, in region, a, b, agentRadius, ctx.StepHeight))
             {
                 cost = math.distance(a, b) * region.Cost;
                 return true;
@@ -286,7 +286,7 @@ namespace MapNav.Core
                 return false;
 
             ref NavRegion region = ref blob.Regions[regionIdx];
-            return !SegmentBlockedByNavigation(ref blob, in region, a, b, agentRadius);
+            return !SegmentBlockedByNavigation(ref blob, in region, a, b, agentRadius, ctx.StepHeight);
         }
 
         public static bool SegmentCrossesObstacleLocal(
@@ -300,10 +300,10 @@ namespace MapNav.Core
                 return false;
 
             ref NavRegion region = ref blob.Regions[regionIdx];
-            return SegmentBlockedByObstacles(ref blob, in region, a, b, 0f, true);
+            return SegmentBlockedByObstacles(ref blob, in region, a, b, 0f, true, ctx.StepHeight);
         }
 
-        private static bool SegmentBlockedByNavigation(ref NavBlob blob, in NavRegion region, float2 a, float2 b, float agentRadius)
+        private static bool SegmentBlockedByNavigation(ref NavBlob blob, in NavRegion region, float2 a, float2 b, float agentRadius, float stepHeight)
         {
             if (!IsInsideRegionOrBoundary(ref blob, in region, a))
                 return true;
@@ -323,10 +323,10 @@ namespace MapNav.Core
             if (SegmentCrossesRegionBoundary(ref blob, in region, a, b))
                 return true;
 
-            return SegmentBlockedByObstacles(ref blob, in region, a, b, agentRadius, false);
+            return SegmentBlockedByObstacles(ref blob, in region, a, b, agentRadius, false, stepHeight);
         }
 
-        private static bool SegmentBlockedByObstacles(ref NavBlob blob, in NavRegion region, float2 a, float2 b, float agentRadius, bool blockTouching)
+        private static bool SegmentBlockedByObstacles(ref NavBlob blob, in NavRegion region, float2 a, float2 b, float agentRadius, bool blockTouching, float stepHeight)
         {
             float2 segMin = math.min(a, b);
             float2 segMax = math.max(a, b);
@@ -334,6 +334,9 @@ namespace MapNav.Core
             for (int oi = 0; oi < region.ObstacleCount; oi++)
             {
                 NavObstacle obs = blob.Obstacles[region.ObstacleStart + oi];
+                // 밟을 수 있는 장애물은 차단하지 않는다 — 직선 통과 허용.
+                if (obs.Height <= stepHeight)
+                    continue;
                 float clearance = math.max(0f, agentRadius) + obs.CornerPadding;
                 if (!ObstacleBoundsOverlapSegment(in obs, segMin, segMax, clearance))
                     continue;

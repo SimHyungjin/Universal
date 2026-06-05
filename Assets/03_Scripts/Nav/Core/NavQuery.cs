@@ -13,12 +13,12 @@ namespace MapNav.Core
             float2 local = NavMath.ToLocal2D(ctx.WorldToLocal, worldPos);
 
             if (blob.Grid.HasGrid != 0)
-                return TryClassifyGrid(ref blob, local, tolerance, out space);
+                return TryClassifyGrid(ref blob, local, tolerance, ctx.StepHeight, out space);
 
-            return TryClassifyLinear(ref blob, local, tolerance, out space);
+            return TryClassifyLinear(ref blob, local, tolerance, ctx.StepHeight, out space);
         }
 
-        private static bool TryClassifyLinear(ref NavBlob blob, float2 local, float tolerance, out NavSpaceRef space)
+        private static bool TryClassifyLinear(ref NavBlob blob, float2 local, float tolerance, float stepHeight, out NavSpaceRef space)
         {
             space = default;
 
@@ -45,7 +45,7 @@ namespace MapNav.Core
                 if (NavMath.PolygonContains(ref blob.Points, r.PointStart, r.PointCount, local)
                     || NavMath.IsNearEdge(ref blob.Points, r.PointStart, r.PointCount, local, tolerance))
                 {
-                    if (IsInsideRegionObstacle(ref blob, r, local))
+                    if (IsInsideRegionObstacle(ref blob, r, local, stepHeight))
                         continue;
                     space = NavSpaceRef.Region(r.Id);
                     return true;
@@ -55,7 +55,7 @@ namespace MapNav.Core
             return false;
         }
 
-        private static bool TryClassifyGrid(ref NavBlob blob, float2 local, float tolerance, out NavSpaceRef space)
+        private static bool TryClassifyGrid(ref NavBlob blob, float2 local, float tolerance, float stepHeight, out NavSpaceRef space)
         {
             space = default;
             ref NavSpatialGrid grid = ref blob.Grid;
@@ -108,7 +108,7 @@ namespace MapNav.Core
                         if (NavMath.PolygonContains(ref blob.Points, r.PointStart, r.PointCount, local)
                             || NavMath.IsNearEdge(ref blob.Points, r.PointStart, r.PointCount, local, tolerance))
                         {
-                            if (IsInsideRegionObstacle(ref blob, r, local))
+                            if (IsInsideRegionObstacle(ref blob, r, local, stepHeight))
                                 continue;
                             space = NavSpaceRef.Region(r.Id);
                             return true;
@@ -136,6 +136,9 @@ namespace MapNav.Core
             {
                 if (!TryFindRegion(ref blob, space.Id, out int idx)) return false;
                 localHeight = blob.Regions[idx].Height;
+                // 밟는 장애물 위에 있으면 그 윗면 높이로 올린다 → ECS Y가 자동 상승(비주얼이 밟고 올라감).
+                if (TryGetSteppableObstacleTop(ref blob, blob.Regions[idx], local, ctx.StepHeight, out float obstacleTop))
+                    localHeight += obstacleTop;
             }
             else if (space.Kind == NavSpaceKind.Transition)
             {
@@ -159,6 +162,8 @@ namespace MapNav.Core
             for (int i = 0; i < blob.Obstacles.Length; i++)
             {
                 ref NavObstacle obs = ref blob.Obstacles[i];
+                if (obs.Height <= ctx.StepHeight)
+                    continue;
                 if (!NavMath.BoundsContains(obs.BoundsMin, obs.BoundsMax, obs.HasBounds, local, tolerance))
                     continue;
                 if (NavMath.PolygonContains(ref blob.Points, obs.PointStart, obs.PointCount, local))
@@ -178,6 +183,8 @@ namespace MapNav.Core
             for (int i = 0; i < blob.Obstacles.Length; i++)
             {
                 ref NavObstacle obs = ref blob.Obstacles[i];
+                if (obs.Height <= ctx.StepHeight)
+                    continue;
                 if (!NavMath.BoundsContains(obs.BoundsMin, obs.BoundsMax, obs.HasBounds, local, clearance))
                     continue;
                 if (NavMath.PolygonContains(ref blob.Points, obs.PointStart, obs.PointCount, local))
@@ -197,6 +204,8 @@ namespace MapNav.Core
             for (int i = 0; i < blob.Obstacles.Length; i++)
             {
                 ref NavObstacle obs = ref blob.Obstacles[i];
+                if (obs.Height <= ctx.StepHeight)
+                    continue;
                 float clearance = radius + math.max(0f, obs.CornerPadding);
                 if (!NavMath.BoundsContains(obs.BoundsMin, obs.BoundsMax, obs.HasBounds, local, clearance))
                     continue;
@@ -223,6 +232,8 @@ namespace MapNav.Core
             for (int i = 0; i < blob.Obstacles.Length; i++)
             {
                 ref NavObstacle obs = ref blob.Obstacles[i];
+                if (obs.Height <= ctx.StepHeight)
+                    continue;
                 if (!NavMath.BoundsContains(obs.BoundsMin, obs.BoundsMax, obs.HasBounds, local, radius))
                     continue;
                 bool inside = NavMath.PolygonContains(ref blob.Points, obs.PointStart, obs.PointCount, local);
@@ -333,17 +344,38 @@ namespace MapNav.Core
             return false;
         }
 
-        internal static bool IsInsideRegionObstacle(ref NavBlob blob, in NavRegion region, float2 localPoint)
+        internal static bool IsInsideRegionObstacle(ref NavBlob blob, in NavRegion region, float2 localPoint, float stepHeight = 0f)
         {
             for (int i = 0; i < region.ObstacleCount; i++)
             {
                 ref NavObstacle obs = ref blob.Obstacles[region.ObstacleStart + i];
+                // 밟을 수 있는 장애물은 region의 일부로 취급한다 — 그 위에 선 에이전트가 오프메시가 되지 않도록.
+                if (obs.Height <= stepHeight)
+                    continue;
                 if (!NavMath.BoundsContains(obs.BoundsMin, obs.BoundsMax, obs.HasBounds, localPoint, 0f))
                     continue;
                 if (NavMath.PolygonContains(ref blob.Points, obs.PointStart, obs.PointCount, localPoint))
                     return true;
             }
             return false;
+        }
+
+        // region 내에서 localPoint를 덮는 "밟을 수 있는" 장애물의 가장 높은 윗면(상대 높이)을 찾는다.
+        // 겹친 장애물이 있으면 가장 높은 면을 딛는다.
+        private static bool TryGetSteppableObstacleTop(ref NavBlob blob, in NavRegion region, float2 localPoint, float stepHeight, out float top)
+        {
+            top = 0f;
+            for (int i = 0; i < region.ObstacleCount; i++)
+            {
+                ref NavObstacle obs = ref blob.Obstacles[region.ObstacleStart + i];
+                if (obs.Height <= 0f || obs.Height > stepHeight)
+                    continue;
+                if (!NavMath.BoundsContains(obs.BoundsMin, obs.BoundsMax, obs.HasBounds, localPoint, 0f))
+                    continue;
+                if (NavMath.PolygonContains(ref blob.Points, obs.PointStart, obs.PointCount, localPoint))
+                    top = math.max(top, obs.Height);
+            }
+            return top > 0f;
         }
 
         internal static float ComputeTransitionHeight(ref NavBlob blob, in NavTransition t, float2 localPoint)

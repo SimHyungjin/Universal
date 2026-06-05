@@ -218,6 +218,7 @@ namespace MapNav.Baking
                     PointStart = pointStart,
                     PointCount = obstacle.Points.Count,
                     CornerPadding = math.max(0f, obstacle.CornerPadding),
+                    Height = math.max(0f, obstacle.Height),
                     BoundsMin = ToFloat2(obstacle.BoundsMin),
                     BoundsMax = ToFloat2(obstacle.BoundsMax),
                     HasBounds = ToByte(obstacle.HasBounds)

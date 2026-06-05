@@ -111,7 +111,7 @@ MonoBehaviour:
     forwardOffset: 2
     followAttacker: 0
   feedback:
-    castVfxAddress: Slash_Aoe_A 1
+    castVfxAddress: 
     castVfxOffset: {x: 0, y: 0.5, z: 0}
     swingTrailIds:
     - 0

@@ -44,7 +44,7 @@ public class CameraManager : CoreManager
 
     // ThirdPerson
     private readonly Vector3 _thirdPersonFocusOffset = new(0f, 1.35f, 0f);
-    private float _thirdPersonDistance = 6.5f;
+    private float _thirdPersonDistance = 10f;
     private float _thirdPersonHeight = 3.8f;
     private float _thirdPersonShoulderOffset = 0.4f;
     private float _thirdPersonFov = 45f;

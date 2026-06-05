@@ -18,8 +18,6 @@ namespace MapNav.Ecs
             if (!SystemAPI.TryGetSingleton(out NavBlobReference navRef) || !navRef.Blob.IsCreated)
                 return;
 
-            NavContext ctx = new NavContext(navRef.Blob, navRef.LocalToWorld, navRef.WorldToLocal);
-
             foreach ((
                 RefRW<NavAgentTarget> target,
                 RefRO<NavAgentSettings> settings,
@@ -58,6 +56,9 @@ namespace MapNav.Ecs
 
                 float tol = math.max(0f, settings.ValueRO.BoundaryTolerance);
                 float radius = math.max(0f, settings.ValueRO.AgentRadius);
+                // StepHeight를 ctx에 실어, 밟는 장애물 위 타겟/시작점을 장애물 밖으로 밀어내지 않도록 한다.
+                // 이 단계가 PathBuild보다 앞서므로, 누락 시 타겟이 왜곡돼 경로가 장애물을 우회한다.
+                NavContext ctx = new NavContext(navRef.Blob, navRef.LocalToWorld, navRef.WorldToLocal, settings.ValueRO.StepHeight);
                 if (!ResolveOrProject(in ctx, startWorld, tol, radius, out startWorld)
                     || !ResolveOrProject(in ctx, targetWorld, tol, radius, out targetWorld))
                 {

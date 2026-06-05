@@ -163,7 +163,7 @@ Material:
     - _Metallic: 0.109
     - _MetallicStrength: 0.501
     - _OcclusionStrength: 1
-    - _OutlineWidth: 0.01
+    - _OutlineWidth: 0
     - _OutlineZBias: 0.00379
     - _Parallax: 0.005
     - _QueueControl: 0
@@ -177,9 +177,9 @@ Material:
     - _SPECULAR_ROUGHNESS: 0
     - _Shade1: 0
     - _Shade2: 0.32
-    - _ShadeIntensity: 0.306
+    - _ShadeIntensity: 0.2
     - _ShadeSteps: 4
-    - _ShadeThreshold: 0.444
+    - _ShadeThreshold: 0
     - _ShadeThresholdToggle: 1
     - _ShadowSteps: 3.828
     - _ShadowThreshold: 0.329
@@ -220,12 +220,13 @@ Material:
     - _RimColor1: {r: 0, g: 1, b: 0.029190063, a: 1}
     - _RimColor2: {r: 1, g: 0.43300706, b: 0, a: 1}
     - _SPECULAR_COLOR: {r: 1, g: 1, b: 1, a: 0}
-    - _ShadeColor: {r: 1, g: 1, b: 1, a: 1}
+    - _ShadeColor: {r: 0.45098042, g: 0.45098042, b: 0.45098042, a: 1}
     - _ShadowColor: {r: 1, g: 1, b: 1, a: 0}
     - _SpecColor: {r: 0, g: 1, b: 0.007843256, a: 1}
     - _SpecularColor: {r: 1, g: 1, b: 1, a: 1}
     - _TintColor: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
+  m_AllowLocking: 1
 --- !u!114 &6397621526885861677
 MonoBehaviour:
   m_ObjectHideFlags: 11

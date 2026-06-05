@@ -16,6 +16,8 @@ public sealed class SO_Unit_Stats : ScriptableObject
     [SerializeField] private float moveSpeed = 3.5f;
     [SerializeField] private float agentRadius = 0.35f;
     [SerializeField] private float stopDistance = 0.08f;
+    [Tooltip("밟고 넘을 수 있는 최대 장애물 높이. 이 값 이하의 장애물은 우회하지 않고 밟고 지나간다(0이면 모두 우회).")]
+    [SerializeField, Min(0f)] private float stepHeight;
 
     [Header("Attack")]
     [SerializeField] private SO_Attack_Data enemyAttack;
@@ -30,6 +32,7 @@ public sealed class SO_Unit_Stats : ScriptableObject
     public float MoveSpeed => moveSpeed;
     public float AgentRadius => agentRadius;
     public float StopDistance => stopDistance;
+    public float StepHeight => stepHeight;
     public SO_Attack_Data EnemyAttack => enemyAttack;
     public float SectorPower => sectorPower;
 }

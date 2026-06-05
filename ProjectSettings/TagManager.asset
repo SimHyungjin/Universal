@@ -21,30 +21,30 @@ TagManager:
   - UI
   - NPC
   - Ground
-  - 
-  - 
-  - RaycastOnly
-  - 
-  - 
-  - 
+  - Wall
+  - Obstacle
+  - Obstacle_CanWalk
   - 
   - 
   - 
   - 
   - 
   - 
-  - Size0
-  - Size1
-  - Size2
-  - Size3
-  - Size4
-  - Size5
-  - SmallVFX
-  - MedVFX
-  - LargeVFX
   - 
   - 
-  - Temp
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
   m_SortingLayers:
   - name: Default
     uniqueID: 0

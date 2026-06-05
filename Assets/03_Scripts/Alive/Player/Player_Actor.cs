@@ -25,7 +25,7 @@ public class Player_Actor : MonoBehaviour
     {
         Vector3 offset = new Vector3(5f, 11f, -5f);
 
-        App.SetCameraView( transform.position + offset, new Vector3(55f, -45f, 0f), orthographicSize: 5f);
+        App.SetCameraView( transform.position + offset, new Vector3(55f, -45f, 0f), orthographicSize: 7f);
         App.SetCameraFollow(transform, offset, snap: true);
         App.SetCombatCameraMode(CombatCameraMode.Tactical, true);
     }

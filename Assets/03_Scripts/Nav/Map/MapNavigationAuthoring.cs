@@ -12,6 +12,9 @@ public sealed class MapNavigationAuthoring : MonoBehaviour
     [SerializeField] private List<MapNavTransition> transitions = new();
 
     [HideInInspector] public LayerMask ObstacleLayerMask;
+    // 이 레이어의 콜라이더는 어떤 StepHeight로도 못 밟는 벽으로 Bake된다(Height=무한대). 콜로세움처럼
+    // StepHeight를 높여 계단을 밟게 할 때, 넘으면 안 되는 벽을 명시적으로 구분하는 용도.
+    [HideInInspector] public LayerMask WallObstacleLayerMask;
     [HideInInspector] public float ObstacleHeightTolerance = 1.5f;
     [HideInInspector] public float DefaultObstacleCornerPadding = 0.25f;
 

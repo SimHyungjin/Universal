@@ -243,17 +243,19 @@ namespace MapNav.Ecs
             if (launch.Airborne == 0)
                 return false;
 
+            NavAgentKnockback knockback = em.GetComponentData<NavAgentKnockback>(target);
+            knockback.HitType = (int)profile.HitType;
+            knockback.SuperArmorBreak = profile.SuperArmorBreak;
+            knockback.HitVersion++;
+
             if (profile.IsDownAttack != 0)
             {
-                NavAgentKnockback knockback = em.GetComponentData<NavAgentKnockback>(target);
                 knockback.MotionLockTimer = math.max(knockback.MotionLockTimer, profile.DownDuration);
                 knockback.WakeupTimer = 0f;
-                knockback.HitType = (int)profile.HitType;
-                knockback.SuperArmorBreak = profile.SuperArmorBreak;
-                knockback.HitVersion++;
                 knockback.IsHeavy = 1;
-                em.SetComponentData(target, knockback);
             }
+
+            em.SetComponentData(target, knockback);
 
             return true;
         }

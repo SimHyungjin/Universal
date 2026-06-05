@@ -78,6 +78,8 @@ namespace MapNav.Data
         public int PointStart;
         public int PointCount;
         public float CornerPadding;
+        // 장애물 윗면의 region 표면 기준 상대 높이. 에이전트의 StepHeight 이하면 밟고 통과한다.
+        public float Height;
         public float2 BoundsMin;
         public float2 BoundsMax;
         public byte HasBounds;

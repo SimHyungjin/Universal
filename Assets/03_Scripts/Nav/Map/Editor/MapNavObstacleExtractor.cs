@@ -5,13 +5,17 @@ using UnityEngine;
 public static class MapNavObstacleExtractor
 {
     private const int CircleSegments = 12;
+    // 벽 레이어 장애물의 Height. 현실적 StepHeight로는 절대 못 밟는 큰 값(밟기 금지 = 벽).
+    private const float WallObstacleHeight = 9999f;
 
     public static void Extract(MapNavigationAuthoring map)
     {
         if (map == null) return;
-        if (map.ObstacleLayerMask == 0)
+        LayerMask stepMask = map.ObstacleLayerMask;
+        LayerMask wallMask = map.WallObstacleLayerMask;
+        if (stepMask == 0 && wallMask == 0)
         {
-            Debug.LogWarning("[NavObstacle] ObstacleLayerMask가 설정되지 않았습니다.", map);
+            Debug.LogWarning("[NavObstacle] ObstacleLayerMask/WallObstacleLayerMask가 모두 설정되지 않았습니다.", map);
             return;
         }
 
@@ -19,7 +23,8 @@ public static class MapNavObstacleExtractor
         float heightTol = map.ObstacleHeightTolerance;
         float padding = map.DefaultObstacleCornerPadding;
 
-        Collider[] candidates = CollectCandidates(map.ObstacleLayerMask);
+        // 밟기 레이어 + 벽 레이어 콜라이더를 함께 수집한다(벽은 아래에서 Height=무한대로 구분).
+        Collider[] candidates = CollectCandidates(stepMask.value | wallMask.value);
 
         Undo.RecordObject(map, "Bake Nav Obstacles from Colliders");
 
@@ -41,10 +46,25 @@ public static class MapNavObstacleExtractor
 
                 if (!OverlapsRegionXZ(polygon, region)) continue;
 
+                // 벽 레이어면 어떤 StepHeight로도 못 밟게 Height를 무한대로 둔다(밟기 금지 = 벽).
+                // 그 외(밟기 레이어)는 콜라이더 윗면(중앙)을 nav 로컬로 변환해 region 표면 높이와의 차이를 기록한다.
+                // nav transform의 회전·스케일을 반영한다.
+                float obstacleHeight;
+                if ((wallMask.value & (1 << col.gameObject.layer)) != 0)
+                {
+                    obstacleHeight = WallObstacleHeight;
+                }
+                else
+                {
+                    Vector3 topWorld = new Vector3(col.bounds.center.x, col.bounds.max.y, col.bounds.center.z);
+                    obstacleHeight = Mathf.Max(0f, nav.InverseTransformPoint(topWorld).y - region.Height);
+                }
+
                 region.Obstacles.Add(new MapNavObstacle
                 {
                     Points = polygon,
-                    CornerPadding = padding
+                    CornerPadding = padding,
+                    Height = obstacleHeight
                 });
             }
 
@@ -59,13 +79,31 @@ public static class MapNavObstacleExtractor
 
     private static Collider[] CollectCandidates(LayerMask mask)
     {
-        var all = Object.FindObjectsByType<Collider>(FindObjectsSortMode.None);
+        // 비활성 오브젝트의 콜라이더도 포함해 찾는다(장애물 오브젝트가 꺼져 있어도 진단되도록).
+        var all = Object.FindObjectsByType<Collider>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         var result = new List<Collider>(all.Length);
+        var seenLayers = new HashSet<int>();
         foreach (Collider c in all)
         {
-            if ((mask.value & (1 << c.gameObject.layer)) == 0) continue;
             if (c is TerrainCollider) continue;
+            seenLayers.Add(c.gameObject.layer);
+            if ((mask.value & (1 << c.gameObject.layer)) == 0) continue;
             result.Add(c);
+        }
+
+        // 진단: 매칭 0일 때 씬에 어떤 레이어의 콜라이더가 실제로 존재하는지 알려준다.
+        if (result.Count == 0)
+        {
+            var names = new List<string>();
+            foreach (int l in seenLayers)
+            {
+                string n = LayerMask.LayerToName(l);
+                names.Add($"{l}:{(string.IsNullOrEmpty(n) ? "(이름없음)" : n)}");
+            }
+            Debug.LogWarning(
+                $"[NavObstacle] 마스크 매칭 0 — 씬의 (Terrain 제외) 콜라이더 {all.Length}개, " +
+                $"존재 레이어 [{string.Join(", ", names)}], mask 비트값 {mask.value}. " +
+                "장애물 오브젝트의 Layer를 Obstacle Layer Mask에 포함시키세요.");
         }
         return result.ToArray();
     }

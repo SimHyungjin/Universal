@@ -12,8 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8f9acc4c575301e4c8e904e58a524179, type: 3}
   m_Name: SO_Secter_AliveSetting
   m_EditorClassIdentifier: Assembly-CSharp::SO_Secter_AliveSetting
-  erosionStage: 8
-  defaultSectorCapacity: 100
+  erosionStage: 6
+  defaultSectorCapacity: 0
   allyComposition: {fileID: 11400000, guid: 15bd8dcc0a08a6941b1b658e3a15e256, type: 2}
   enemyComposition: {fileID: 11400000, guid: 6f0c783088fbbc6429f9982a51e8d9a2, type: 2}
   allyElites:
@@ -29,4 +29,4 @@ MonoBehaviour:
   enemyElites:
   - data: {fileID: 11400000, guid: 77d65b0c0a3915d46bd7cc54faf3a609, type: 2}
     faction: 1
-    count: 1
+    count: 5

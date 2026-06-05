@@ -49,7 +49,7 @@ MonoBehaviour:
     hitSameTargetOnce: 1
     cancelOnMiss: 0
   additionalHits: []
-  damage: 18
+  damage: 100
   hitType: 2
   knockback:
     type: 0
@@ -90,9 +90,9 @@ MonoBehaviour:
   hitEffects:
     shake:
       enabled: 0
-      amplitude: 0.15
-      duration: 0.18
-      frequency: 25
+      amplitude: 0
+      duration: 0
+      frequency: 0
     hitstop:
       duration: 0
       timeScale: 0

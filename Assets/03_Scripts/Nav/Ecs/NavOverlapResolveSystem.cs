@@ -218,7 +218,9 @@ namespace MapNav.Ecs
                 NavAgentSettings st = SettingsLookup[e];
                 float3 next = tr.Position + d;
 
-                if (NavAgentCore.CanMove(in Ctx, tr.Position, next, next, st.AgentRadius, st.BoundaryTolerance, 0f))
+                // StepHeight를 ctx에 실어, 밟는 장애물 위에서도 겹침 해소 이동이 막히지 않도록 한다.
+                NavContext stepCtx = new NavContext(Ctx.Blob, Ctx.LocalToWorld, Ctx.WorldToLocal, st.StepHeight);
+                if (NavAgentCore.CanMove(in stepCtx, tr.Position, next, next, st.AgentRadius, st.BoundaryTolerance, 0f))
                 {
                     tr.Position = next;
                     TransformLookup[e] = tr;

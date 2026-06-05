@@ -387,20 +387,32 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d874d9d59d9e173458f82a6d54872762, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Character_Vfx
-  dashTrails:
-  - {fileID: 2795019809238847017}
   dashStartVfxAddress: CFXR Water Ripples
   dashEndVfxAddress: 
   dashStartVfxForwardOffset: 0
   dashEndVfxForwardOffset: 0
   dashVfxHeight: 0.6
-  clearDashTrailsOnStart: 1
   rotateDashParticlesAgainstDirection: 0
+  dashTrails:
+  - {fileID: 2795019809238847017}
+  clearDashTrailsOnStart: 1
   dashFollowParticles:
   - {fileID: 8659490500443126405}
   clearDashFollowParticlesOnStart: 1
   dashFollowStopBehavior: 1
-  weaponRoot: {fileID: 5009526662215587948}
+  enableMotionAfterimages: 1
+  motionAfterimageSources: []
+  motionAfterimageMaterial: {fileID: 0}
+  motionAfterimageColor: {r: 0.6156863, g: 0.23137257, b: 0.21960786, a: 0.45}
+  motionAfterimagePoolSize: 24
+  motionAfterimageLifetime: 0.22
+  motionAfterimageAutoCollectSources: 1
+  enableDashAfterimages: 1
+  dashAfterimageInterval: 0.04
+  enableJumpAfterimages: 1
+  jumpAfterimageCount: 2
+  jumpAfterimageInterval: 0.04
+  weaponRoots: []
   clearSwingTrailsOnStart: 1
 --- !u!114 &6924760205926501161
 MonoBehaviour:
@@ -491,7 +503,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cd4f3d26138bd054bad7c400d03a406f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Character_EcsBridge
-  hitRadius: 2
 --- !u!114 &1944878349156392441
 MonoBehaviour:
   m_ObjectHideFlags: 0
