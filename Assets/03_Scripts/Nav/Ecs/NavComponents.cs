@@ -163,6 +163,10 @@ namespace MapNav.Ecs
         public float3 Position;
         public byte   HasTarget;
         public byte   IsCharacterTarget;
+        // 피격 강제 어그로: 감지 반경 밖에서 맞아도 ForcedTimer 동안 공격자(캐릭터)를 거리 무시하고
+        // 우선 추적한다. Character_HitboxProcessor가 피격 시 세팅하고, NavTargetingSystem이 매 프레임 감쇠한다.
+        public Entity ForcedEntity;
+        public float  ForcedTimer;
     }
 
     public struct NavPathBuildBudget : IComponentData

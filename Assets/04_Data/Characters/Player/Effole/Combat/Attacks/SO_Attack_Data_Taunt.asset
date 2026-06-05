@@ -142,7 +142,9 @@ MonoBehaviour:
     followAttacker: 0
   feedback:
     castVfxAddress: CFXR Water Ripples2
+    castVfxTiming: 0
     castVfxOffset: {x: 0, y: 0, z: 0}
+    castVfxEuler: {x: 90, y: 0, z: 0}
     swingTrailIds:
     - 0
     - 1

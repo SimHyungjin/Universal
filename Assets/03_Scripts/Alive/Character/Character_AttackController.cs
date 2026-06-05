@@ -363,8 +363,7 @@ public class Character_AttackController : LoopMonoBehaviour
         StopCastVfx();
         if (!string.IsNullOrEmpty(fb.castVfxAddress))
         {
-            Vector3 castPos = transform.position + transform.rotation * fb.castVfxOffset;
-            SpawnCastVfxAsync(fb.castVfxAddress, castPos).Forget();
+            SpawnCastVfxAsync(fb.castVfxAddress, fb.castVfxOffset, fb.castVfxEuler, _currentData.Duration, fb.castVfxTiming).Forget();
         }
         _vfx?.PlaySwingTrails(fb.swingTrailIds);
         App.PlaySfx(fb.swingSfx, transform.position);
@@ -467,6 +466,8 @@ public class Character_AttackController : LoopMonoBehaviour
     public void CancelAttack()
     {
         _attackTimer = 0f;
+        _moveController?.StopLunge();
+        _slamDescending = false;
         _playerAnimator?.ExitAttack();
         StopCastVfx();
         if (_currentData != null)
@@ -822,16 +823,28 @@ public class Character_AttackController : LoopMonoBehaviour
         CombatFeedback.PlayHitFeedback(data, position, destroyCancellationToken);
     }
 
-    private async Cysharp.Threading.Tasks.UniTaskVoid SpawnCastVfxAsync(string address, Vector3 position)
+    private async Cysharp.Threading.Tasks.UniTaskVoid SpawnCastVfxAsync(string address, Vector3 offset, Vector3 euler, float duration, float timing)
     {
         _castVfxSpawnCts?.Cancel();
         _castVfxSpawnCts?.Dispose();
         _castVfxSpawnCts = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(destroyCancellationToken);
 
-        var vfx = await App.SpawnAsync<AutoDespawn>(address, token: _castVfxSpawnCts.Token);
-        if (vfx == null) return;
-        vfx.transform.position = position;
-        _castVfxInstance = vfx;
+        System.Threading.CancellationToken token = _castVfxSpawnCts.Token;
+        try
+        {
+            float delay = Mathf.Max(0f, duration) * Mathf.Clamp01(timing);
+            if (delay > 0f)
+                await UniTask.Delay(TimeSpan.FromSeconds(delay), cancellationToken: token);
+
+            var vfx = await App.SpawnAsync<AutoDespawn>(address, token: token);
+            if (vfx == null || token.IsCancellationRequested) return;
+            vfx.transform.position = transform.position + transform.rotation * offset;
+            vfx.transform.rotation = transform.rotation * Quaternion.Euler(euler);
+            _castVfxInstance = vfx;
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private void StopCastVfx()

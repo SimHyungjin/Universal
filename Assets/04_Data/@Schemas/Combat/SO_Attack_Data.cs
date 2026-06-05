@@ -292,8 +292,11 @@ public struct AttackFeedbackData
     [Header("Cast")]
     [Tooltip("공격 발동 시 스폰되는 Addressable VFX 주소")]
     public string castVfxAddress;
+    [Range(0f, 1f)]
+    public float castVfxTiming;
     [Tooltip("플레이어 위치 기준 로컬 오프셋 (플레이어 forward/right/up 기준)")]
     public Vector3 castVfxOffset;
+    public Vector3 castVfxEuler;
 
     [Header("Swing")]
     [Tooltip("WeaponRoot 자식 TrailRenderer GameObject 이름 목록. 비어 있으면 트레일을 켜지 않음.")]

@@ -31,7 +31,7 @@ MonoBehaviour:
   FrontTurbulenceStrength: 0.32
   FrontTurbulencePowerFalloff: 0.6
   EliteAttritionRate: 0.03
-  DeathDisplayDelay: 1.8
+  DeathDisplayDelay: 5
   CombatRoamRadius: 9
   DefenderHoldOwnControlRatio: 0.8
   HostileControlScoreMultiplier: 1000

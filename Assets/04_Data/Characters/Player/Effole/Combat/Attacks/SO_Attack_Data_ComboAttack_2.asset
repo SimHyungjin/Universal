@@ -68,7 +68,7 @@ MonoBehaviour:
     maxPerHit: 0
   superArmor:
     value: 1
-    breakPower: 0
+    breakPower: 100
   cameraCue:
     enabled: 1
     trigger: 0

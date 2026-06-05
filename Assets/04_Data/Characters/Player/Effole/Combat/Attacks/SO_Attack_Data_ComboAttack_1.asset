@@ -53,15 +53,15 @@ MonoBehaviour:
   hitType: 1
   knockback:
     type: 0
-    force: 0.5
+    force: 0
     friction: 12
   launch:
     enabled: 1
     height: 5
     suspendDuration: 0
   down:
-    enabled: 0
-    duration: 0.5
+    enabled: 1
+    duration: 1
   lifeSteal:
     enabled: 0
     ratio: 0.1

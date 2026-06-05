@@ -205,8 +205,11 @@ namespace MapNav.Ecs
                     }
                 }
 
-                // GameObject 캐릭터(플레이어/장수)는 진영이 다르면 거리 제한 없이 타겟 후보가 된다.
-                // 더 가까운 적대 캐릭터가 여럿이면 최근접을 고른다.
+                // GameObject 캐릭터(플레이어/장수)는 감지 반경(SearchRadius) 안에 들어오면 더 가까운 잡몹이
+                // 있어도 무조건 우선 타겟이 된다 — 반경 안에서는 항상 플레이어 우선. 반경 밖이면 무시하고
+                // 잡몹은 진영전(유닛 타겟)을 유지한다(맵 전역 잡몹이 플레이어로 수렴하지 않게). 반경 밖에서
+                // 맞은 경우는 아래 강제 어그로가 이 제한을 무시한다. 캐릭터가 여럿이면 그중 최근접을 고른다.
+                float bestCharDistSq = SearchRadiusSq;
                 for (int c = 0; c < Characters.Length; c++)
                 {
                     CharacterNavTarget ch = Characters[c];
@@ -216,10 +219,10 @@ namespace MapNav.Ecs
                     float3 diff = ch.Position - selfPos;
                     diff.y = 0f;
                     float distSq = math.lengthsq(diff);
-                    if (found && distSq >= bestDistSq)
+                    if (distSq > bestCharDistSq)
                         continue;
 
-                    bestDistSq = distSq;
+                    bestCharDistSq = distSq;
                     bestPos = ch.Position;
                     bestEntity = CharacterEntities[c];
                     found = true;
@@ -229,6 +232,29 @@ namespace MapNav.Ecs
                 Entity self = Entities[index];
 
                 NavAgentCombatTarget combat = CombatLookup[self];
+
+                // 피격 강제 어그로: 타이머가 살아있으면 일반 탐색 결과를 덮어 공격자(캐릭터)를 거리 무시하고
+                // 우선 추적한다. 공격자가 사라졌거나 같은 진영이 되면(또는 타이머 만료) 자연 해제된다.
+                combat.ForcedTimer = math.max(0f, combat.ForcedTimer - DeltaTime);
+                if (combat.ForcedTimer > 0f && combat.ForcedEntity != Entity.Null)
+                {
+                    for (int c = 0; c < CharacterEntities.Length; c++)
+                    {
+                        if (CharacterEntities[c] != combat.ForcedEntity)
+                            continue;
+
+                        CharacterNavTarget ch = Characters[c];
+                        if (ch.HasValue != 0 && ch.Faction != selfFaction)
+                        {
+                            bestPos = ch.Position;
+                            bestEntity = combat.ForcedEntity;
+                            found = true;
+                            targetIsCharacter = true;
+                        }
+                        break;
+                    }
+                }
+
                 bool targetChanged = combat.HasTarget == 0
                     || combat.TargetEntity != bestEntity
                     || combat.IsCharacterTarget != (byte)(targetIsCharacter ? 1 : 0);

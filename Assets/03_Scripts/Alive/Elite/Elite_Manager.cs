@@ -208,6 +208,9 @@ public sealed class Elite_Manager : IDisposable
             if (state.Embodiment != null)
                 continue;
 
+            if (state.IsApproachingGate || state.IsFieldTraveling)
+                continue;
+
             await EmbodyAsync(state, token);
         }
     }

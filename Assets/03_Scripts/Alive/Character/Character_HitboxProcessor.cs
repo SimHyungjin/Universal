@@ -66,8 +66,9 @@ public class Character_HitboxProcessor : MonoBehaviour, IHitboxProcessor
         NativeArray<NavAgentSettings> settings = _hitQuery.ToComponentDataArray<NavAgentSettings>(Allocator.Temp);
 
         HitContext ctx = new HitContext(data, targetSuspendDuration);
+        Entity attackerEntity = ResolveAttackerEntity(attacker);
         bool didHit = ProcessInstance(ctx, data.Hitbox, data.Shape, attacker, hitRegistry, 2, finalDamage,
-            data, entities, transforms, settings);
+            data, attackerEntity, entities, transforms, settings);
 
         entities.Dispose();
         transforms.Dispose();
@@ -88,8 +89,9 @@ public class Character_HitboxProcessor : MonoBehaviour, IHitboxProcessor
 
         // extraIndex + 10을 scope으로 사용해 메인 hitbox(scope=2)와 레지스트리 충돌 방지
         int scope = extraIndex + 10;
+        Entity attackerEntity = ResolveAttackerEntity(attacker);
         bool didHit = ProcessInstance(ctx, extra.hitbox, extra.shape, attacker, hitRegistry, scope, finalDamage,
-            data, entities, transforms, settings);
+            data, attackerEntity, entities, transforms, settings);
 
         entities.Dispose();
         transforms.Dispose();
@@ -107,6 +109,7 @@ public class Character_HitboxProcessor : MonoBehaviour, IHitboxProcessor
         int registryScope,
         float finalDamage,
         SO_Attack_Data feedbackData,
+        Entity attackerEntity,
         NativeArray<Entity> entities,
         NativeArray<LocalTransform> transforms,
         NativeArray<NavAgentSettings> settings)
@@ -222,6 +225,7 @@ public class Character_HitboxProcessor : MonoBehaviour, IHitboxProcessor
             }
 
             SpawnHitFeedback(feedbackData, unitPos);
+            ApplyForcedAggro(entities[i], attackerEntity);
             didHit = true;
         }
 
@@ -279,6 +283,29 @@ public class Character_HitboxProcessor : MonoBehaviour, IHitboxProcessor
         {
             return (entity.Index * 397) ^ entity.Version;
         }
+    }
+
+    // 피격 강제 어그로 지속 시간(초). 감지 반경 밖에서 맞은 잡몹도 이 시간 동안 공격자를 추적한다.
+    private const float ForcedAggroDuration = 5f;
+
+    // 공격자(이 컴포넌트가 붙은 캐릭터)의 ECS 엔티티. 잡몹이 강제 어그로 대상으로 매칭하는 CharacterNavTarget 엔티티다.
+    private Entity ResolveAttackerEntity(Transform attacker)
+    {
+        if (attacker == null) return Entity.Null;
+        Character_EcsBridge bridge = attacker.GetComponent<Character_EcsBridge>();
+        return bridge != null ? bridge.CharacterEntity : Entity.Null;
+    }
+
+    // 피격한 잡몹에 강제 어그로를 건다. NavTargetingSystem이 ForcedTimer 동안 공격자를 거리 무시하고 우선 타겟으로 삼는다.
+    private void ApplyForcedAggro(Entity target, Entity attacker)
+    {
+        if (attacker == Entity.Null || !_em.HasComponent<NavAgentCombatTarget>(target))
+            return;
+
+        NavAgentCombatTarget combat = _em.GetComponentData<NavAgentCombatTarget>(target);
+        combat.ForcedEntity = attacker;
+        combat.ForcedTimer = ForcedAggroDuration;
+        _em.SetComponentData(target, combat);
     }
 
     private bool EnsureHitQuery()
