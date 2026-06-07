@@ -749,7 +749,7 @@ public sealed class SectorBattleManager : IDisposable
             if (++shown >= 12) break;
         }
 
-        if (shown > 0)
-            Debug.Log(sb.ToString());
+        // if (shown > 0)
+        //     Debug.Log(sb.ToString());
     }
 }

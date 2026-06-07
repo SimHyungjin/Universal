@@ -16,5 +16,5 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 3f0ba7d6224f47eba8182a429911733f, type: 2}
   - {fileID: 11400000, guid: b968ca58c5494f89b9fc57ef2ce912af, type: 2}
   - {fileID: 11400000, guid: 5390373357b9432cb87d9d8bd552c51f, type: 2}
-  comboWindow: 0.35
-  lockMovementDuringComboWindow: 1
+  comboWindow: 0.5
+  lockMovementDuringComboWindow: 0

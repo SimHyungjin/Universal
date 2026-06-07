@@ -15,6 +15,7 @@ MonoBehaviour:
   maxHealth: 3000
   attackPower: 20
   defense: 0
+  breakMax: 450
   moveSpeed: 5
   gaugeMax: 100
   gaugeGainPerDamage: 0.5

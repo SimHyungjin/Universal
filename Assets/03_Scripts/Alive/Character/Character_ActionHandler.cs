@@ -3,7 +3,6 @@ using System.Threading;
 using Cysharp.Threading.Tasks;
 using MapNav.Ecs;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 public enum Character_ActionState
 {
@@ -15,7 +14,8 @@ public enum Character_ActionState
     Down = 5,
     Wakeup = 6,
     Dead = 7,
-    Launched = 8
+    Launched = 8,
+    Broken = 9
 }
 
 [RequireComponent(typeof(Character_MoveController))]
@@ -23,7 +23,7 @@ public enum Character_ActionState
 [RequireComponent(typeof(Character_AttackController))]
 [RequireComponent(typeof(Character_Vitals))]
 [DisallowMultipleComponent]
-public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarget
+public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarget
 {
     private SO_Character_Data _characterData;
     private SO_Character_Loadout _equippedLoadout;
@@ -36,6 +36,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private SO_Character_JumpFeel jumpFeel;
     private SO_Character_DashRule dashRule;
     private SO_ActionRecovery actionRecovery;
+    private SO_Character_BreakFeel breakFeel;
 
     public Character_ActionState State => _state;
     public bool IsInvincible => _invincibleTimer > 0f;
@@ -107,6 +108,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private Character_Animator _animator;
     private Character_Vfx _vfx;
     private Character_Vitals _vitals;
+    private Character_BreakOutlineController _breakOutline;
     private CharacterController _characterController;
     private Character_CommandSource _commandSource;
     private Character_ActionState _state;
@@ -146,9 +148,12 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         _animator = GetComponent<Character_Animator>();
         _vfx = GetComponent<Character_Vfx>();
         _vitals = GetComponent<Character_Vitals>();
+        _breakOutline = GetComponent<Character_BreakOutlineController>();
         _characterController = GetComponent<CharacterController>();
         if (_vitals == null)
             _vitals = gameObject.AddComponent<Character_Vitals>();
+        if (_breakOutline == null)
+            _breakOutline = gameObject.AddComponent<Character_BreakOutlineController>();
         _commandSource = ResolveCommandSource();
 
         ApplyCharacterData(_characterData);
@@ -199,10 +204,12 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         jumpFeel = characterData != null ? characterData.JumpFeel : null;
         dashRule = characterData != null ? characterData.DashRule : null;
         actionRecovery = characterData != null ? characterData.ActionRecovery : null;
+        breakFeel = characterData != null ? characterData.BreakFeel : null;
 
         _moveController?.SetMovementData(statsData, locomotionFeel, worldPhysics);
         _animator?.SetAnimationData(animationData);
         _attackController?.SetPlayerStats(statsData);
+        _breakOutline?.SetBrokenRenderingLayerMask(BreakOutlineRenderingLayerMask);
         ApplyActiveLoadout();
     }
 
@@ -217,7 +224,12 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
             statsData != null ? statsData.Defense : 0f,
             statsData != null ? statsData.GaugeMax : 100f,
             faction,
-            bodyRadius: statsData != null ? statsData.BodyRadius : 0.5f);
+            bodyRadius: statsData != null ? statsData.BodyRadius : 0.5f,
+            breakMax: statsData != null ? statsData.BreakMax : 0f,
+            breakRecoveryDelay: BreakRecoveryDelay,
+            breakRecoveryPerSecond: BreakRecoveryPerSecond,
+            brokenDuration: BreakVulnerableDuration,
+            breakRecoveryRatioOnBrokenEnd: BreakRecoveryRatioOnBrokenEnd);
     }
 
     private void ApplyActiveLoadout()
@@ -287,6 +299,12 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
             return;
         }
 
+        if (_attackController != null && _attackController.IsComboWindowOpen)
+        {
+            _moveController.TickLocomotion(worldInput, gdt);
+            return;
+        }
+
         switch (_state)
         {
             case Character_ActionState.Dash:
@@ -303,6 +321,9 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
                 break;
             case Character_ActionState.Down:
                 TickDown(gdt);
+                break;
+            case Character_ActionState.Broken:
+                TickBroken(gdt);
                 break;
             case Character_ActionState.Launched:
                 TickLaunched(gdt);
@@ -328,12 +349,15 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     {
         if (_sectorGateTransitioning || IsInvincible || _state == Character_ActionState.Dead) return;
 
-        ApplyDamage(damage);
+        bool alreadyBroken = _state == Character_ActionState.Broken || (_vitals != null && _vitals.IsBroken);
+        float resolvedDamage = alreadyBroken ? damage * BrokenDamageTakenMultiplier : damage;
+        ApplyDamage(resolvedDamage);
         if (_state == Character_ActionState.Dead) return;
+        bool broken = _vitals != null && _vitals.ApplyBreakDamage(resolvedDamage + Mathf.Max(0f, superArmorBreak));
         AddGauge(statsData != null ? statsData.GaugeGainOnReceive : 0f);
         TriggerHitstop(hitstop);
 
-        if (_attackController != null && _attackController.IsSuperArmoredAgainst(superArmorBreak))
+        if (!IsSuperArmorDisabledByBreak(broken) && _attackController != null && _attackController.IsSuperArmoredAgainst(superArmorBreak))
             return;
 
         float hitReactionDurationScale = ConsumeHitReactionDurationScale();
@@ -372,7 +396,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         // 강한 넉백/튕김이 직후 들어오는 약한 후속타(메인 repeat 등)에 즉시 지워지지 않게 한다.
         // (Taunt 끝 extra force:30 → 직후 메인 force:10이 덮어쓰는 문제 방지)
         float forcedSpeed = Mathf.Max(0f, knockback.force);
-        if (IsHitReactionState(_state) && forcedSpeed < _forcedSpeed)
+        if (!alreadyBroken && IsHitReactionState(_state) && forcedSpeed < _forcedSpeed)
             forcedSpeed = _forcedSpeed;
 
         _forcedDirection = direction;
@@ -380,6 +404,19 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         _forcedFriction = Mathf.Max(0f, knockback.friction);
         _stateTimer = stateDuration;
         _moveController.StopPlanar();
+
+        if (broken)
+        {
+            PlayBreakFeedback();
+            EnterBroken(_vitals != null ? _vitals.BrokenDuration : BreakVulnerableDuration);
+            return;
+        }
+
+        if (alreadyBroken && !incomingLaunch && !down.enabled)
+        {
+            PlayHitReaction(HitReactionKind.HeavyHit);
+            return;
+        }
 
         // launch는 캐릭터를 실제로 공중에 띄운다. 착지(궤적 종료) 후 down이 예약돼 있으면 다운으로 이어진다.
         if (incomingLaunch)
@@ -442,6 +479,11 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         if (hitstop.duration <= 0f || Main.Loop == null) return;
         DoHitstop(hitstop, destroyCancellationToken).Forget();
     }
+
+    private bool IsSuperArmorDisabledByBreak(bool brokenByThisHit)
+        => brokenByThisHit
+           || _state == Character_ActionState.Broken
+           || (_vitals != null && _vitals.IsBroken);
 
     private static async UniTaskVoid DoHitstop(AttackHitstopData hitstop, CancellationToken token)
     {
@@ -510,165 +552,6 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         _moveController.TickLocomotion(worldInput, deltaTime);
     }
 
-    private void EnterJump()
-    {
-        _jumpCount = 1;
-        StartJumpArc();
-    }
-
-    private void StartJumpArc()
-    {
-        _jumpBufferTimer = 0f;
-        _coyoteTimer = 0f;
-        _jumpArcElapsed = 0f;
-        _jumpGroundY = transform.position.y;
-        _jumpFallingStarted = false;
-        _jumpIdlePlayed = false;
-        _jumpEndPlayed = false;
-        _state = Character_ActionState.Jump;
-        _stateTimer = 0f;
-        _moveController.SetVerticalVelocity(0f);
-        PlayAction(JumpStartStateName);
-        _vfx?.PlayJumpAfterimages();
-    }
-
-    private void TickJump(float deltaTime)
-    {
-        Vector3 worldInput = GetMoveWorld();
-
-        if (_commandSource != null && _commandSource.ConsumeDash() && _dashCooldownTimer <= 0f)
-        {
-            EnterDash(worldInput, deltaTime);
-            return;
-        }
-
-        if (_jumpEndPlayed)
-        {
-            TickJumpLanding(worldInput, deltaTime);
-            return;
-        }
-
-        if (TryStartAirJump())
-            return;
-
-        _moveController.TickPlanarLocomotion(worldInput * JumpAirMoveScale, deltaTime);
-        TickArcadeJumpArc(deltaTime);
-
-        if (ShouldPlayJumpIdle())
-        {
-            _jumpIdlePlayed = true;
-            PlayAction(JumpIdleStateName);
-        }
-    }
-
-    private void TickJumpLanding(Vector3 worldInput, float deltaTime)
-    {
-        _stateTimer -= deltaTime;
-        _moveController.TickLocomotion(worldInput * JumpLandingMoveScale, deltaTime);
-
-        if (_stateTimer > 0f) return;
-
-        _jumpIdlePlayed = false;
-        _jumpEndPlayed = false;
-        EnterNormal();
-    }
-
-    private bool TryStartAirJump()
-    {
-        if (_jumpBufferTimer <= 0f || _jumpCount >= MaxJumpCount)
-            return false;
-
-        _jumpCount++;
-        StartJumpArc();
-        return true;
-    }
-
-    public void InterruptJumpArcForAttack()
-    {
-        if (_state != Character_ActionState.Jump || _jumpEndPlayed)
-            return;
-
-        _jumpArcElapsed = JumpAscentDuration;
-        _jumpFallingStarted = true;
-        _jumpIdlePlayed = false;
-    }
-
-    private void TickArcadeJumpArc(float deltaTime)
-    {
-        _jumpArcElapsed += deltaTime;
-
-        if (_jumpArcElapsed <= JumpAscentDuration)
-        {
-            float desiredY = _jumpGroundY + EvaluateJumpAscentHeight(_jumpArcElapsed);
-            _moveController.MoveDisplacement(new Vector3(0f, desiredY - transform.position.y, 0f));
-            return;
-        }
-
-        if (!_jumpFallingStarted)
-        {
-            _jumpFallingStarted = true;
-            _moveController.SetVerticalVelocity(0f);
-        }
-
-        _moveController.MoveVertical(deltaTime);
-        if (!_moveController.IsGrounded)
-            return;
-
-        CompleteJumpLanding();
-    }
-
-    private void CompleteJumpLanding()
-    {
-        _jumpEndPlayed = true;
-        _stateTimer = Mathf.Max(0f, JumpLandingRecoveryTime);
-        if (!string.IsNullOrWhiteSpace(JumpEndStateName))
-            PlayAction(JumpEndStateName);
-
-        if (_stateTimer <= 0f)
-            EnterNormal();
-    }
-
-    private void CompleteBlockedActionJumpLandingIfGrounded()
-    {
-        if (_state != Character_ActionState.Jump || !_moveController.IsGrounded)
-            return;
-
-        _state = Character_ActionState.Normal;
-        _jumpCount = 0;
-        _jumpIdlePlayed = false;
-        _jumpEndPlayed = false;
-        _jumpFallingStarted = false;
-    }
-
-    private float EvaluateJumpAscentHeight(float elapsed)
-    {
-        float riseTime = JumpRiseTime;
-        float holdTime = JumpApexHoldTime;
-        float height = JumpHeight;
-
-        if (elapsed <= riseTime)
-        {
-            float t = Mathf.Clamp01(elapsed / riseTime);
-            return height * EaseOutCubic(t);
-        }
-
-        if (elapsed <= riseTime + holdTime)
-            return height;
-
-        return height;
-    }
-
-    private bool ShouldPlayJumpIdle()
-    {
-        if (_jumpIdlePlayed || string.IsNullOrWhiteSpace(JumpIdleStateName))
-            return false;
-
-        if (string.IsNullOrWhiteSpace(JumpStartStateName))
-            return _jumpArcElapsed >= JumpRiseTime;
-
-        return _jumpArcElapsed >= JumpRiseTime || _animator.HasCurrentStateReachedEnd(JumpStartStateName);
-    }
-
     private void EnterDash(Vector3 input, float deltaTime)
     {
         Vector3 direction = ResolveActionDirection(input);
@@ -726,140 +609,49 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         EnterNormal();
     }
 
-    // 공중 부양. _forcedDirection/_forcedSpeed/_forcedFriction은 호출 직전 ReceiveHit에서 넉백 값으로 세팅돼 있다.
-    // 잡몹(NavLaunchSystem)과 동일한 LaunchPhysics(초기속도+중력)로 y를 구동한다. repeat 재타격 시
-    // 지면 기준(GroundY)은 유지하고 수직속도만 재부여해 체공을 연장한다(잡몹 HitboxProcessor와 동일 규칙).
-    private void EnterOrRefreshLaunch(AttackLaunchData launch, AttackDownData down)
-    {
-        bool wasLaunched = _state == Character_ActionState.Launched;
-        bool startsNewArc = !wasLaunched || _launchVerticalVelocity <= 0f;
-        if (!wasLaunched)
-            _launchGroundY = ResolveLaunchGroundY(transform.position);
-
-        if (startsNewArc)
-            _launchElapsed = 0f;
-
-        _state = Character_ActionState.Launched;
-        _launchHeight = Mathf.Max(0f, launch.height);
-        // launch 중력은 잡몹(NavLaunchSystem)과 반드시 같은 값(LaunchPhysics.Gravity)을 써야 체공시간이
-        // 일치한다. 일반 점프/낙하는 worldPhysics.Gravity를 쓰지만 launch는 잡몹과 통일한다.
-        float initialVelocity = LaunchPhysics.InitialVelocity(launch.height, LaunchPhysics.Gravity);
-        _launchVerticalVelocity = LaunchPhysics.RefreshVelocityForLaunchHit(_launchVerticalVelocity, initialVelocity, wasLaunched);
-        _launchSuspendTimer = Mathf.Max(0f, launch.suspendDuration);
-        _launchMaxDuration = ResolveLaunchMaxDuration(_launchHeight, _launchSuspendTimer);
-        _launchPendingDown = down.enabled;
-        _launchDownDuration = Mathf.Max(0f, down.duration);
-        _moveController.StopPlanar();
-        PlayHitReaction(HitReactionKind.Launch);
-    }
-
-    private void TickLaunched(float deltaTime)
-    {
-        _launchElapsed += deltaTime;
-        // 포물선 수평 성분: 공중에서는 friction 없이 일정 속도 유지.
-        // 착지 후 EnterDown/EnterNormal으로 이어지므로 거리 조절은 launch.knockback.force로 한다.
-
-        float y = transform.position.y;
-        float ceiling = _launchGroundY + _launchHeight;
-        LaunchPhysics.Integrate(ref y, ref _launchVerticalVelocity, LaunchPhysics.Gravity, deltaTime, ref _launchSuspendTimer, ceiling);
-
-        // 낙하해서 시작 지면 이하로 내려오면 착지. down이 예약돼 있으면 다운으로 이어진다.
-        Vector3 displacement = _forcedDirection * (_forcedSpeed * deltaTime);
-        Vector3 nextPlanarPosition = transform.position + new Vector3(displacement.x, 0f, displacement.z);
-        float landingGroundY = ResolveLaunchGroundY(nextPlanarPosition);
-
-        bool landed = _launchVerticalVelocity <= 0f && y <= landingGroundY;
-        if (_launchMaxDuration > 0f && _launchElapsed >= _launchMaxDuration)
-            landed = true;
-        if (landed)
-            y = landingGroundY;
-
-        displacement.y = y - transform.position.y;
-        _moveController.MoveDisplacement(displacement);
-
-        if (!landed)
-            return;
-
-        if (_launchPendingDown)
-            EnterDown(_launchDownDuration);
-        else
-            EnterNormal();
-    }
-
-    private float ResolveLaunchGroundY(Vector3 samplePosition)
-    {
-        if (TryResolveLaunchGroundY(samplePosition, out float groundY))
-            return groundY;
-
-        return _launchGroundY != 0f ? _launchGroundY : transform.position.y;
-    }
-
-    private bool TryResolveLaunchGroundY(Vector3 samplePosition, out float groundY)
-    {
-        float radius = _characterController != null
-            ? Mathf.Max(0.05f, _characterController.radius * 0.85f)
-            : 0.25f;
-        Vector3 origin = samplePosition + Vector3.up * LaunchGroundProbeUp;
-        int count = Physics.SphereCastNonAlloc(
-            origin,
-            radius,
-            Vector3.down,
-            LaunchGroundHits,
-            LaunchGroundProbeUp + LaunchGroundProbeDown,
-            ~0,
-            QueryTriggerInteraction.Ignore);
-
-        float bestDistance = float.MaxValue;
-        groundY = 0f;
-        bool found = false;
-        for (int i = 0; i < count; i++)
-        {
-            RaycastHit hit = LaunchGroundHits[i];
-            Collider hitCollider = hit.collider;
-            LaunchGroundHits[i] = default;
-            if (hitCollider == null || ShouldIgnoreLaunchGroundHit(hitCollider))
-                continue;
-
-            if (hit.distance >= bestDistance)
-                continue;
-
-            bestDistance = hit.distance;
-            groundY = hit.point.y;
-            found = true;
-        }
-
-        return found;
-    }
-
-    private bool ShouldIgnoreLaunchGroundHit(Collider hitCollider)
-    {
-        if (hitCollider.transform == transform || hitCollider.transform.IsChildOf(transform))
-            return true;
-
-        if (hitCollider.GetComponentInParent<Character_ActionHandler>() != null)
-            return true;
-
-        if (hitCollider.GetComponentInParent<Unit_NavVisualShell>() != null)
-            return true;
-
-        return false;
-    }
-
-    private static float ResolveLaunchMaxDuration(float height, float suspendDuration)
-    {
-        float initialVelocity = LaunchPhysics.InitialVelocity(height, LaunchPhysics.Gravity);
-        float airtime = initialVelocity > 0f
-            ? initialVelocity * 2f / Mathf.Abs(LaunchPhysics.Gravity)
-            : 0f;
-        return Mathf.Clamp(airtime + Mathf.Max(0f, suspendDuration) + LaunchFailsafeExtraTime, 0.35f, LaunchFailsafeMaxDuration);
-    }
-
     private void EnterDown(float duration)
     {
         _state = Character_ActionState.Down;
         _stateTimer = Mathf.Max(0f, duration);
         _moveController.StopPlanar();
         PlayHitReaction(HitReactionKind.Down);
+    }
+
+    private void EnterBroken(float duration)
+    {
+        _state = Character_ActionState.Broken;
+        _stateTimer = Mathf.Max(0.1f, duration);
+        _forcedDirection = Vector3.zero;
+        _forcedSpeed = 0f;
+        _forcedFriction = 0f;
+        _moveController.StopPlanar();
+        PlayHitReaction(HitReactionKind.HeavyHit);
+    }
+
+    private void PlayBreakFeedback()
+    {
+        App.ShakeCamera(ResolvedBreakShakeAmplitude, ResolvedBreakShakeDuration, ResolvedBreakShakeFrequency);
+        Game.PlayCameraCutIn(ResolvedBreakCameraCue);
+
+        float hitstopDuration = ResolvedBreakHitstopDuration;
+        if (hitstopDuration > 0f)
+        {
+            TriggerHitstop(new AttackHitstopData
+            {
+                duration = hitstopDuration,
+                timeScale = ResolvedBreakHitstopTimeScale
+            });
+        }
+    }
+
+    private void TickBroken(float deltaTime)
+    {
+        _stateTimer -= deltaTime;
+        _moveController.MoveVertical(deltaTime);
+
+        if (_stateTimer > 0f) return;
+
+        EnterNormal();
     }
 
     private void TickDown(float deltaTime)
@@ -910,7 +702,8 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         => state == Character_ActionState.Hitstun
            || state == Character_ActionState.Knockback
            || state == Character_ActionState.Down
-           || state == Character_ActionState.Launched;
+           || state == Character_ActionState.Launched
+           || state == Character_ActionState.Broken;
 
     private void TickSharedTimers(float deltaTime)
     {
@@ -971,8 +764,6 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     }
 
     private float JumpHeight => (jumpFeel != null && statsData != null) ? LocomotionFormula.ScaleJumpHeight(statsData.MoveSpeed, jumpFeel.JumpHeightPerSpeed) : 2f;
-    private float JumpAnticipationTime => jumpFeel != null ? jumpFeel.JumpAnticipationTime : 0.2f;
-    private float JumpAnticipationMoveScale => jumpFeel != null ? jumpFeel.JumpAnticipationMoveScale : 0.2f;
     private float JumpLandingRecoveryTime => jumpFeel != null ? jumpFeel.JumpLandingRecoveryTime : 0.15f;
     private float JumpLandingMoveScale => jumpFeel != null ? jumpFeel.JumpLandingMoveScale : 0.1f;
     private int MaxJumpCount => jumpFeel != null ? Mathf.Max(1, jumpFeel.MaxJumpCount) : 2;
@@ -998,21 +789,22 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private const float LaunchFailsafeMaxDuration = 3f;
     private float WakeupDuration => actionRecovery != null ? actionRecovery.WakeupDuration : 0f;
     private float WakeupInvincibleDuration => actionRecovery != null ? actionRecovery.WakeupInvincibleDuration : 0f;
+    private float BreakVulnerableDuration => breakFeel != null ? breakFeel.BrokenDuration : 1.5f;
+    private float BrokenDamageTakenMultiplier => breakFeel != null ? Mathf.Max(1f, breakFeel.BrokenDamageTakenMultiplier) : 1.35f;
+    private float BreakRecoveryRatioOnBrokenEnd => breakFeel != null ? breakFeel.RecoveryRatioOnBrokenEnd : 1f;
+    private float BreakRecoveryDelay => breakFeel != null ? breakFeel.RecoveryDelay : 1.5f;
+    private float BreakRecoveryPerSecond => breakFeel != null ? breakFeel.RecoveryPerSecond : 60f;
+    private float ResolvedBreakShakeAmplitude => breakFeel != null ? breakFeel.ShakeAmplitude : 0.38f;
+    private float ResolvedBreakShakeDuration => breakFeel != null ? breakFeel.ShakeDuration : 0.32f;
+    private float ResolvedBreakShakeFrequency => breakFeel != null ? breakFeel.ShakeFrequency : 36f;
+    private float ResolvedBreakHitstopDuration => breakFeel != null ? breakFeel.HitstopDuration : 0.2f;
+    private float ResolvedBreakHitstopTimeScale => breakFeel != null ? breakFeel.HitstopTimeScale : 0.01f;
+    private SkillCutInData ResolvedBreakCameraCue => breakFeel != null ? breakFeel.CameraCue : default;
+    private uint BreakOutlineRenderingLayerMask => breakFeel != null ? breakFeel.BrokenOutlineRenderingLayerMask : 8u;
     private string JumpStartStateName => animationData != null ? animationData.JumpStartStateName : "";
     private string JumpIdleStateName => animationData != null ? animationData.JumpIdleStateName : "";
     private string JumpEndStateName => animationData != null ? animationData.JumpEndStateName : "";
     private string DashStateName => animationData != null ? animationData.DashStateName : "";
-    private string HitStateName => animationData != null ? animationData.HitStateName : "";
-    private string DownStateName => animationData != null ? animationData.DownStateName : "";
-    private string WakeupStateName => animationData != null ? animationData.WakeupStateName : "";
     private string DeathStateName => animationData != null ? animationData.DeathStateName : "";
     private float ActionTransition => animationData != null ? animationData.ActionTransition : 0.05f;
-
-    private static float EaseOutCubic(float t)
-    {
-        t = Mathf.Clamp01(t);
-        float inv = 1f - t;
-        return 1f - inv * inv * inv;
-    }
-
 }

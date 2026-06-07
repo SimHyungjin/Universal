@@ -19,7 +19,6 @@ public class Character_MoveController : LoopMonoBehaviour
     private AnimationCurve _lungeSpeedCurve;
 
     public bool IsGrounded => _cc != null && _cc.isGrounded;
-    public float VerticalVelocity => _verticalVelocity;
 
     private void Awake()
     {
@@ -33,9 +32,6 @@ public class Character_MoveController : LoopMonoBehaviour
         if (physics != null) this.worldPhysics = physics;
     }
 
-    public void StartLunge(Vector3 direction, float distance, float duration)
-        => StartLunge(direction, distance, duration, null);
-
     public void StartLunge(Vector3 direction, AttackLungeData lunge)
     {
         if (lunge.moveType == AttackMoveType.None)
@@ -44,7 +40,14 @@ public class Character_MoveController : LoopMonoBehaviour
             return;
         }
 
-        StartLunge(direction, lunge.distance, lunge.duration, lunge.speedCurve);
+        if (lunge.distance <= 0f || lunge.duration <= 0f) return;
+
+        _lungeDirection = new Vector3(direction.x, 0f, direction.z).normalized;
+        _lungeDistance = lunge.distance;
+        _lungeDuration = lunge.duration;
+        _lungeElapsed = 0f;
+        _lungeTimer = lunge.duration;
+        _lungeSpeedCurve = lunge.speedCurve;
     }
 
     public void StopLunge()
@@ -54,18 +57,6 @@ public class Character_MoveController : LoopMonoBehaviour
         _lungeDistance = 0f;
         _lungeDuration = 0f;
         _lungeSpeedCurve = null;
-    }
-
-    private void StartLunge(Vector3 direction, float distance, float duration, AnimationCurve speedCurve)
-    {
-        if (distance <= 0f || duration <= 0f) return;
-
-        _lungeDirection = new Vector3(direction.x, 0f, direction.z).normalized;
-        _lungeDistance = distance;
-        _lungeDuration = duration;
-        _lungeElapsed = 0f;
-        _lungeTimer = duration;
-        _lungeSpeedCurve = speedCurve;
     }
 
     public void TickLocomotion(Vector3 input, float deltaTime)

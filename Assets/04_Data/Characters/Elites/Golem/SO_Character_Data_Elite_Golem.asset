@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   displayName: Elite
   markerSprite: {fileID: 21300000, guid: 260ffec61358059428c77fc36954da6b, type: 3}
-  battleRole: 0
+  battleRole: 1
   prefab:
     m_AssetGUID: 0fd41faf8901e154cb92fd6c6c278198
     m_SubObjectName: 
@@ -30,3 +30,4 @@ MonoBehaviour:
   jumpFeel: {fileID: 11400000, guid: 51ac0b1897685ea4da8139d6dd0da15d, type: 2}
   dashRule: {fileID: 11400000, guid: db0b5f77f8806a74da3d2e81539b94b9, type: 2}
   actionRecovery: {fileID: 11400000, guid: b5ab2f8a3a9049a46a1547219c344ccc, type: 2}
+  breakFeel: {fileID: 11400000, guid: 7f1ab7b4bb0d43a4b862c0a4694ab251, type: 2}

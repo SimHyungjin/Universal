@@ -50,7 +50,7 @@ MonoBehaviour:
     cancelOnMiss: 0
     maxCount: 2
   additionalHits: []
-  damage: 100
+  damage: 500
   hitType: 1
   knockback:
     type: 1
@@ -78,7 +78,7 @@ MonoBehaviour:
     lifetime: 4
     spawnOffset: {x: 0, y: 1, z: 0}
     pierce: 1
-    count: 4
+    count: 1
     spreadAngle: 90
   field:
     enabled: 0
@@ -106,12 +106,12 @@ MonoBehaviour:
   releaseEffects:
     timing: 0.4
     shake:
-      enabled: 1
+      enabled: 0
       amplitude: 0.2
       duration: 0.2
       frequency: 0.2
     slowMo:
-      enabled: 1
+      enabled: 0
       timeScale: 0.1
       duration: 0.5
   hitEffects:

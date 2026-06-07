@@ -30,6 +30,7 @@ public sealed class SO_Character_Data : ScriptableObject, IPrefabCharacterArchet
     [SerializeField] private SO_Character_JumpFeel jumpFeel;
     [SerializeField] private SO_Character_DashRule dashRule;
     [SerializeField] private SO_ActionRecovery actionRecovery;
+    [SerializeField] private SO_Character_BreakFeel breakFeel;
 
     CharacterKind ICharacterArchetype.Kind => CharacterKind.Player;
     string ICharacterArchetype.DisplayName => DisplayName;
@@ -49,4 +50,5 @@ public sealed class SO_Character_Data : ScriptableObject, IPrefabCharacterArchet
     public SO_Character_JumpFeel JumpFeel => jumpFeel;
     public SO_Character_DashRule DashRule => dashRule;
     public SO_ActionRecovery ActionRecovery => actionRecovery;
+    public SO_Character_BreakFeel BreakFeel => breakFeel;
 }

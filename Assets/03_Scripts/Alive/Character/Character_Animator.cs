@@ -19,6 +19,7 @@ public class Character_Animator : LoopMonoBehaviour
     private int _jumpIdleStateHash;
     private bool _isAttacking;
     private bool _suppressLocomotion;
+    private bool _holdIdleDuringComboWindow;
     private Character_MoveController _moveController;
     private Character_CommandSource _commandSource;
     private readonly ActorAnimationPlayback _animation = new();
@@ -50,6 +51,7 @@ public class Character_Animator : LoopMonoBehaviour
 
         _isAttacking = true;
         _suppressLocomotion = true;
+        _holdIdleDuringComboWindow = false;
         _animation.ResetLocomotionTimers();
         _animation.ForcePlay(data.stateName, data.transition);
     }
@@ -58,12 +60,7 @@ public class Character_Animator : LoopMonoBehaviour
     {
         _isAttacking = false;
         _suppressLocomotion = true;
-        _animation.ResetLocomotionTimers();
-        _animation.ForcePlay(stateName, transition);
-    }
-
-    public void PlayMomentaryAction(string stateName, float transition)
-    {
+        _holdIdleDuringComboWindow = false;
         _animation.ResetLocomotionTimers();
         _animation.ForcePlay(stateName, transition);
     }
@@ -72,6 +69,7 @@ public class Character_Animator : LoopMonoBehaviour
     {
         _isAttacking = false;
         _suppressLocomotion = true;
+        _holdIdleDuringComboWindow = false;
         if (animator == null || _data == null) return;
 
         _animation.ResetLocomotionTimers();
@@ -81,12 +79,22 @@ public class Character_Animator : LoopMonoBehaviour
     public bool HasCurrentStateReachedEnd(string stateName)
         => _animation.HasCurrentStateReachedEnd(stateName);
 
-    public void ExitAttack()
+    public void ExitAttack(bool playIdle = true)
     {
         if (!_isAttacking) return;
-        if (animator == null) return;
 
         _isAttacking = false;
+        if (!playIdle)
+        {
+            _suppressLocomotion = false;
+            _holdIdleDuringComboWindow = true;
+            _animation.ResetLocomotionTimers();
+            return;
+        }
+
+        if (animator == null) return;
+
+        _holdIdleDuringComboWindow = false;
         _animation.ResetLocomotionTimers();
         _animation.Play(_locomotion.IdleHash, StopRunTransition);
     }
@@ -95,6 +103,7 @@ public class Character_Animator : LoopMonoBehaviour
     {
         _isAttacking = false;
         _suppressLocomotion = false;
+        _holdIdleDuringComboWindow = false;
     }
 
     protected override void OnGameUpdate(float gdt)
@@ -105,13 +114,17 @@ public class Character_Animator : LoopMonoBehaviour
         _animation.SyncSpeed(animationTimeDomain);
         if (_isAttacking || _suppressLocomotion) return;
 
+        bool moving = IsMoving();
+        if (_holdIdleDuringComboWindow && !moving)
+            return;
+
         if (_jumpIdleStateHash != 0 && _moveController != null && !_moveController.IsGrounded)
         {
             _animation.Play(_jumpIdleStateHash, ActionTransition);
             return;
         }
 
-        _animation.TickLocomotion(IsMoving(), gdt, _locomotion);
+        _animation.TickLocomotion(moving, gdt, _locomotion);
     }
 
     private bool IsMoving()

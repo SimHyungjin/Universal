@@ -28,13 +28,21 @@ public sealed class Elite_Embodiment : MonoBehaviour
         SO_Character_Stats stats = State.Data != null && State.Data.Character != null
             ? State.Data.Character.StatsData
             : null;
+        SO_Character_BreakFeel breakFeel = State.Data != null && State.Data.Character != null
+            ? State.Data.Character.BreakFeel
+            : null;
         _vitals.Configure(
             stats != null ? stats.MaxHealth : _vitals.MaxHealth,
             stats != null ? stats.Defense : 0f,
             stats != null ? stats.GaugeMax : _vitals.GaugeMax,
             State.Faction,
             State.Health,
-            stats != null ? stats.BodyRadius : 0.5f);
+            stats != null ? stats.BodyRadius : 0.5f,
+            stats != null ? stats.BreakMax : 0f,
+            breakFeel != null ? breakFeel.RecoveryDelay : 1.5f,
+            breakFeel != null ? breakFeel.RecoveryPerSecond : 60f,
+            breakFeel != null ? breakFeel.BrokenDuration : 1.5f,
+            breakFeel != null ? breakFeel.RecoveryRatioOnBrokenEnd : 1f);
 
         _vitals.OnHealthChanged += HandleHealthChanged;
 
@@ -82,6 +90,9 @@ public sealed class Elite_HealthBar : MonoBehaviour
     private const float MaxWidth = 4f;
     private const float BackgroundThickness = 0.22f;
     private const float FillThickness = 0.14f;
+    private const float BreakBarYOffset = -0.28f;
+    private const float BreakBackgroundThickness = 0.12f;
+    private const float BreakFillThickness = 0.08f;
 
     private static Material _lineMaterial;
 
@@ -89,12 +100,19 @@ public sealed class Elite_HealthBar : MonoBehaviour
     private Transform _root;
     private LineRenderer _background;
     private LineRenderer _fill;
+    private LineRenderer _breakBackground;
+    private LineRenderer _breakFill;
     private float _width;
+    private float _breakFlashTimer;
 
     public void Bind(Character_Vitals vitals, NavFaction faction)
     {
         if (_vitals != null)
+        {
             _vitals.OnHealthChanged -= HandleHealthChanged;
+            _vitals.OnBreakChanged -= HandleBreakChanged;
+            _vitals.OnBroken -= HandleBroken;
+        }
 
         _vitals = vitals;
         EnsureVisuals(faction);
@@ -106,13 +124,20 @@ public sealed class Elite_HealthBar : MonoBehaviour
         }
 
         _vitals.OnHealthChanged += HandleHealthChanged;
+        _vitals.OnBreakChanged += HandleBreakChanged;
+        _vitals.OnBroken += HandleBroken;
         HandleHealthChanged(_vitals.Health, _vitals.MaxHealth);
+        HandleBreakChanged(_vitals.Break, _vitals.BreakMax);
     }
 
     private void OnDestroy()
     {
         if (_vitals != null)
+        {
             _vitals.OnHealthChanged -= HandleHealthChanged;
+            _vitals.OnBreakChanged -= HandleBreakChanged;
+            _vitals.OnBroken -= HandleBroken;
+        }
     }
 
     private void LateUpdate()
@@ -121,6 +146,7 @@ public sealed class Elite_HealthBar : MonoBehaviour
             return;
 
         _root.rotation = Camera.main.transform.rotation;
+        TickBreakFlash();
     }
 
     private void EnsureVisuals(NavFaction faction)
@@ -147,16 +173,33 @@ public sealed class Elite_HealthBar : MonoBehaviour
                 ? new Color(0.1f, 0.72f, 1f, 1f)
                 : new Color(1f, 0.18f, 0.18f, 1f);
             _fill = CreateLine("Fill", FillThickness, fillColor, 51);
+            _breakBackground = CreateLine(
+                "Break Background",
+                BreakBackgroundThickness,
+                new Color(0.04f, 0.035f, 0.02f, 0.86f),
+                52,
+                new Vector3(0f, BreakBarYOffset, 0f));
+            _breakFill = CreateLine(
+                "Break Fill",
+                BreakFillThickness,
+                new Color(1f, 0.78f, 0.18f, 1f),
+                53,
+                new Vector3(0f, BreakBarYOffset, 0f));
         }
 
         _root.gameObject.SetActive(true);
         SetLine(_background, 0f, 1f);
+        SetLine(_breakBackground, 0f, 1f);
     }
 
     private LineRenderer CreateLine(string objectName, float width, Color color, int sortingOrder)
+        => CreateLine(objectName, width, color, sortingOrder, Vector3.zero);
+
+    private LineRenderer CreateLine(string objectName, float width, Color color, int sortingOrder, Vector3 localPosition)
     {
         var lineObject = new GameObject(objectName);
         lineObject.transform.SetParent(_root, false);
+        lineObject.transform.localPosition = localPosition;
 
         LineRenderer line = lineObject.AddComponent<LineRenderer>();
         line.useWorldSpace = false;
@@ -182,6 +225,46 @@ public sealed class Elite_HealthBar : MonoBehaviour
         SetLine(_fill, 0f, ratio);
     }
 
+    private void HandleBreakChanged(float current, float max)
+    {
+        bool hasBreak = max > 0f;
+        if (_breakBackground != null)
+            _breakBackground.gameObject.SetActive(hasBreak);
+        if (_breakFill != null)
+            _breakFill.gameObject.SetActive(hasBreak);
+        if (!hasBreak)
+            return;
+
+        float ratio = Mathf.Clamp01(current / max);
+        SetLine(_breakFill, 0f, ratio);
+        if (_breakFlashTimer <= 0f && _breakFill != null)
+            SetLineColor(_breakFill, _vitals != null && _vitals.IsBroken ? BreakVulnerableColor : BreakReadyColor);
+    }
+
+    private void HandleBroken()
+    {
+        _breakFlashTimer = BreakFlashDuration;
+        if (_breakFill != null)
+        {
+            _breakFill.gameObject.SetActive(true);
+            SetLine(_breakFill, 0f, 1f);
+            SetLineColor(_breakFill, BreakFlashColor);
+        }
+    }
+
+    private void TickBreakFlash()
+    {
+        if (_breakFlashTimer <= 0f || _breakFill == null)
+            return;
+
+        _breakFlashTimer -= Time.deltaTime;
+        float t = 1f - Mathf.Clamp01(_breakFlashTimer / BreakFlashDuration);
+        SetLineColor(_breakFill, Color.Lerp(BreakFlashColor, BreakVulnerableColor, t));
+
+        if (_breakFlashTimer <= 0f)
+            SetLineColor(_breakFill, BreakVulnerableColor);
+    }
+
     private void SetLine(LineRenderer line, float startRatio, float endRatio)
     {
         if (line == null)
@@ -191,6 +274,20 @@ public sealed class Elite_HealthBar : MonoBehaviour
         line.SetPosition(0, new Vector3(left + _width * startRatio, 0f, 0f));
         line.SetPosition(1, new Vector3(left + _width * endRatio, 0f, 0f));
     }
+
+    private static void SetLineColor(LineRenderer line, Color color)
+    {
+        if (line == null)
+            return;
+
+        line.startColor = color;
+        line.endColor = color;
+    }
+
+    private static readonly Color BreakReadyColor = new(1f, 0.78f, 0.18f, 1f);
+    private static readonly Color BreakFlashColor = Color.white;
+    private static readonly Color BreakVulnerableColor = new(1f, 0.08f, 0.04f, 1f);
+    private const float BreakFlashDuration = 0.28f;
 
     private static Material ResolveLineMaterial()
     {

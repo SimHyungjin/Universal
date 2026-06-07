@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b6bb736f4df4c74ba1d7e9a00f9c321, type: 3}
+  m_Name: SO_Character_BreakFeel
+  m_EditorClassIdentifier: Assembly-CSharp::SO_Character_BreakFeel
+  brokenDuration: 3
+  brokenDamageTakenMultiplier: 1.35
+  recoveryRatioOnBrokenEnd: 1
+  recoveryDelay: 1.5
+  recoveryPerSecond: 60
+  shakeAmplitude: 0.38
+  shakeDuration: 0.32
+  shakeFrequency: 36
+  hitstopDuration: 0.2
+  hitstopTimeScale: 0.01
+  cameraCue:
+    enabled: 0
+    duration: 0.1
+    fovOverride: 38
+    distanceOverride: 4.4
+    heightDelta: -0.35
+    yawVelocity: 18
+  brokenOutlineRenderingLayerMask:
+    serializedVersion: 0
+    m_Bits: 33

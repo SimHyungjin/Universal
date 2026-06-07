@@ -14,6 +14,10 @@ public sealed class SO_Character_Stats : ScriptableObject
     [Tooltip("방어력 % 감소. taken = incoming × (1 - defense / 100)")]
     [SerializeField] private float defense;
 
+    [Header("Break")]
+    [Tooltip("0 이하면 브레이크 게이지를 사용하지 않는다. 장수/엘리트용 개인 전투 압박 게이지.")]
+    [SerializeField, Min(0f)] private float breakMax;
+
     [Header("Movement")]
     [Tooltip("이동 속도 절대값 (m/s). 점프 높이/대시 거리는 이 값에 비례 계산됨")]
     [SerializeField] private float moveSpeed = 5f;
@@ -36,6 +40,7 @@ public sealed class SO_Character_Stats : ScriptableObject
     public float MaxHealth => maxHealth;
     public float AttackPower => attackPower;
     public float Defense => defense;
+    public float BreakMax => breakMax;
     public float MoveSpeed => moveSpeed;
     public float BodyRadius => bodyRadius;
     public float GaugeMax => gaugeMax;
