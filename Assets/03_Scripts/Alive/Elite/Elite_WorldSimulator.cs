@@ -27,6 +27,8 @@ public sealed class Elite_WorldSimulator
 
     private readonly List<Sector> _knownSectors = new();
     private readonly List<Sector> _neighbors = new();
+    private readonly List<SectorBattleState> _defenderHubs = new();
+    private readonly List<Elite_State> _factionDefenders = new();
 
     // BFS(2칸 탐색) 작업용 재사용 버퍼.
     private readonly List<Sector> _bfsNeighbors = new();
@@ -204,6 +206,8 @@ public sealed class Elite_WorldSimulator
         // 적대 대상이 전혀 없으면 기존 랜덤 배회 폴백.
         if (target == null)
         {
+            if (GetBattleRole(state) == BattleRole.Defender)
+                return null;
             if (UnityEngine.Random.value > 0.35f)
                 return null;
             return _neighbors[UnityEngine.Random.Range(0, _neighbors.Count)];
@@ -241,11 +245,7 @@ public sealed class Elite_WorldSimulator
         switch (GetBattleRole(state))
         {
             case BattleRole.Defender:
-                if (ShouldDefenderHoldCurrentSector(state))
-                    return state.CurrentSector;
-                // 안정화 후엔 글로벌 적 거점(Vanguard 몫)으로 돌격하지 않고, 근거리(홉 내)에서 우리 점령이
-                // 아직 굳지 않은 접전 섹터를 보강하러 간다. 근처에 일감이 없으면 null → 제자리 순찰.
-                return ChooseDefenderReinforceTarget(state);
+                return ChooseDefenderHubTarget(state, elites);
 
             case BattleRole.Duelist:
                 Sector eliteTarget = FindHostileEliteTargetSector(
@@ -261,37 +261,60 @@ public sealed class Elite_WorldSimulator
 
                 return playerSector != null
                     ? playerSector
-                    : ChooseHighestHostilePressureTarget(state, playerSector, elites, preferNear: true);
+                    : ChooseNearestHostileTarget(state, playerSector, elites);
 
             case BattleRole.Vanguard:
             default:
-                return ChooseHighestHostilePressureTarget(state, playerSector, elites, preferNear: false);
+                return ChooseVanguardMainHubTarget(state)
+                       ?? ChooseNearestHostileTarget(state, playerSector, elites);
         }
     }
 
-    private Sector ChooseHighestHostilePressureTarget(
-        Elite_State state,
-        Sector playerSector,
-        IReadOnlyList<Elite_State> elites,
-        bool preferNear)
+    // 뱅가드는 상대의 가장 큰 링크 허브를 메인 목표로 삼고, 경로상의 섹터를 뚫으며 전진한다.
+    private Sector ChooseVanguardMainHubTarget(Elite_State state)
     {
-        Sector target = preferNear ? FindHighestHostilePressureSectorWithinHops(state, HostileSearchHops) : null;
-        if (target == null)
-            target = FindGlobalHighestHostilePressureSector(state);
+        Sector best = null;
+        int bestInfluence = -1;
+        int bestHops = int.MaxValue;
+        float bestWorldDistance = float.MaxValue;
+        int bestLinkId = int.MaxValue;
 
-        if (target == null)
-            target = FindNearestHostileSectorWithinHops(state, playerSector, elites, HostileSearchHops);
+        for (int i = 0; i < _knownSectors.Count; i++)
+        {
+            Sector sector = _knownSectors[i];
+            if (!TryGetBattleState(sector, out SectorBattleState battle)
+                || !IsHostileLinkHub(battle, state.Faction))
+                continue;
+
+            int hops = GetHopDistance(state.CurrentSector, sector);
+            float worldDistance = (state.WorldPosition - sector.transform.position).sqrMagnitude;
+            if (battle.LinkInfluence > bestInfluence
+                || (battle.LinkInfluence == bestInfluence && hops < bestHops)
+                || (battle.LinkInfluence == bestInfluence && hops == bestHops && worldDistance < bestWorldDistance)
+                || (battle.LinkInfluence == bestInfluence && hops == bestHops
+                    && Mathf.Approximately(worldDistance, bestWorldDistance) && battle.LinkId < bestLinkId))
+            {
+                best = sector;
+                bestInfluence = battle.LinkInfluence;
+                bestHops = hops;
+                bestWorldDistance = worldDistance;
+                bestLinkId = battle.LinkId;
+            }
+        }
+
+        return best;
+    }
+
+    private Sector ChooseNearestHostileTarget(
+        Elite_State state, Sector playerSector, IReadOnlyList<Elite_State> elites)
+    {
+        Sector target = FindNearestHostileSectorWithinHops(state, playerSector, elites, HostileSearchHops);
         if (target == null)
             target = FindGlobalNearestHostileSector(state, playerSector, elites);
-
         return target;
     }
 
     private float CombatRoamRadius => _settings != null ? _settings.CombatRoamRadius : 9f;
-    private float SettingsDefenderHoldOwnControlRatio => _settings != null ? Mathf.Clamp01(_settings.DefenderHoldOwnControlRatio) : 0.8f;
-    private float HostileControlScoreMultiplier => _settings != null ? Mathf.Max(0f, _settings.HostileControlScoreMultiplier) : 1000f;
-    private float HostilePowerScoreMultiplier => _settings != null ? Mathf.Max(0f, _settings.HostilePowerScoreMultiplier) : 1f;
-    private float TargetDistanceScorePenalty => _settings != null ? Mathf.Max(0f, _settings.TargetDistanceScorePenalty) : 0.01f;
 
     private void UpdateIdleRoamMotion(Elite_State state, float dt)
     {
@@ -471,80 +494,6 @@ public sealed class Elite_WorldSimulator
         return best;
     }
 
-    // origin에서 게이트 BFS(깊이 maxHops)로 적대 점유 섹터를 찾아 (홉, 그다음 월드거리) 최근접을 반환.
-    private Sector FindHighestHostilePressureSectorWithinHops(Elite_State state, int maxHops)
-    {
-        Sector origin = state.CurrentSector;
-        if (origin == null)
-            return null;
-
-        _bfsVisited.Clear();
-        _bfsQueue.Clear();
-        _bfsVisited.Add(origin);
-        _bfsQueue.Enqueue(new BfsNode(origin, 0));
-
-        Sector best = null;
-        float bestScore = 0f;
-
-        while (_bfsQueue.Count > 0)
-        {
-            BfsNode node = _bfsQueue.Dequeue();
-
-            if (node.Sector != origin)
-            {
-                float score = GetHostilePressureScore(node.Sector, state.Faction);
-                if (score > bestScore)
-                {
-                    best = node.Sector;
-                    bestScore = score;
-                }
-            }
-
-            if (node.Depth >= maxHops)
-                continue;
-
-            _bfsNeighbors.Clear();
-            CollectNeighbors(node.Sector, _bfsNeighbors);
-            for (int i = 0; i < _bfsNeighbors.Count; i++)
-            {
-                Sector n = _bfsNeighbors[i];
-                if (n == null || _bfsVisited.Contains(n))
-                    continue;
-                _bfsVisited.Add(n);
-                _bfsQueue.Enqueue(new BfsNode(n, node.Depth + 1));
-            }
-        }
-
-        return best;
-    }
-
-    private Sector FindGlobalHighestHostilePressureSector(Elite_State state)
-    {
-        Sector best = null;
-        float bestScore = 0f;
-        Vector3 from = state.WorldPosition;
-
-        for (int i = 0; i < _knownSectors.Count; i++)
-        {
-            Sector sector = _knownSectors[i];
-            if (sector == null || sector == state.CurrentSector)
-                continue;
-
-            float score = GetHostilePressureScore(sector, state.Faction);
-            if (score <= 0f)
-                continue;
-
-            score -= Vector3.Distance(from, sector.transform.position) * TargetDistanceScorePenalty;
-            if (score > bestScore)
-            {
-                best = sector;
-                bestScore = score;
-            }
-        }
-
-        return best;
-    }
-
     private static Sector FindHostileEliteTargetSector(
         Elite_State state,
         IReadOnlyList<Elite_State> elites,
@@ -602,26 +551,6 @@ public sealed class Elite_WorldSimulator
         return Mathf.Lerp(min, max, jitter);
     }
 
-    private bool ShouldDefenderHoldCurrentSector(Elite_State state)
-        => TryGetBattleState(state.CurrentSector, out SectorBattleState battle)
-           && GetOwnControlRatio(battle, state.Faction) < SettingsDefenderHoldOwnControlRatio;
-
-    private float GetHostilePressureScore(Sector sector, NavFaction faction)
-    {
-        if (!TryGetBattleState(sector, out SectorBattleState battle))
-            return 0f;
-
-        float hostileControl = 1f - GetOwnControlRatio(battle, faction);
-        float hostilePower = faction == NavFaction.Ally ? battle.EnemyPower : battle.AllyPower;
-        return hostileControl * HostileControlScoreMultiplier + hostilePower * HostilePowerScoreMultiplier;
-    }
-
-    private static float GetOwnControlRatio(SectorBattleState battle, NavFaction faction)
-    {
-        float gauge = battle != null ? battle.GaugeNormalized : 0.5f;
-        return faction == NavFaction.Ally ? gauge : 1f - gauge;
-    }
-
     private static bool TryGetBattleState(Sector sector, out SectorBattleState battle)
     {
         battle = null;
@@ -654,13 +583,11 @@ public sealed class Elite_WorldSimulator
                    && state.CurrentSector == playerSector;
         }
 
-        // 이미 안정화된(자기 점령률 ≥ 0.80) 디펜더는 잔여 잡몹과 교전에 묶이지 않고 떠난다.
-        // 단, 적 엘리트나 플레이어가 같은 섹터에 있으면 계속 교전한다.
-        if (GetBattleRole(state) == BattleRole.Defender
-            && !ShouldDefenderHoldCurrentSector(state)
-            && FindHostileEliteInSector(state, state.CurrentSector, elites) == null
-            && !(state.Faction == NavFaction.Enemy && state.CurrentSector == playerSector))
-            return false;
+        // 디펜더는 허브에서만 교전한다. 비허브 전투에는 붙잡히지 않고 자기 진영 허브로 복귀한다.
+        if (GetBattleRole(state) == BattleRole.Defender)
+            return IsOwnLinkHub(state.CurrentSector, state.Faction)
+                   && (SectorHasHostile(state.CurrentSector, state.Faction, elites, playerSector)
+                       || (hasBackgroundHostile != null && hasBackgroundHostile(state.CurrentSector, state.Faction)));
 
         return SectorHasHostile(state.CurrentSector, state.Faction, elites, playerSector)
                || (hasBackgroundHostile != null && hasBackgroundHostile(state.CurrentSector, state.Faction));
@@ -718,21 +645,160 @@ public sealed class Elite_WorldSimulator
         => FindNearestSectorWithinHops(state.CurrentSector, state.WorldPosition, maxHops,
             s => SectorHasHostile(s, state.Faction, elites, playerSector));
 
-    // Defender 안정화 후 목표: 근거리(홉 내)에서 우리 점령이 아직 굳지 않고(자기 점령률 < 사수 임계)
-    // 실제 적 병력이 있는 접전 섹터 중 가장 가까운 곳. 글로벌 폴백이 없어 적 본진까지 돌격하지 않는다.
-    private Sector ChooseDefenderReinforceTarget(Elite_State state)
-        => FindNearestSectorWithinHops(state.CurrentSector, state.WorldPosition, HostileSearchHops,
-            s => DefenderNeedsReinforcement(s, state.Faction));
-
-    // 보강 대상: 우리가 아직 굳히지 못했고(자기 점령률 < 임계), 실제 적 병력이 있는 섹터.
-    private bool DefenderNeedsReinforcement(Sector sector, NavFaction faction)
+    // 같은 진영 디펜더를 링크 크기(LinkInfluence)에 비례해 각 허브에 안정적으로 분배한다.
+    private Sector ChooseDefenderHubTarget(Elite_State state, IReadOnlyList<Elite_State> elites)
     {
-        if (!TryGetBattleState(sector, out SectorBattleState battle))
-            return false;
-        if (GetOwnControlRatio(battle, faction) >= SettingsDefenderHoldOwnControlRatio)
-            return false; // 이미 우리가 굳힌 섹터 — 보강 불필요.
-        float hostileTotal = faction == NavFaction.Ally ? battle.EnemyTotal : battle.AllyTotal;
-        return hostileTotal > 0f; // 실제 적 병력이 있는 접전 섹터만(빈/중립 섹터로 헤매지 않게).
+        _defenderHubs.Clear();
+        for (int i = 0; i < _knownSectors.Count; i++)
+        {
+            if (TryGetBattleState(_knownSectors[i], out SectorBattleState battle)
+                && IsOwnLinkHub(battle, state.Faction))
+                _defenderHubs.Add(battle);
+        }
+
+        if (_defenderHubs.Count == 0)
+            return null;
+
+        _defenderHubs.Sort((a, b) => a.LinkId.CompareTo(b.LinkId));
+
+        _factionDefenders.Clear();
+        for (int i = 0; i < elites.Count; i++)
+        {
+            Elite_State elite = elites[i];
+            if (elite != null && elite.IsAlive && elite.Faction == state.Faction
+                && GetBattleRole(elite) == BattleRole.Defender)
+                _factionDefenders.Add(elite);
+        }
+
+        int totalInfluence = 0;
+        for (int i = 0; i < _defenderHubs.Count; i++)
+            totalInfluence += Mathf.Max(1, _defenderHubs[i].LinkInfluence);
+
+        // 먼저 링크 크기에 비례한 허브별 필요 인원 수를 확정한다.
+        int[] hubQuotas = new int[_defenderHubs.Count];
+        int reservedDefenders = 0;
+        if (_factionDefenders.Count >= _defenderHubs.Count)
+        {
+            for (int hubIndex = 0; hubIndex < _defenderHubs.Count; hubIndex++)
+                hubQuotas[hubIndex] = 1;
+            reservedDefenders = _defenderHubs.Count;
+        }
+
+        int proportionalDefenders = _factionDefenders.Count - reservedDefenders;
+        for (int defenderIndex = 0; defenderIndex < proportionalDefenders; defenderIndex++)
+        {
+            int influenceSlot = Mathf.Min(
+                totalInfluence - 1,
+                Mathf.FloorToInt((defenderIndex + 0.5f) * totalInfluence / proportionalDefenders));
+
+            int accumulated = 0;
+            for (int hubIndex = 0; hubIndex < _defenderHubs.Count; hubIndex++)
+            {
+                accumulated += Mathf.Max(1, _defenderHubs[hubIndex].LinkInfluence);
+                if (influenceSlot < accumulated)
+                {
+                    hubQuotas[hubIndex]++;
+                    break;
+                }
+            }
+        }
+
+        // 비례 몫 안에서는 가까운 디펜더부터 배치한다. 지형을 무시한 ID 배정으로 적 영역을
+        // 불필요하게 가로지르거나 플레이어 섹터에 갇히는 상황을 줄인다.
+        var assigned = new HashSet<Elite_State>();
+        while (assigned.Count < _factionDefenders.Count)
+        {
+            Elite_State bestDefender = null;
+            int bestHubIndex = -1;
+            int bestHops = int.MaxValue;
+            float bestWorldDistance = float.MaxValue;
+
+            for (int defenderIndex = 0; defenderIndex < _factionDefenders.Count; defenderIndex++)
+            {
+                Elite_State defender = _factionDefenders[defenderIndex];
+                if (assigned.Contains(defender))
+                    continue;
+
+                for (int hubIndex = 0; hubIndex < _defenderHubs.Count; hubIndex++)
+                {
+                    if (hubQuotas[hubIndex] <= 0)
+                        continue;
+
+                    Sector hub = _defenderHubs[hubIndex].Sector;
+                    int hops = GetHopDistance(defender.CurrentSector, hub);
+                    float worldDistance = (defender.WorldPosition - hub.transform.position).sqrMagnitude;
+
+                    if (hops < bestHops
+                        || (hops == bestHops && worldDistance < bestWorldDistance)
+                        || (hops == bestHops && Mathf.Approximately(worldDistance, bestWorldDistance)
+                            && (bestDefender == null || defender.Id < bestDefender.Id)))
+                    {
+                        bestDefender = defender;
+                        bestHubIndex = hubIndex;
+                        bestHops = hops;
+                        bestWorldDistance = worldDistance;
+                    }
+                }
+            }
+
+            if (bestDefender == null || bestHubIndex < 0)
+                return null;
+
+            assigned.Add(bestDefender);
+            hubQuotas[bestHubIndex]--;
+            if (bestDefender == state)
+                return _defenderHubs[bestHubIndex].Sector;
+        }
+
+        return null;
+    }
+
+    private static bool IsOwnLinkHub(Sector sector, NavFaction faction)
+        => TryGetBattleState(sector, out SectorBattleState battle) && IsOwnLinkHub(battle, faction);
+
+    private static bool IsOwnLinkHub(SectorBattleState battle, NavFaction faction)
+        => battle != null
+           && battle.IsLinkHub
+           && (faction == NavFaction.Ally
+               ? battle.Control == SectorControl.Ally
+               : battle.Control == SectorControl.Enemy);
+
+    private static bool IsHostileLinkHub(SectorBattleState battle, NavFaction faction)
+        => battle != null
+           && battle.IsLinkHub
+           && (faction == NavFaction.Ally
+               ? battle.Control == SectorControl.Enemy
+               : battle.Control == SectorControl.Ally);
+
+    private static int GetHopDistance(Sector origin, Sector target)
+    {
+        if (origin == null || target == null)
+            return int.MaxValue;
+        if (origin == target)
+            return 0;
+
+        var visited = new HashSet<Sector> { origin };
+        var queue = new Queue<BfsNode>();
+        var neighbors = new List<Sector>();
+        queue.Enqueue(new BfsNode(origin, 0));
+
+        while (queue.Count > 0)
+        {
+            BfsNode node = queue.Dequeue();
+            neighbors.Clear();
+            CollectNeighbors(node.Sector, neighbors);
+            for (int i = 0; i < neighbors.Count; i++)
+            {
+                Sector neighbor = neighbors[i];
+                if (neighbor == null || !visited.Add(neighbor))
+                    continue;
+                if (neighbor == target)
+                    return node.Depth + 1;
+                queue.Enqueue(new BfsNode(neighbor, node.Depth + 1));
+            }
+        }
+
+        return int.MaxValue;
     }
 
     // origin에서 게이트 BFS(깊이 maxHops)로 match를 만족하는 (홉, 그다음 월드거리) 최근접 섹터.

@@ -17,6 +17,8 @@ public sealed class SO_Character_DashRule : ScriptableObject
     [SerializeField] private float gateTransitionSpeed = 18f;
     [Tooltip("How long after a dash ends the player can still enter a sector gate.")]
     [SerializeField] private float gateEntryGraceDuration = 0.35f;
+    [Tooltip("게이트 통과가 끝난 직후 캐릭터가 무적인 시간(초). 전환 도중엔 이미 피격 무시이고, 이 값은 도착 섹터에서 잡몹 떼에 둘러싸여 즉사하는 것을 막는다.")]
+    [SerializeField] private float gatePostTransitionInvincibleDuration = 1f;
 
     public float DashDuration => dashDuration;
     public float DashCooldown => dashCooldown;
@@ -24,4 +26,5 @@ public sealed class SO_Character_DashRule : ScriptableObject
     public float DashSpeedMultiplier => dashSpeedMultiplier;
     public float GateTransitionSpeed => gateTransitionSpeed;
     public float GateEntryGraceDuration => gateEntryGraceDuration;
+    public float GatePostTransitionInvincibleDuration => gatePostTransitionInvincibleDuration;
 }

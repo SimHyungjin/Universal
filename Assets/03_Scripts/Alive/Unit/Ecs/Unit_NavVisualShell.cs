@@ -10,18 +10,16 @@ namespace MapNav.Ecs
     {
         [SerializeField] private Transform visualRoot;
         [SerializeField] private Animator animator;
-        [SerializeField] private SO_Actor_AnimationData animationData;
         [SerializeField] private ActorAnimationTimeDomain animationTimeDomain = ActorAnimationTimeDomain.World;
+
+        [Header("Faction Material")]
+        [Tooltip("진영색을 입힐 본체 렌더러. 비우면 visualRoot 하위에서 자동 수집.")]
+        [SerializeField] private Renderer[] bodyRenderers;
 
         [SerializeField] private bool syncPosition = true;
         [SerializeField] private bool syncRotation = true;
         [SerializeField] private float positionSharpness = 40f;
         [SerializeField] private float rotationSharpness = 40f;
-
-        [Header("Health Bar")]
-        [SerializeField] private GameObject healthBarRoot;
-        [SerializeField] private Renderer healthFillRenderer;
-        [SerializeField] private bool faceHealthBarToCamera = true;
 
         [Header("Debug")]
         [SerializeField] private bool drawSelectedPath = true;
@@ -32,9 +30,9 @@ namespace MapNav.Ecs
 
         private Entity _entity = Entity.Null;
         private NavFaction _faction;
+        private SO_Unit_Data _unitData;
+        private Renderer[] _resolvedBodyRenderers;
         private SO_Actor_AnimationData _boundAnimationData;
-        private Camera _cachedCamera;
-        private Transform _cachedCameraTransform;
         private ActorLocomotionAnimation _locomotion;
         private int _attackHash;
         private HitReactionAnimSet _hitReactionSet;
@@ -54,11 +52,6 @@ namespace MapNav.Ecs
         private float _cPositionSharpness, _cRotationSharpness;
         private float _cStartRunTransition, _cStopRunTransition, _cRunEnterDelay, _cMinRunDuration;
         private float _cAttackTransition;
-        private MaterialPropertyBlock _healthFillBlock;
-        private float _previousHealthFill = -1f;
-        private bool _healthBarVisible;
-
-        private static readonly int FillId = Shader.PropertyToID("_Fill");
 
         public Entity Entity => _entity;
         public NavFaction Faction => _faction;
@@ -127,11 +120,13 @@ namespace MapNav.Ecs
             }
         }
 
-        public void Bind(Entity entity, NavFaction faction, in LocalTransform initialTransform, in NavAgentAttackProfile attackProfile, SO_Actor_AnimationData boundAnimationData)
+        public void Bind(Entity entity, NavFaction faction, in LocalTransform initialTransform, in NavAgentAttackProfile attackProfile, SO_Unit_Data unitData)
         {
             _entity = entity;
             _faction = faction;
-            _boundAnimationData = boundAnimationData;
+            _unitData = unitData;
+            _boundAnimationData = unitData != null ? unitData.AnimationData : null;
+            ApplyFactionMaterial(faction);
             ResolveProfile();
             CacheHashes();
             _animation.Reset();
@@ -144,8 +139,6 @@ namespace MapNav.Ecs
             _wasDying = false;
             _wasAttacking = false;
             _previousAttackPhase = NavAttackPhase.Idle;
-            _previousHealthFill = -1f;
-            SetHealthBarVisible(false);
 
             // 잡몹의 공격 모션 정보는 SO_Attack_Data가 단일 진실이며, 스폰 시점에 NavAgentAttackProfile로 베이크되어 들어온다.
             string attackStateName = attackProfile.AttackStateName.IsEmpty
@@ -172,9 +165,7 @@ namespace MapNav.Ecs
             _previousLaunchAirborne = 0;
             _downPendingAfterLaunch = false;
             _wasDownLocked = false;
-            _previousHealthFill = -1f;
             _boundAnimationData = null;
-            SetHealthBarVisible(false);
             if (CanUseAnimator())
                 ApplyAnim(false);
         }
@@ -186,7 +177,7 @@ namespace MapNav.Ecs
             in NavAgentLaunch launch,
             in NavAgentDeath death,
             in NavAgentAttack attack,
-            in NavAgentHealth health,
+            NavFaction faction,
             float deltaTime)
         {
             Transform root = _root;
@@ -197,7 +188,9 @@ namespace MapNav.Ecs
                 root.rotation = Quaternion.Slerp(root.rotation, ecsTransform.Rotation, DampFactor(_cRotationSharpness, deltaTime));
 
             bool dying = death.Dying != 0;
-            UpdateHealthBar(health, dying);
+            // NavDeathSystem이 쓰러짐(death) 타이머를 끝내며 Dying을 푸는 순간 = 아군 부활.
+            // ECS가 같은 프레임에 faction=Ally로 바꿔 넘겨주므로, 여기서 파티클·머테리얼·wakeup을 한 번에 연출한다.
+            bool reviving = _wasDying && !dying;
             if (CanUseAnimator())
                 _animation.SyncSpeed(animationTimeDomain);
 
@@ -206,6 +199,19 @@ namespace MapNav.Ecs
                 if (CanUseAnimator())
                     _animation.PlayHitReaction(_hitReactionSet, HitReactionKind.Death);
                 _animation.ResetLocomotionTimers();
+            }
+            else if (reviving)
+            {
+                // 사망→부활: 파티클 발생 → 머테리얼 변경(ConvertTo 내부 순서) → wakeup 애니메이션.
+                ConvertTo(faction);
+                if (CanUseAnimator())
+                    _animation.PlayHitReaction(_hitReactionSet, HitReactionKind.Wakeup);
+                _animation.ResetLocomotionTimers();
+            }
+            else if (!dying && faction != _faction)
+            {
+                // 살아있는 채 진영이 바뀐 변이(매크로 비율 조정): 파티클 + 머테리얼만, wakeup 없음.
+                ConvertTo(faction);
             }
 
             bool attacking = !dying && attack.Phase != NavAttackPhase.Idle;
@@ -226,7 +232,9 @@ namespace MapNav.Ecs
             bool playedReactionThisTick = false;
 
             // 사망 중에는 피격 리액션 애니메이션으로 사망 애니메이션을 덮어쓰지 않는다.
-            if (!dying)
+            // 부활 프레임(reviving)도 제외: MotionLockTimer가 wakeup 값으로 점프해 피격으로 오인되어
+            // wakeup 애니메이션을 덮어쓰는 것을 막는다.
+            if (!dying && !reviving)
             {
                 bool newKnockback  = isKnockedBack && !_wasKnockedBack;
                 bool newMotionLock = knockback.MotionLockTimer > _previousMotionLockTimer + 0.0001f;
@@ -295,7 +303,6 @@ namespace MapNav.Ecs
 
         public void TickIdle()
         {
-            SetHealthBarVisible(false);
             ApplyAnim(false);
         }
 
@@ -318,57 +325,6 @@ namespace MapNav.Ecs
             // 끌어내려 syncPosition과 충돌한다(launch 당한 잡몹이 반쯤 땅에 박힘). 비주얼 셸에서는 항상 끈다.
             if (animator != null)
                 animator.applyRootMotion = false;
-        }
-
-        private void UpdateHealthBar(in NavAgentHealth health, bool dying)
-        {
-            if (healthBarRoot == null || healthFillRenderer == null)
-                return;
-
-            bool visible = !dying && health.Max > 0f && health.Current > 0f && health.Current < health.Max;
-            SetHealthBarVisible(visible);
-            if (!visible)
-                return;
-
-            float fill = Mathf.Clamp01(health.Current / health.Max);
-            if (!Mathf.Approximately(fill, _previousHealthFill))
-            {
-                _healthFillBlock ??= new MaterialPropertyBlock();
-                healthFillRenderer.GetPropertyBlock(_healthFillBlock);
-                _healthFillBlock.SetFloat(FillId, fill);
-                healthFillRenderer.SetPropertyBlock(_healthFillBlock);
-                _previousHealthFill = fill;
-            }
-
-            if (!faceHealthBarToCamera)
-                return;
-
-            Transform cam = ResolveMainCameraTransform();
-            if (cam == null)
-                return;
-
-            Transform bar = healthBarRoot.transform;
-            bar.rotation = Quaternion.LookRotation(cam.forward, cam.up);
-        }
-
-        private Transform ResolveMainCameraTransform()
-        {
-            if (_cachedCamera != null && _cachedCamera.isActiveAndEnabled)
-                return _cachedCameraTransform;
-
-            _cachedCamera = Camera.main;
-            _cachedCameraTransform = _cachedCamera != null ? _cachedCamera.transform : null;
-            return _cachedCameraTransform;
-        }
-
-        private void SetHealthBarVisible(bool visible)
-        {
-            if (_healthBarVisible == visible)
-                return;
-
-            _healthBarVisible = visible;
-            if (healthBarRoot != null)
-                healthBarRoot.SetActive(visible);
         }
 
         private void ResolveProfile()
@@ -401,7 +357,38 @@ namespace MapNav.Ecs
             _animation.RegisterStateNames(idleState, runState);
         }
 
-        private SO_Actor_AnimationData ActiveAnimationData => _boundAnimationData != null ? _boundAnimationData : animationData;
+        private SO_Actor_AnimationData ActiveAnimationData => _boundAnimationData;
+
+        // ── 진영 머테리얼 / 전향 ──────────────────────────────────────────────────
+        // 본체 렌더러에 진영색을 입힌다. Bind(스폰)와 ConvertTo(전향)가 공용으로 쓴다.
+        private void ApplyFactionMaterial(NavFaction faction)
+        {
+            if (_unitData == null) return;
+            Material mat = _unitData.MaterialFor(faction);
+            if (mat == null) return;
+
+            Renderer[] renderers = ResolveBodyRenderers();
+            for (int i = 0; i < renderers.Length; i++)
+                if (renderers[i] != null) renderers[i].sharedMaterial = mat;
+        }
+
+        private Renderer[] ResolveBodyRenderers()
+        {
+            if (bodyRenderers != null && bodyRenderers.Length > 0) return bodyRenderers;
+            _resolvedBodyRenderers ??= (visualRoot != null ? visualRoot : transform).GetComponentsInChildren<Renderer>(true);
+            return _resolvedBodyRenderers;
+        }
+
+        // 적↔아군 전향: 그 자리에 전향 파티클을 터뜨린 뒤 진영 머테리얼을 교체한다(파티클 → 머테리얼 순).
+        // 죽음→부활(wakeup 동반)과 살아있는 변이 양쪽에서 Tick이 호출한다.
+        // 파티클은 풀(CombatFeedback→App.Spawn)에서 스폰돼 AutoDespawn이 자동 회수한다(Instantiate 누수 금지).
+        public void ConvertTo(NavFaction faction)
+        {
+            _faction = faction;
+            if (_unitData != null)
+                CombatFeedback.SpawnVfxAtPosition(_unitData.ConversionVfxAddress, _root.position, destroyCancellationToken);
+            ApplyFactionMaterial(faction);
+        }
 
         private static Vector3 Damp(Vector3 current, Vector3 target, float sharpness, float deltaTime)
             => Vector3.Lerp(current, target, DampFactor(sharpness, deltaTime));

@@ -19,8 +19,8 @@ public class GameScene : SceneBase
         var catalog = await App.LoadAssetAsync<SO_Sector_Catalog>("SO_Sector_Catalog", token: token);
         
         var generator = new SectorGenerator(
-            sectorCount: 10,
-            gridSize: new Vector2Int(5, 7),
+            sectorCount: 15,
+            gridSize: new Vector2Int(6, 8),
             cellSize: 200f,
             extraConnectionCount: 2,
             catalog: catalog);

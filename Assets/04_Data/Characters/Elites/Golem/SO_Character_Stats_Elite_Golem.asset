@@ -20,4 +20,4 @@ MonoBehaviour:
   gaugeMax: 100
   gaugeGainPerDamage: 0.5
   gaugeGainOnReceive: 15
-  baseSectorPower: 200
+  baseSectorPower: 500

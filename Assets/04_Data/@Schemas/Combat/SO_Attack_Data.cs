@@ -222,13 +222,13 @@ public struct AttackCameraShakeData
     [Min(0f)] public float frequency;
 }
 
-// 필살기 컷인용 월드 감속. hitstop과 달리 더 긴 시간/덜 강한 감속을 발동 시점에 적용.
-// 실행 시 LoopManager.SetTimeScales(worldScale, 1f)로 플레이어는 정상, 월드만 감속.
+// 공격 발동 슬로모션. hitstop과 달리 더 긴 시간/덜 강한 전역 감속을 발동 시점에 적용.
 [Serializable]
 public struct AttackSlowMoData
 {
     public bool enabled;
-    [Range(0f, 1f)] public float worldScale;
+    [FormerlySerializedAs("worldScale")]
+    [Range(0f, 1f)] public float timeScale;
     [Min(0f)] public float duration;
 }
 
@@ -250,6 +250,8 @@ public struct AttackCameraCueData
 [Serializable]
 public struct AttackReleaseEffectData
 {
+    [Range(0f, 1f), Tooltip("공격 진행도 기준 release 효과 실행 시점. 0=시작, 1=공격 종료.")]
+    public float timing;
     public AttackCameraShakeData shake;
     public AttackSlowMoData slowMo;
 }

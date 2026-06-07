@@ -696,12 +696,12 @@ public sealed class Elite_Manager : IDisposable
     }
 
     // 튜닝값은 SO_SectorBattle_Settings에서 주입(없으면 기본값 폴백).
-    // DeathDisplayDelay: 실체 장수 사망 연출 시간(비실체는 즉시). EliteAttritionRate: 비실체 엘리트 체력 감소율.
     private float DeathDisplayDelay  => _settings != null ? _settings.DeathDisplayDelay  : 1.8f;
-    private float EliteAttritionRate => _settings != null ? _settings.EliteAttritionRate : 0.03f;
+    private float EliteDamagePerHostilePowerPerSec =>
+        _settings != null ? _settings.EliteDamagePerHostilePowerPerSec : 0.03f;
 
-    // 비실체 엘리트의 백그라운드 생사: 자기 진영이 전력 열세인 섹터에 있으면 우세분에 비례해 체력이 깎인다.
-    // 같은 섹터의 아군 잡몹/엘리트 전력(SectorBattleManager 합산)이 버텨준다. 사망은 ReapDeadElites가 수거.
+    // 비실체 엘리트는 같은 섹터의 상대 진영 Power에 비례해 피해를 받는다.
+    // 자기 Power는 섹터 전투에만 기여하며 자신의 체력 피해를 상쇄하지 않는다.
     private void TickEliteAttrition(float deltaTime)
     {
         if (_sectorBattleManager == null || deltaTime <= 0f) return;
@@ -716,10 +716,8 @@ public sealed class Elite_Manager : IDisposable
             if (e.IsFieldTraveling) continue;                                       // 게이트 이동 중은 안전.
             if (!_sectorBattleManager.TryGetState(e.CurrentSector, out SectorBattleState s)) continue;
 
-            float own = e.Faction == NavFaction.Ally ? s.AllyAttritionPower : s.EnemyAttritionPower;
-            float foe = e.Faction == NavFaction.Ally ? s.EnemyAttritionPower : s.AllyAttritionPower;
-            if (foe > own)
-                e.Health -= (foe - own) * EliteAttritionRate * deltaTime;
+            float hostilePower = e.Faction == NavFaction.Ally ? s.EnemyPower : s.AllyPower;
+            e.Health -= hostilePower * EliteDamagePerHostilePowerPerSec * deltaTime;
         }
     }
 

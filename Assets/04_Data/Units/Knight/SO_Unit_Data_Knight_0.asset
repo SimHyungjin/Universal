@@ -10,10 +10,13 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 625adc46bf2a48d587958e2cfba2bd13, type: 3}
-  m_Name: SO_Unit_Data_Knight_Blue_1
+  m_Name: SO_Unit_Data_Knight_0
   m_EditorClassIdentifier: Assembly-CSharp::MapNav.Ecs.SO_Unit_Data
   displayName: Enemy Unit
-  statsData: {fileID: 11400000, guid: 253d347fa95d0a54ea4d1dddf1cc8aeb, type: 2}
+  statsData: {fileID: 11400000, guid: ebbdcb9cd6054504ab1b71551cd67c29, type: 2}
   animationData: {fileID: 11400000, guid: c81410fa52b445159267cc666da98ca9, type: 2}
   actionRecovery: {fileID: 11400000, guid: b5ab2f8a3a9049a46a1547219c344ccc, type: 2}
-  visualPrefab: {fileID: 268108290394739926, guid: 17d82b809764d7749a637eac7bc0760f, type: 3}
+  visualPrefab: {fileID: 268108290394739926, guid: 9cf364fba4ce3f84e84196067f0cc4a3, type: 3}
+  allyMaterial: {fileID: 2100000, guid: 1ceeff13b178e2e46bbb5c16dd2e6ae9, type: 2}
+  enemyMaterial: {fileID: 2100000, guid: e2ae2dd5961b7aa4a8e4d4b3b42f530a, type: 2}
+  conversionVfxAddress: UnitRespawn

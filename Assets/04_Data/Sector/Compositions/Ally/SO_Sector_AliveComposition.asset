@@ -14,6 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SO_Sector_AliveComposition
   entries:
   - unit: {fileID: 11400000, guid: 405be18809d63784ab58b45213272cd6, type: 2}
-    weight: 0.7
+    weight: 0
   - unit: {fileID: 11400000, guid: 4db203027aea4f238cf510aeaf4829fb, type: 2}
-    weight: 0.3
+    weight: 1

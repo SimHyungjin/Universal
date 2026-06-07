@@ -51,6 +51,12 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     [SerializeField] private Color routeArrowColor = new(0.70f, 0.86f, 1f, 1f);
     [SerializeField] private Sprite routeArrowSprite;
 
+    [Header("Strategic links")]
+    [SerializeField] private Color linkAllyColor = new(0.18f, 0.55f, 0.82f, 0.52f);
+    [SerializeField] private Color linkEnemyColor = new(0.72f, 0.18f, 0.16f, 0.52f);
+    [SerializeField] private float linkLineWidthPx = 2f;
+    [SerializeField] private Sprite hubFrameSprite;
+
     [Header("Background sector badge")]
     [SerializeField] private bool showSectorMobCounts = true;
     [SerializeField] private Color badgeAllyColor  = new(0.35f, 1f, 0.45f, 1f);
@@ -138,6 +144,15 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     private readonly Dictionary<long, RouteCounts> _routeCounts = new();
     private readonly List<RouteIndicator> _routePool = new();
 
+    private sealed class LinkLine
+    {
+        public RectTransform Rect;
+        public Image Image;
+    }
+
+    private readonly List<LinkLine> _linkLinePool = new();
+    private readonly List<Image> _hubFramePool = new();
+
     // 배경 섹터 요약 배지(잡몹 병력 숫자 + 점령 게이지%). 풀에서 Text 라벨을 재사용한다.
     private readonly List<Text> _badgePool = new();
     private static Font _badgeFont;
@@ -168,6 +183,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
 #if UNITY_EDITOR
         playerDirectionSprite ??= UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/01_Assets/UI/Minimap/Arrow2.png");
         routeArrowSprite ??= UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/01_Assets/UI/Minimap/Arrow 1.png");
+        hubFrameSprite ??= UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/01_Assets/UI/Frame 1.png");
 #endif
     }
 
@@ -433,9 +449,167 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
             ShowMarker(marker, MarkerPositionPx(marker.Source, active), ForwardToUiRotation(marker.Source.Forward));
         }
 
+        RenderStrategicLinks();
         RenderBadges();
         RenderRouteIndicators();
         BringTopMarkersToFront();
+    }
+
+    // 같은 링크에 속한 점령지 사이의 게이트만 진영색으로 강조하고, 링크 허브에 전체 힘을 표시한다.
+    private void RenderStrategicLinks()
+    {
+        SectorBattleManager battle = SectorBattleManager.Instance;
+        int usedLines = 0;
+        int usedFrames = 0;
+
+        if (battle != null)
+        {
+            for (int i = 0; i < _model.Edges.Count; i++)
+            {
+                MinimapModel.Edge edge = _model.Edges[i];
+                if (edge.A < 0 || edge.B < 0 || edge.A >= _model.Nodes.Count || edge.B >= _model.Nodes.Count)
+                    continue;
+                if (!battle.TryGetState(_model.Nodes[edge.A].Sector, out SectorBattleState a)
+                    || !battle.TryGetState(_model.Nodes[edge.B].Sector, out SectorBattleState b))
+                    continue;
+                if (a.LinkId <= 0 || a.LinkId != b.LinkId || a.Control != b.Control)
+                    continue;
+
+                Vector2 from = CellToImageLocal(AnchorCenterCell(_model.Nodes[edge.A]));
+                Vector2 to = CellToImageLocal(AnchorCenterCell(_model.Nodes[edge.B]));
+                Color color = a.Control == SectorControl.Ally ? linkAllyColor : linkEnemyColor;
+                SetLinkLine(GetLinkLine(usedLines++), from, to, color);
+            }
+
+            if (hubFrameSprite != null)
+            {
+                foreach (KeyValuePair<Sector, SectorBattleState> kv in battle.States)
+                {
+                    SectorBattleState state = kv.Value;
+                    if (!state.IsLinkHub || state.LinkInfluence < 2) continue;
+
+                    int idx = IndexOfSector(state.Sector);
+                    if (idx < 0) continue;
+                    SetHubFrame(GetHubFrame(usedFrames++), idx);
+                }
+            }
+
+        }
+
+        for (int i = usedLines; i < _linkLinePool.Count; i++)
+            _linkLinePool[i].Rect.gameObject.SetActive(false);
+        for (int i = usedFrames; i < _hubFramePool.Count; i++)
+            _hubFramePool[i].gameObject.SetActive(false);
+    }
+
+    private LinkLine GetLinkLine(int index)
+    {
+        while (_linkLinePool.Count <= index)
+        {
+            var go = new GameObject("StrategicLink", typeof(RectTransform));
+            var rt = go.GetComponent<RectTransform>();
+            rt.SetParent(_image.rectTransform, false);
+            rt.anchorMin = rt.anchorMax = new Vector2(0f, 0f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+
+            var img = go.AddComponent<Image>();
+            img.raycastTarget = false;
+            _linkLinePool.Add(new LinkLine { Rect = rt, Image = img });
+        }
+        return _linkLinePool[index];
+    }
+
+    private void SetLinkLine(LinkLine line, Vector2 from, Vector2 to, Color color)
+    {
+        Vector2 delta = to - from;
+        line.Rect.gameObject.SetActive(true);
+        line.Rect.anchoredPosition = (from + to) * 0.5f;
+        line.Rect.sizeDelta = new Vector2(delta.magnitude, Mathf.Max(1f, linkLineWidthPx));
+        line.Rect.localEulerAngles = new Vector3(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
+        line.Rect.SetAsFirstSibling();
+        line.Image.color = color;
+    }
+
+    private Image GetHubFrame(int index)
+    {
+        while (_hubFramePool.Count <= index)
+        {
+            var go = new GameObject("LinkHubFrame", typeof(RectTransform));
+            var rt = go.GetComponent<RectTransform>();
+            rt.SetParent(_image.rectTransform, false);
+            rt.anchorMin = rt.anchorMax = new Vector2(0f, 0f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+
+            var image = go.AddComponent<Image>();
+            image.sprite = hubFrameSprite;
+            image.raycastTarget = false;
+            _hubFramePool.Add(image);
+        }
+        return _hubFramePool[index];
+    }
+
+    private void SetHubFrame(Image frame, int nodeIndex)
+    {
+        Image room = FindRoomImage(nodeIndex);
+        if (room == null)
+        {
+            frame.gameObject.SetActive(false);
+            return;
+        }
+
+        RectTransform roomRect = room.rectTransform;
+        RectTransform rt = frame.rectTransform;
+        frame.gameObject.SetActive(true);
+        frame.sprite = hubFrameSprite;
+        frame.color = Color.white;
+        ResolveVisibleRoomRect(room, out Vector2 visibleCenterOffset, out Vector2 visibleSize);
+        rt.anchoredPosition = roomRect.anchoredPosition + RotateUiOffset(visibleCenterOffset, roomRect.localEulerAngles.z);
+        float frameSize = Mathf.Max(visibleSize.x, visibleSize.y);
+        rt.sizeDelta = Vector2.one * frameSize;
+        rt.localEulerAngles = Vector3.zero;
+        rt.SetAsLastSibling();
+    }
+
+    // 방 스프라이트의 투명 여백을 제외한 tight mesh 영역을 UI rect 좌표로 환산한다.
+    private static void ResolveVisibleRoomRect(Image room, out Vector2 centerOffset, out Vector2 size)
+    {
+        RectTransform rt = room.rectTransform;
+        Sprite sprite = room.sprite;
+        if (sprite == null || sprite.vertices == null || sprite.vertices.Length == 0)
+        {
+            centerOffset = Vector2.zero;
+            size = rt.sizeDelta;
+            return;
+        }
+
+        Vector2 min = sprite.vertices[0];
+        Vector2 max = min;
+        for (int i = 1; i < sprite.vertices.Length; i++)
+        {
+            min = Vector2.Min(min, sprite.vertices[i]);
+            max = Vector2.Max(max, sprite.vertices[i]);
+        }
+
+        Vector2 fullSpriteSize = sprite.rect.size / Mathf.Max(0.0001f, sprite.pixelsPerUnit);
+        Vector2 tightSize = max - min;
+        Vector2 tightCenter = (min + max) * 0.5f;
+        Vector2 scale = new Vector2(
+            rt.sizeDelta.x / Mathf.Max(0.0001f, fullSpriteSize.x),
+            rt.sizeDelta.y / Mathf.Max(0.0001f, fullSpriteSize.y));
+
+        centerOffset = Vector2.Scale(tightCenter, scale);
+        size = Vector2.Scale(tightSize, scale);
+    }
+
+    private static Vector2 RotateUiOffset(Vector2 offset, float degrees)
+        => Quaternion.Euler(0f, 0f, degrees) * offset;
+
+    private Image FindRoomImage(int nodeIndex)
+    {
+        for (int i = 0; i < _rooms.Count; i++)
+            if (_rooms[i].index == nodeIndex)
+                return _rooms[i].image;
+        return null;
     }
 
     private static bool ShouldHideEliteMarker(IMinimapTracked source, Sector active)
@@ -686,7 +860,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
                     float n = state.GaugeNormalized;
                     Color gaugeColor = Color.Lerp(gaugeEnemyColor, gaugeAllyColor, n);
                     used = SetBadgeText(used, center - new Vector2(0f, gaugeOffsetPx),
-                        $"{Mathf.RoundToInt(n * 100f)}%", gaugeColor, gaugeFontSize);
+                        $"{Mathf.FloorToInt(n * 100f)}%", gaugeColor, gaugeFontSize);
                 }
             }
         }
@@ -1069,6 +1243,8 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         _badgePool.Clear();   // 배지 GameObject는 MapImage 자식이라 아래에서 함께 파괴된다.
         _routeCounts.Clear();
         _routePool.Clear();   // 이동 표시 GameObject도 MapImage 자식이라 아래에서 함께 파괴된다.
+        _linkLinePool.Clear();
+        _hubFramePool.Clear();
         _currentIndex = -1;
         _wasTransitioning = false;
         _dirty = false;

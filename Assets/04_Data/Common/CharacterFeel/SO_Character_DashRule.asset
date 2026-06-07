@@ -18,3 +18,4 @@ MonoBehaviour:
   dashSpeedMultiplier: 10
   gateTransitionSpeed: 50
   gateEntryGraceDuration: 0.35
+  gatePostTransitionInvincibleDuration: 0.6

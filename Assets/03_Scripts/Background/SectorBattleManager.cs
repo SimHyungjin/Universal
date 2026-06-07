@@ -16,29 +16,20 @@ using UnityEngine;
 public sealed class SectorBattleManager : IDisposable
 {
     private const float LogInterval = 2f; // 검증 로그 주기(설정 대상 아님).
-    private const float FullControlDisplayThreshold = 0.995f;
     private const float VisibleTotalEpsilon = 0.5f;
 
     // 튜닝값은 SO_SectorBattle_Settings에서 주입(없으면 기본값 폴백).
     private readonly SO_SectorBattle_Settings _settings;
     private int   LiveCapTotal      => _settings != null ? _settings.LiveCapTotal      : 200;
-    private float EliteBasePower    => _settings != null ? _settings.EliteBasePower    : 30f;
-    private float ElitePowerBonusPerHostileTotal => _settings != null ? _settings.ElitePowerBonusPerHostileTotal : 1f;
-    private float ElitePowerBonusReferenceTotal => _settings != null ? _settings.ElitePowerBonusReferenceTotal : 100f;
-    private float ElitePowerBonusExponent => _settings != null ? _settings.ElitePowerBonusExponent : 2f;
-    private float ElitePowerBonusMaxRatio => _settings != null ? _settings.ElitePowerBonusMaxRatio : 0.35f;
-    private float EncroachRate      => _settings != null ? _settings.EncroachRate      : 0.05f;
-    private float EncroachMaxPerSec => _settings != null ? _settings.EncroachMaxPerSec : 3f;
-    private float CaptureThreshold  => _settings != null ? _settings.CaptureThreshold  : 0.95f;
-    private float PressureDeadzone => _settings != null ? _settings.PressureDeadzone : 0.015f;
-    private float PressureDecisiveAdvantage => _settings != null ? _settings.PressureDecisiveAdvantage : 0.32f;
-    private float PressureCurve => _settings != null ? _settings.PressureCurve : 1.25f;
-    private float PressureDecayRate => _settings != null ? _settings.PressureDecayRate : 0.45f;
-    private float PressureMoveThreshold => _settings != null ? _settings.PressureMoveThreshold : 0.08f;
-    private float PressureMoveCurve => _settings != null ? _settings.PressureMoveCurve : 1.15f;
-    private float ControlBiasStrength => _settings != null ? _settings.ControlBiasStrength : 0.18f;
-    private float FrontTurbulenceStrength => _settings != null ? _settings.FrontTurbulenceStrength : 0.22f;
-    private float FrontTurbulencePowerFalloff => _settings != null ? _settings.FrontTurbulencePowerFalloff : 0.75f;
+    private float CaptureThreshold  => _settings != null ? _settings.CaptureThreshold  : 0.9f;
+    private float MutationPerInfluencePerSec => _settings != null ? _settings.MutationPerInfluencePerSec : 0.3f;
+    private float MutationMaxPerSec => _settings != null ? _settings.MutationMaxPerSec : 3f;
+    private float MutationImmunityDuration => _settings != null ? _settings.MutationImmunityDuration : 3f;
+    private int   MutationBurstThreshold => _settings != null ? _settings.MutationBurstThreshold : 5;
+    private float SupportPowerRatio => _settings != null ? _settings.SupportPowerRatio : 0.2f;
+    private float SupportDistanceFalloff => _settings != null ? _settings.SupportDistanceFalloff : 0.5f;
+    private float BattleAttritionPerPowerPerSec => _settings != null ? _settings.BattleAttritionPerPowerPerSec : 0.15f;
+    private float BattleAttritionMaxPerSec => _settings != null ? _settings.BattleAttritionMaxPerSec : 4f;
 
     private readonly Dictionary<Sector, SectorBattleState> _states = new();
     private readonly SectorManager _sectorManager;
@@ -51,8 +42,18 @@ public sealed class SectorBattleManager : IDisposable
     private readonly SO_Sector_AliveComposition _enemyComposition;
     private CancellationTokenSource _cts = new();
     private float _logTimer;
-    private Sector _polledSector;     // 플레이어 섹터 폴링 기준. 섹터가 바뀌면 LiveCount를 재동기화한다.
-    private Sector _lastPlayerSector; // 직전 플레이어 섹터. 떠난 섹터의 화면 수를 0으로 비우는 데 쓴다.
+    private Sector _polledSector; // 플레이어 섹터 폴링 기준. 섹터가 바뀌면 첫 틱은 동기화만 한다.
+
+    // 링크(연결 컴포넌트) BFS 재사용 버퍼(매 틱 new 방지).
+    private readonly HashSet<Sector> _linkVisited = new();
+    private readonly Queue<Sector> _linkQueue = new();
+    private readonly List<SectorBattleState> _linkComponent = new();
+    private readonly HashSet<Sector> _hubVisited = new();
+
+    // 지원 Power 거리 감쇠 BFS 재사용 버퍼(레벨별 탐색, 스왑하므로 non-readonly).
+    private readonly HashSet<Sector> _supportVisited = new();
+    private List<SectorBattleState> _supportCurrent = new();
+    private List<SectorBattleState> _supportNext = new();
 
     public static SectorBattleManager Instance { get; private set; }
     public IReadOnlyDictionary<Sector, SectorBattleState> States => _states;
@@ -149,6 +150,7 @@ public sealed class SectorBattleManager : IDisposable
         SeedTotal(state, ResolveConfiguredSpawns(sector));
     }
 
+    // 유닛 수 기반: 진영별 시작 유닛 수를 그대로 Total로 시드한다(SectorPower 가중 없음).
     private static void SeedTotal(SectorBattleState state, NavAgentSpawnEntry[] spawns)
     {
         if (spawns == null) return;
@@ -157,14 +159,8 @@ public sealed class SectorBattleManager : IDisposable
         {
             NavAgentSpawnEntry entry = spawns[i];
             if (entry.Data == null || entry.Count <= 0) continue;
-            state.AddTotal(entry.Faction, entry.Count * ResolveUnitSectorPower(entry.Data));
+            state.AddTotal(entry.Faction, entry.Count);
         }
-    }
-
-    private static float ResolveUnitSectorPower(SO_Unit_Data data)
-    {
-        float power = data != null && data.StatsData != null ? data.StatsData.SectorPower : 1f;
-        return power > 0f ? power : 0f;
     }
 
     private static void InitOwnership(SectorBattleState state)
@@ -192,16 +188,9 @@ public sealed class SectorBattleManager : IDisposable
         if (dt <= 0f) return;
 
         AccumulateElitePower();
+        RecomputeLinks();
 
         Sector playerSector = _sectorManager != null ? _sectorManager.CurrentSector : null;
-
-        // 플레이어가 섹터를 떠났으면 그 섹터의 화면 수를 0으로 비운다(Total은 제로섬이라 그대로 보존).
-        if (_lastPlayerSector != playerSector)
-        {
-            ClearLive(_lastPlayerSector);
-            _lastPlayerSector = playerSector;
-            _polledSector = null; // 새 섹터에서 LiveCount 재동기화.
-        }
 
         foreach (KeyValuePair<Sector, SectorBattleState> kv in _states)
         {
@@ -213,13 +202,6 @@ public sealed class SectorBattleManager : IDisposable
         }
     }
 
-    private void ClearLive(Sector sector)
-    {
-        if (sector == null || !_states.TryGetValue(sector, out SectorBattleState s)) return;
-        s.AllyLiveCount = 0;
-        s.EnemyLiveCount = 0;
-    }
-
     // 매 틱 섹터별 엘리트 전력을 다시 합산한다(엘리트는 이동/생사하므로 매번 갱신). 엘리트=전력 가산 가속기.
     private void AccumulateElitePower()
     {
@@ -227,8 +209,6 @@ public sealed class SectorBattleManager : IDisposable
         {
             kv.Value.AllyElitePower = 0f;
             kv.Value.EnemyElitePower = 0f;
-            kv.Value.AllyEliteAttritionPower = 0f;
-            kv.Value.EnemyEliteAttritionPower = 0f;
         }
 
         IReadOnlyList<Elite_State> elites = Elite_Manager.Instance != null ? Elite_Manager.Instance.Elites : null;
@@ -240,19 +220,11 @@ public sealed class SectorBattleManager : IDisposable
             if (e == null || !e.IsAlive || e.CurrentSector == null) continue;
             if (!_states.TryGetValue(e.CurrentSector, out SectorBattleState s)) continue;
 
-            float hostileTotal = e.Faction == NavFaction.Ally ? s.EnemyTotal : s.AllyTotal;
             float baseElitePower = ResolveBaseElitePower(e);
-            float elitePower = ResolveElitePower(baseElitePower, hostileTotal);
             if (e.Faction == NavFaction.Ally)
-            {
-                s.AllyElitePower += elitePower;
-                s.AllyEliteAttritionPower += baseElitePower;
-            }
+                s.AllyElitePower += baseElitePower;
             else
-            {
-                s.EnemyElitePower += elitePower;
-                s.EnemyEliteAttritionPower += baseElitePower;
-            }
+                s.EnemyElitePower += baseElitePower;
         }
     }
 
@@ -260,206 +232,360 @@ public sealed class SectorBattleManager : IDisposable
     private float ResolveBaseElitePower(Elite_State elite)
     {
         SO_Character_Data character = elite != null && elite.Data != null ? elite.Data.Character : null;
-        return SectorPowerFormula.Calculate(character, EliteBasePower);
+        return SectorPowerFormula.Calculate(character);
     }
 
-    private float ResolveElitePower(float basePower, float hostileTotal)
-    {
-        if (basePower <= 0f || hostileTotal <= 0f || ElitePowerBonusPerHostileTotal <= 0f || ElitePowerBonusMaxRatio <= 0f)
-            return basePower;
-
-        float referenceTotal = Mathf.Max(1f, ElitePowerBonusReferenceTotal);
-        float exponent = Mathf.Max(0.01f, ElitePowerBonusExponent);
-        float density = Mathf.Max(0f, hostileTotal / referenceTotal);
-        float curvedHostileTotal = hostileTotal * Mathf.Pow(density, exponent - 1f);
-        float bonus = curvedHostileTotal * ElitePowerBonusPerHostileTotal;
-        float maxBonus = basePower * ElitePowerBonusMaxRatio;
-        return basePower + Mathf.Min(bonus, maxBonus);
-    }
-
+    // 배경 섹터: 링크 압력 변이(양방향) + 양측 공존 시 싸움 시뮬.
     private void TickSector(SectorBattleState state, float dt)
     {
-        SnapDisplayedFullControl(state);
-
-        // 양 진영 전력(엘리트 포함)이 맞붙고 옮길 잡몹이 있으면 잠식. 한 진영만 100% 점령한 섹터는
-        // 상대 전력이 들어오기 전까지 정적(아군 엘리트가 적색 섹터에 들어오면 AllyPower>0이 되어 잠식 시작).
-        if (state.TotalSum > 0f && state.AllyPower > 0f && state.EnemyPower > 0f)
-        {
-            // 전력차(엘리트 포함)로 잠식 방향·속도를 정하되, 실제 이동은 잡몹 병력만(엘리트는 가속기).
-            TickBackgroundPressure(state, dt);
-        }
-        else
-        {
-            DecayPressure(state, dt);
-        }
-
+        TickMutation(state, dt, false);
+        TickBattle(state, dt);
         UpdateOwnership(state);
     }
 
-    // 플레이어 섹터: 실제 NavAgent 사망을 폴링해 제로섬 이동시키고, 화면을 비율 목표까지 보충한다.
-    // 진입/전환 중(스폰 진행 중)에는 사망/보충 없이 LiveCount만 동기화해 거짓 사망을 막는다.
-    private void TickBackgroundPressure(SectorBattleState state, float dt)
+    // ── 링크(연결 컴포넌트) ────────────────────────────────────────────────────────
+    // 매 틱: 점령 상태 판정 → 같은 진영 완전점령 섹터를 게이트로 묶어 링크 영향력(= 컴포넌트 크기)을 기록한다.
+    // 경합 섹터는 링크에서 제외되어 단절점이 된다([[project_defender_dispersal]]의 절단점 = 연결부).
+    private void RecomputeLinks()
     {
-        float totalPower = state.AllyPower + state.EnemyPower;
-        if (totalPower <= 0f)
+        int nextLinkId = 1;
+        foreach (KeyValuePair<Sector, SectorBattleState> kv in _states)
         {
-            DecayPressure(state, dt);
+            SectorBattleState s = kv.Value;
+            s.LinkInfluence = 0;
+            s.LinkId = 0;
+            s.IsLinkHub = false;
+            s.Control = ResolveControl(s);
+
+            // 100%(상대 진영 0) 완전 점령에 막 도달한 순간 변이 면역을 부여한다(안정화 유예).
+            bool full = s.Control != SectorControl.Contested && (s.AllyTotal <= 0f || s.EnemyTotal <= 0f);
+            if (full && !s.WasFullyControlled) s.MutationImmunityTimer = MutationImmunityDuration;
+            s.WasFullyControlled = full;
+        }
+
+        _linkVisited.Clear();
+        foreach (KeyValuePair<Sector, SectorBattleState> kv in _states)
+        {
+            SectorBattleState start = kv.Value;
+            if (start.Control == SectorControl.Contested || _linkVisited.Contains(start.Sector)) continue;
+
+            SectorControl control = start.Control;
+            _linkComponent.Clear();
+            _linkQueue.Clear();
+            _linkVisited.Add(start.Sector);
+            _linkQueue.Enqueue(start.Sector);
+
+            while (_linkQueue.Count > 0)
+            {
+                Sector cur = _linkQueue.Dequeue();
+                if (!_states.TryGetValue(cur, out SectorBattleState cs)) continue;
+                _linkComponent.Add(cs);
+
+                SectorGate[] gates = cur.Gates;
+                if (gates == null) continue;
+                for (int i = 0; i < gates.Length; i++)
+                {
+                    Sector nb = gates[i] != null && gates[i].ConnectedGate != null ? gates[i].ConnectedGate.Sector : null;
+                    if (nb == null || _linkVisited.Contains(nb)) continue;
+                    if (!_states.TryGetValue(nb, out SectorBattleState ns) || ns.Control != control) continue;
+                    _linkVisited.Add(nb);
+                    _linkQueue.Enqueue(nb);
+                }
+            }
+
+            int influence = _linkComponent.Count;
+            for (int i = 0; i < _linkComponent.Count; i++)
+            {
+                _linkComponent[i].LinkInfluence = influence;
+                _linkComponent[i].LinkId = nextLinkId;
+            }
+
+            SectorBattleState hub = ResolveLinkHub(_linkComponent, control);
+            if (hub != null)
+                hub.IsLinkHub = true;
+            nextLinkId++;
+        }
+    }
+
+    // 후보 섹터를 제거했을 때 남은 링크 조각들의 제곱합이 가장 작은 곳을 허브로 고른다.
+    // 즉, 링크를 여러 개의 고른 크기 조각으로 가장 잘 찢는 절단점이 우선된다.
+    private SectorBattleState ResolveLinkHub(List<SectorBattleState> component, SectorControl control)
+    {
+        if (component == null || component.Count == 0) return null;
+        if (component.Count == 1) return component[0];
+
+        SectorBattleState best = null;
+        int bestSplitScore = int.MinValue;
+        int bestDegree = int.MinValue;
+
+        for (int i = 0; i < component.Count; i++)
+        {
+            SectorBattleState candidate = component[i];
+            int sumSquares = SumRemainingComponentSquares(component, control, candidate.Sector);
+            int splitScore = component.Count * component.Count - sumSquares;
+            int degree = CountLinkNeighbors(candidate, control);
+
+            if (splitScore > bestSplitScore || (splitScore == bestSplitScore && degree > bestDegree))
+            {
+                best = candidate;
+                bestSplitScore = splitScore;
+                bestDegree = degree;
+            }
+        }
+
+        return best;
+    }
+
+    private int SumRemainingComponentSquares(List<SectorBattleState> component, SectorControl control, Sector removed)
+    {
+        _hubVisited.Clear();
+        _hubVisited.Add(removed);
+        int sumSquares = 0;
+
+        for (int i = 0; i < component.Count; i++)
+        {
+            Sector start = component[i].Sector;
+            if (start == null || _hubVisited.Contains(start)) continue;
+
+            int size = 0;
+            _linkQueue.Clear();
+            _linkQueue.Enqueue(start);
+            _hubVisited.Add(start);
+
+            while (_linkQueue.Count > 0)
+            {
+                Sector cur = _linkQueue.Dequeue();
+                size++;
+                SectorGate[] gates = cur.Gates;
+                if (gates == null) continue;
+
+                for (int g = 0; g < gates.Length; g++)
+                {
+                    Sector nb = gates[g] != null && gates[g].ConnectedGate != null
+                        ? gates[g].ConnectedGate.Sector
+                        : null;
+                    if (nb == null || _hubVisited.Contains(nb)) continue;
+                    if (!_states.TryGetValue(nb, out SectorBattleState ns) || ns.Control != control) continue;
+                    _hubVisited.Add(nb);
+                    _linkQueue.Enqueue(nb);
+                }
+            }
+
+            sumSquares += size * size;
+        }
+
+        return sumSquares;
+    }
+
+    private int CountLinkNeighbors(SectorBattleState state, SectorControl control)
+    {
+        SectorGate[] gates = state?.Sector != null ? state.Sector.Gates : null;
+        if (gates == null) return 0;
+
+        int count = 0;
+        for (int i = 0; i < gates.Length; i++)
+        {
+            Sector nb = gates[i] != null && gates[i].ConnectedGate != null ? gates[i].ConnectedGate.Sector : null;
+            if (nb != null && _states.TryGetValue(nb, out SectorBattleState ns) && ns.Control == control)
+                count++;
+        }
+        return count;
+    }
+
+    private SectorControl ResolveControl(SectorBattleState s)
+    {
+        if (s.TotalSum <= 0f) return SectorControl.Contested;
+        float n = s.GaugeNormalized;
+        if (n >= CaptureThreshold) return SectorControl.Ally;
+        if (n <= 1f - CaptureThreshold) return SectorControl.Enemy;
+        return SectorControl.Contested;
+    }
+
+    // ── 변이 (링크 영향력, 양방향 대칭) ────────────────────────────────────────────
+    // 들어오는 적/아군 링크 영향력 합을 자기 링크 영향력으로 방어하고, 우세 쪽으로 유닛을 반대 진영으로 전환한다.
+    // 배경=Total 제로섬 전환, 플레이어=실체 토글(MutateAgents). 죽임이 아니라 진영 전환(합 보존).
+    private void TickMutation(SectorBattleState state, float dt, bool playerSector)
+    {
+        if (state.TotalSum <= 0f) { state.MutationAccum = 0f; return; }
+
+        // 100% 점령 직후 안정화 유예 — 면역 동안에는 변이를 받지 않는다.
+        if (state.MutationImmunityTimer > 0f)
+        {
+            state.MutationImmunityTimer -= dt;
+            state.MutationAccum = 0f;
             return;
         }
 
-        float advantage = ResolveEffectiveAdvantage(state, totalPower);
-        float targetPressure = ResolvePressureTarget(advantage);
-        MovePressureToward(state, targetPressure, dt);
+        float net = ResolveMutationNet(state); // +면 아군→적, -면 적→아군
+        if (Mathf.Abs(net) < 0.0001f) { state.MutationAccum = 0f; return; }
 
-        float pressure = state.ControlPressure;
-        float absPressure = Mathf.Abs(pressure);
-        if (absPressure <= PressureMoveThreshold)
-            return;
+        // 연속이 아니라 누적했다가 임계(N마리)에 도달하면 한 번에 배출한다.
+        // 배출 사이에 변이가 멈춘 틈이 생겨 플레이어가 100%를 찍을 여지가 만들어진다.
+        state.MutationAccum += Mathf.Clamp(net * MutationPerInfluencePerSec, -MutationMaxPerSec, MutationMaxPerSec) * dt;
 
-        float t = Mathf.InverseLerp(PressureMoveThreshold, 1f, absPressure);
-        float speed = EncroachMaxPerSec * Mathf.Pow(t, PressureMoveCurve) * Mathf.Sign(pressure);
-        ShiftTotalToAlly(state, speed * dt);
+        int threshold = Mathf.Max(1, MutationBurstThreshold);
+        if (Mathf.Abs(state.MutationAccum) < threshold) return;
+
+        int burst = (int)state.MutationAccum; // 부호 포함, |누적|≥임계이므로 |burst|≥임계
+        state.MutationAccum -= burst;
+
+        if (burst > 0) ApplyMutation(state, playerSector, NavFaction.Ally, burst);    // 아군→적
+        else           ApplyMutation(state, playerSector, NavFaction.Enemy, -burst);  // 적→아군
     }
 
-    private float ResolvePressureTarget(float advantage)
+    // from 진영 count마리를 반대로 전환. 플레이어 섹터=실체 토글, 배경=Total 제로섬.
+    private void ApplyMutation(SectorBattleState state, bool playerSector, NavFaction from, int count)
     {
-        float absAdvantage = Mathf.Abs(advantage);
-        if (absAdvantage <= PressureDeadzone)
-            return 0f;
-
-        float t = Mathf.InverseLerp(
-            PressureDeadzone,
-            Mathf.Max(PressureDeadzone + 0.01f, PressureDecisiveAdvantage),
-            absAdvantage);
-        return Mathf.Sign(advantage) * Mathf.Pow(t, PressureCurve);
-    }
-
-    private float ResolveEffectiveAdvantage(SectorBattleState state, float totalPower)
-    {
-        float powerAdvantage = (state.AllyPower - state.EnemyPower) / totalPower;
-        float controlBias = (state.GaugeNormalized - 0.5f) * 2f * ControlBiasStrength;
-        float turbulence = ResolveFrontTurbulence(state, powerAdvantage);
-        return Mathf.Clamp(powerAdvantage + controlBias + turbulence, -1f, 1f);
-    }
-
-    private float ResolveFrontTurbulence(SectorBattleState state, float powerAdvantage)
-    {
-        float parity = 1f - Mathf.Clamp01(Mathf.Abs(powerAdvantage) / FrontTurbulencePowerFalloff);
-        if (parity <= 0f)
-            return 0f;
-
-        float seed = SectorSeed(state.Sector);
-        float slow = Mathf.PerlinNoise(seed, Time.time * 0.035f) * 2f - 1f;
-        float wave = Mathf.Sin(Time.time * 0.11f + seed * 6.28318f);
-        float noise = Mathf.Clamp(slow * 0.75f + wave * 0.25f, -1f, 1f);
-        return noise * FrontTurbulenceStrength * parity;
-    }
-
-    private static float SectorSeed(Sector sector)
-    {
-        int hash = sector != null ? sector.GetInstanceID() : 0;
-        unchecked
-        {
-            hash ^= hash << 13;
-            hash ^= hash >> 17;
-            hash ^= hash << 5;
-        }
-        return (hash & 0xffff) / 65535f * 37.17f + 0.11f;
-    }
-
-    private void MovePressureToward(SectorBattleState state, float targetPressure, float dt)
-    {
-        if (Mathf.Abs(targetPressure) <= 0.0001f)
-        {
-            DecayPressure(state, dt);
-            return;
-        }
-
-        float buildRate = Mathf.Max(0.01f, EncroachRate * 14f);
-        bool reversing = Mathf.Abs(state.ControlPressure) > 0.0001f
-                         && Mathf.Sign(state.ControlPressure) != Mathf.Sign(targetPressure);
-        float rate = reversing ? buildRate + PressureDecayRate : buildRate;
-        state.ControlPressure = Mathf.MoveTowards(state.ControlPressure, targetPressure, rate * dt);
-    }
-
-    private void DecayPressure(SectorBattleState state, float dt)
-        => state.ControlPressure = Mathf.MoveTowards(state.ControlPressure, 0f, PressureDecayRate * dt);
-
-    private void TickPlayerSector(SectorBattleState state, float dt)
-    {
-        CountLiveAgents(out int curAlly, out int curEnemy);
-
-        bool transitioning = _sectorManager != null && _sectorManager.IsTransitioning;
-        bool resync = transitioning || _polledSector != state.Sector;
-
-        if (resync)
-        {
-            state.AllyLiveCount  = curAlly;
-            state.EnemyLiveCount = curEnemy;
-            _polledSector = transitioning ? null : state.Sector;
-        }
+        if (count <= 0) return;
+        if (playerSector)
+            MutateAgents(from, count);
         else
-        {
-            // 직전보다 줄어든 만큼이 사망. 적이 죽으면 아군 쪽으로, 아군이 죽으면 적 쪽으로 제로섬 이동.
-            int allyDeaths  = Mathf.Max(0, state.AllyLiveCount  - curAlly);
-            int enemyDeaths = Mathf.Max(0, state.EnemyLiveCount - curEnemy);
-            int net = enemyDeaths - allyDeaths; // +면 아군 증가
-            if (net != 0)
-                ShiftTotalToAlly(state, net);
-
-            state.AllyLiveCount  = curAlly;
-            state.EnemyLiveCount = curEnemy;
-
-            // 화면을 비율 목표까지 보충(부족분만 스폰).
-            ResolveLiveTargets(state, out int allyTarget, out int enemyTarget);
-            state.AllyLiveCount  += ReplenishTo(state, NavFaction.Ally,  curAlly,  allyTarget);
-            state.EnemyLiveCount += ReplenishTo(state, NavFaction.Enemy, curEnemy, enemyTarget);
-        }
-
-        DecayPressure(state, dt);
-        UpdateOwnership(state);
+            ShiftZeroSum(state, from == NavFaction.Ally ? -count : count);
     }
 
-    // 아군 쪽으로 delta만큼 제로섬 이동(합 보존). delta<0이면 적 쪽으로.
-    private static void ShiftTotalToAlly(SectorBattleState state, float delta)
+    // 이 섹터가 받는 순 변이 압력. +면 아군이 적으로, -면 적이 아군으로.
+    private float ResolveMutationNet(SectorBattleState state)
+    {
+        SectorGate[] gates = state.Sector != null ? state.Sector.Gates : null;
+        if (gates == null) return 0f;
+
+        int enemyPressure = 0, allyPressure = 0;
+        for (int i = 0; i < gates.Length; i++)
+        {
+            Sector nb = gates[i] != null && gates[i].ConnectedGate != null ? gates[i].ConnectedGate.Sector : null;
+            if (nb == null || !_states.TryGetValue(nb, out SectorBattleState ns)) continue;
+            if (ns.Control == SectorControl.Ally) allyPressure += ns.LinkInfluence;
+            else if (ns.Control == SectorControl.Enemy) enemyPressure += ns.LinkInfluence;
+        }
+
+        // 점령지는 "상대 진영" 압력만 받고 자기 링크 영향력으로 방어한다(같은 진영 인접 압력은 무의미).
+        // 경합지는 양측이 줄다리기. +면 아군→적, -면 적→아군.
+        if (state.Control == SectorControl.Ally)  return enemyPressure - state.LinkInfluence;
+        if (state.Control == SectorControl.Enemy) return state.LinkInfluence - allyPressure;
+        return enemyPressure - allyPressure;
+    }
+
+    // ── 싸움 시뮬 (배경 섹터) ────────────────────────────────────────────────────
+    // 양측 전투 주체(현지 병력 또는 엘리트)가 있으면 Power 차이만큼 제로섬 전환.
+    // 순수 0% 적 섹터라도 아군 엘리트가 들어오면 AllyTotal을 밀어 올려 전선을 만들 수 있다.
+    private void TickBattle(SectorBattleState state, float dt)
+    {
+        bool allyPresent = state.AllyTotal > 0f || state.AllyElitePower > 0f;
+        bool enemyPresent = state.EnemyTotal > 0f || state.EnemyElitePower > 0f;
+        if (!allyPresent || !enemyPresent || state.TotalSum <= 0f) return;
+
+        float allyPower  = state.AllyPower  + ResolveSupportPower(state, NavFaction.Ally);
+        float enemyPower = state.EnemyPower + ResolveSupportPower(state, NavFaction.Enemy);
+        float diff = allyPower - enemyPower; // +면 아군 우세
+        if (Mathf.Abs(diff) < 0.0001f) return;
+
+        float amount = Mathf.Min(Mathf.Abs(diff) * BattleAttritionPerPowerPerSec, BattleAttritionMaxPerSec) * dt;
+        // diff>0(아군 우세) → 적이 아군으로 = AllyTotal 증가.
+        ShiftZeroSum(state, diff > 0 ? amount : -amount);
+    }
+
+    // 같은 진영 링크 점령지가 거리 감쇠로 전선을 지원한다: 1칸(인접)=1배, 2칸=falloff, 3칸=falloff² …
+    // 링크 따라 BFS(레벨별)로 같은 진영 점령지만 거쳐 가며 거리를 잰다. 큰 링크라도 전선에서 멀면 약하게 기여.
+    private float ResolveSupportPower(SectorBattleState state, NavFaction faction)
+    {
+        if (state.Sector == null) return 0f;
+        SectorControl want = faction == NavFaction.Ally ? SectorControl.Ally : SectorControl.Enemy;
+
+        _supportVisited.Clear();
+        _supportCurrent.Clear();
+        _supportNext.Clear();
+        _supportVisited.Add(state.Sector);
+        CollectSupportNeighbors(state.Sector, want, _supportCurrent); // 거리 1 진입점
+
+        float support = 0f;
+        float factor = 1f;                 // falloff^(거리-1)
+        const float minFactor = 0.01f;     // 기여가 무시할 수준이면 조기 종료
+        float falloff = Mathf.Clamp01(SupportDistanceFalloff);
+
+        while (_supportCurrent.Count > 0 && factor >= minFactor)
+        {
+            for (int i = 0; i < _supportCurrent.Count; i++)
+            {
+                SectorBattleState s = _supportCurrent[i];
+                support += (faction == NavFaction.Ally ? s.AllyPower : s.EnemyPower) * factor;
+                CollectSupportNeighbors(s.Sector, want, _supportNext);
+            }
+
+            (_supportCurrent, _supportNext) = (_supportNext, _supportCurrent);
+            _supportNext.Clear();
+            factor *= falloff;
+        }
+
+        return support * SupportPowerRatio;
+    }
+
+    // sector의 게이트 이웃 중 want 진영 점령지를 (아직 방문 안 한 것만) outList에 모으고 방문 표시한다.
+    private void CollectSupportNeighbors(Sector sector, SectorControl want, List<SectorBattleState> outList)
+    {
+        SectorGate[] gates = sector != null ? sector.Gates : null;
+        if (gates == null) return;
+
+        for (int i = 0; i < gates.Length; i++)
+        {
+            Sector nb = gates[i] != null && gates[i].ConnectedGate != null ? gates[i].ConnectedGate.Sector : null;
+            if (nb == null || _supportVisited.Contains(nb)) continue;
+            if (!_states.TryGetValue(nb, out SectorBattleState ns) || ns.Control != want) continue;
+            _supportVisited.Add(nb);
+            outList.Add(ns);
+        }
+    }
+
+    // 제로섬 이동(합 보존). delta>0이면 아군쪽, <0이면 적쪽. 변이·싸움 시뮬이 공용으로 쓴다.
+    private static void ShiftZeroSum(SectorBattleState state, float delta)
     {
         float sum = state.TotalSum;
-        state.AllyTotal  = Mathf.Clamp(state.AllyTotal + delta, 0f, sum);
+        state.AllyTotal = Mathf.Clamp(state.AllyTotal + delta, 0f, sum);
         state.EnemyTotal = sum - state.AllyTotal;
-        SnapDisplayedFullControl(state);
+    }
+
+    // 플레이어 섹터: 게이지=화면 실체 비율(따로 놀지 않음). 부활(적→아군, NavDeathSystem)이 점령 동력이고,
+    // 인접 압력 변이(아군↔적)가 균형/반격이다. 죽음=소멸이 아니라 진영 toggle이므로 사망 폴링은 없다.
+    private void TickPlayerSector(SectorBattleState state, float dt)
+    {
+        CountLiveAgents(out int curAlly, out int curEnemy, out int total);
+
+        bool transitioning = _sectorManager != null && _sectorManager.IsTransitioning;
+        if (transitioning || _polledSector != state.Sector)
+        {
+            _polledSector = transitioning ? null : state.Sector;
+            state.MutationAccum = 0f;
+            UpdateOwnership(state);
+            return;
+        }
+
+        // ① 링크 압력만큼 화면 실체의 진영을 toggle(변이)한다 — 적의 반격/균형(배경과 공용).
+        TickMutation(state, dt, true);
+
+        // ② 게이지 = 화면 실체 비율. 총 병력량(TotalSum)은 보존하고 ally/enemy 비율만 화면에서 가져온다.
+        //    부활(적→아군)·변이(양방향)가 화면을 바꾸면 게이지가 그대로 따라온다 — 사망 폴링 불필요.
+        int live = curAlly + curEnemy;
+        if (live > 0)
+        {
+            float sum = state.TotalSum;
+            state.AllyTotal  = sum * curAlly / live;
+            state.EnemyTotal = sum - state.AllyTotal;
+        }
+
+        // ③ 총수가 LiveCap에 못 미치면(전투 외 소실 등) 게이지 비율대로 보충. Dying 포함 total로 over-spawn 방지.
+        int deficit = LiveCapTotal - total;
+        if (deficit > 0)
+        {
+            int allyNeed  = Mathf.RoundToInt(deficit * state.GaugeNormalized);
+            int enemyNeed = deficit - allyNeed;
+            curAlly  += allyNeed  > 0 ? ReplenishTo(state, NavFaction.Ally,  curAlly,  curAlly  + allyNeed)  : 0;
+            curEnemy += enemyNeed > 0 ? ReplenishTo(state, NavFaction.Enemy, curEnemy, curEnemy + enemyNeed) : 0;
+        }
+
+        UpdateOwnership(state);
     }
 
     private static bool HasVisibleTotal(SectorBattleState state, NavFaction faction)
         => state != null && state.TotalOf(faction) > VisibleTotalEpsilon;
-
-    private static void SnapDisplayedFullControl(SectorBattleState state)
-    {
-        if (state == null)
-            return;
-
-        float sum = state.TotalSum;
-        if (sum <= 0f)
-            return;
-
-        float ally = Mathf.Max(0f, state.AllyTotal);
-        float enemy = Mathf.Max(0f, state.EnemyTotal);
-        float n = ally / sum;
-
-        if ((n >= FullControlDisplayThreshold || enemy <= VisibleTotalEpsilon) && state.EnemyElitePower <= 0f)
-        {
-            state.AllyTotal = sum;
-            state.EnemyTotal = 0f;
-            state.ControlPressure = 0f;
-            return;
-        }
-
-        if ((n <= 1f - FullControlDisplayThreshold || ally <= VisibleTotalEpsilon) && state.AllyElitePower <= 0f)
-        {
-            state.AllyTotal = 0f;
-            state.EnemyTotal = sum;
-            state.ControlPressure = 0f;
-        }
-    }
 
     // 화면 수가 비율 목표에 못 미치면 부족분을 재스폰한다. 반환=실제 스폰 수.
     private int ReplenishTo(SectorBattleState state, NavFaction faction, int cur, int target)
@@ -478,10 +604,12 @@ public sealed class SectorBattleManager : IDisposable
         else if (n <= 1f - CaptureThreshold) state.OwnerFaction = NavFaction.Enemy;
     }
 
-    // 살아있는(죽음 연출 중이 아닌) NavAgent를 진영별로 센다. 모든 NavAgent는 플레이어 섹터에만 존재한다.
-    private static void CountLiveAgents(out int ally, out int enemy)
+    // NavAgent를 센다. ally/enemy = 살아있는(죽음 연출 중이 아닌) 실체 = 게이지 비율의 분자/분모.
+    // total = 죽어가는(곧 부활) 엔티티까지 포함한 전체 수 = LiveCap 대비 보충(Replenish) 기준.
+    // 모든 NavAgent는 플레이어 섹터에만 존재한다.
+    private static void CountLiveAgents(out int ally, out int enemy, out int total)
     {
-        ally = 0; enemy = 0;
+        ally = 0; enemy = 0; total = 0;
         World world = World.DefaultGameObjectInjectionWorld;
         if (world == null || !world.IsCreated) return;
 
@@ -492,6 +620,7 @@ public sealed class SectorBattleManager : IDisposable
         NativeArray<NavAgentFaction> factions = query.ToComponentDataArray<NavAgentFaction>(Allocator.Temp);
         NativeArray<NavAgentDeath> deaths = query.ToComponentDataArray<NavAgentDeath>(Allocator.Temp);
 
+        total = factions.Length;
         for (int i = 0; i < factions.Length; i++)
         {
             if (deaths[i].Dying != 0) continue;
@@ -502,6 +631,39 @@ public sealed class SectorBattleManager : IDisposable
         factions.Dispose();
         deaths.Dispose();
         query.Dispose();
+    }
+
+    // 변이(D): from 진영의 살아있는 실체 count마리를 반대 진영으로 toggle한다. 반환=실제 변이 수.
+    // 죽어가는(Dying) 엔티티는 곧 부활로 진영이 결정되므로 변이 대상에서 제외한다.
+    // faction 변경은 다음 프레임 Unit_NavVisualShell.Tick이 감지해 ConvertTo(파티클+머테리얼)로 연출한다.
+    private static int MutateAgents(NavFaction from, int count)
+    {
+        if (count <= 0) return 0;
+        World world = World.DefaultGameObjectInjectionWorld;
+        if (world == null || !world.IsCreated) return 0;
+
+        EntityManager em = world.EntityManager;
+        EntityQuery query = em.CreateEntityQuery(
+            ComponentType.ReadWrite<NavAgentFaction>(),
+            ComponentType.ReadOnly<NavAgentDeath>());
+        NativeArray<Entity> entities = query.ToEntityArray(Allocator.Temp);
+
+        NavFaction to = from == NavFaction.Ally ? NavFaction.Enemy : NavFaction.Ally;
+        int mutated = 0;
+        for (int i = 0; i < entities.Length && mutated < count; i++)
+        {
+            Entity e = entities[i];
+            if (em.GetComponentData<NavAgentDeath>(e).Dying != 0) continue;
+            NavAgentFaction f = em.GetComponentData<NavAgentFaction>(e);
+            if (f.Faction != from) continue;
+            f.Faction = to;
+            em.SetComponentData(e, f);
+            mutated++;
+        }
+
+        entities.Dispose();
+        query.Dispose();
+        return mutated;
     }
 
     // ── 스폰 엔트리 빌드 ──────────────────────────────────────────────────────────
@@ -572,20 +734,22 @@ public sealed class SectorBattleManager : IDisposable
         if (_logTimer < LogInterval) return;
         _logTimer = 0f;
 
-        Sector playerSector = _sectorManager != null ? _sectorManager.CurrentSector : null;
         var sb = new System.Text.StringBuilder("[SectorBattle] ");
         int shown = 0;
         foreach (KeyValuePair<Sector, SectorBattleState> kv in _states)
         {
             SectorBattleState s = kv.Value;
-            if (s.Sector == playerSector) continue;
-            if (s.AllyTotal <= 0f && s.EnemyTotal <= 0f) continue;
+            if (s.TotalSum <= 0f) continue;
 
-            sb.Append($"{s.Sector.DisplayName}(A{s.AllyTotal:0} E{s.EnemyTotal:0} {s.GaugeNormalized * 100f:0}% {s.OwnerFaction}) ");
-            if (++shown >= 6) break;
+            // 진단: [점령상태 L링크영향력 net변이압력 aP아군전투력 eP적전투력 게이지%]  (전투력=현지Power+지원Power)
+            float net = ResolveMutationNet(s);
+            float aP = s.AllyPower + ResolveSupportPower(s, NavFaction.Ally);
+            float eP = s.EnemyPower + ResolveSupportPower(s, NavFaction.Enemy);
+            sb.Append($"{s.Sector.DisplayName}[{s.Control} L{s.LinkInfluence} net{net:0.0} aP{aP:0} eP{eP:0} {s.GaugeNormalized * 100f:0}%] ");
+            if (++shown >= 12) break;
         }
 
-        // if (shown > 0)
-        //     Debug.Log(sb.ToString());
+        if (shown > 0)
+            Debug.Log(sb.ToString());
     }
 }

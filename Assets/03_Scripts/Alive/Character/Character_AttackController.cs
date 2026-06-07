@@ -48,6 +48,7 @@ public class Character_AttackController : LoopMonoBehaviour
     private bool          _attackMoveVfxPlaying;
     private AutoDespawn   _castVfxInstance;
     private System.Threading.CancellationTokenSource _castVfxSpawnCts;
+    private System.Threading.CancellationTokenSource _releaseEffectsCts;
     private bool          _slamLandingFired;
     private bool          _slamDescending;
 
@@ -285,9 +286,59 @@ public class Character_AttackController : LoopMonoBehaviour
     {
         if (attack == null) return;
 
-        ShakeOnAttackRelease(attack.ReleaseEffects);
         StartAttackData(attack);
+        ScheduleReleaseEffects(attack.ReleaseEffects, attack.Duration);
         PlayAttackCameraCue(attack, AttackCueTrigger.Release);
+    }
+
+    private void ScheduleReleaseEffects(AttackReleaseEffectData release, float attackDuration)
+    {
+        StopReleaseEffects();
+
+        if (!HasReleaseEffects(release))
+            return;
+
+        float delay = Mathf.Max(0f, attackDuration) * Mathf.Clamp01(release.timing);
+        if (delay <= 0f)
+        {
+            PlayReleaseEffects(release);
+            return;
+        }
+
+        _releaseEffectsCts = new System.Threading.CancellationTokenSource();
+        PlayReleaseEffectsDelayed(release, delay, _releaseEffectsCts.Token).Forget();
+    }
+
+    private static bool HasReleaseEffects(AttackReleaseEffectData release)
+        => (release.shake.enabled && release.shake.amplitude > 0f && release.shake.duration > 0f)
+           || (release.slowMo.enabled && release.slowMo.duration > 0f);
+
+    private async UniTaskVoid PlayReleaseEffectsDelayed(AttackReleaseEffectData release, float delay, System.Threading.CancellationToken token)
+    {
+        try
+        {
+            await UniTask.Delay(TimeSpan.FromSeconds(delay), DelayType.UnscaledDeltaTime, cancellationToken: token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        PlayReleaseEffects(release);
+    }
+
+    private void PlayReleaseEffects(AttackReleaseEffectData release)
+    {
+        ShakeOnAttackRelease(release);
+        if (release.slowMo.enabled)
+            TriggerSlowMo(release.slowMo).Forget();
+    }
+
+    private void StopReleaseEffects()
+    {
+        _releaseEffectsCts?.Cancel();
+        _releaseEffectsCts?.Dispose();
+        _releaseEffectsCts = null;
     }
 
     private void PollAndDiscardSkillInput()
@@ -373,8 +424,6 @@ public class Character_AttackController : LoopMonoBehaviour
         _vfx?.PlaySwingTrails(fb.swingTrailIds);
         App.PlaySfx(fb.swingSfx, transform.position);
 
-        if (_currentData.SlowMo.enabled)
-            TriggerSlowMo(_currentData.SlowMo).Forget();
     }
 
     private void OnAttackEnd()
@@ -382,6 +431,7 @@ public class Character_AttackController : LoopMonoBehaviour
         _playerAnimator?.ExitAttack();
         StopAttackMoveVfx(true);
         StopCastVfx();
+        StopReleaseEffects();
         if (_currentData != null)
         {
             // Release 트리거 큐가 남아 있으면 취소 (cancelOnTickMiss 등 조기 종료 시 큐가 계속 재생되는 문제 방지)
@@ -461,6 +511,7 @@ public class Character_AttackController : LoopMonoBehaviour
         _hitCameraCuePlayed = false;
         _slamLandingFired = false;
         _slamDescending = false;
+        StopReleaseEffects();
         if (_extraHitFired != null)
             for (int i = 0; i < _extraHitFired.Length; i++)
             {
@@ -480,6 +531,7 @@ public class Character_AttackController : LoopMonoBehaviour
         _slamDescending = false;
         _playerAnimator?.ExitAttack();
         StopCastVfx();
+        StopReleaseEffects();
         if (_currentData != null)
         {
             if (_currentData.CameraCue.enabled)
@@ -966,19 +1018,20 @@ public class Character_AttackController : LoopMonoBehaviour
     {
         if (slowMo.duration <= 0f) return;
 
-        Main.Loop.SetTimeScales(Mathf.Clamp01(slowMo.worldScale), 1f);
+        Main.Loop.SetGameSpeed(Mathf.Clamp01(slowMo.timeScale));
         await UniTask.Delay(
             TimeSpan.FromSeconds(slowMo.duration),
             ignoreTimeScale: true,
             cancellationToken: destroyCancellationToken);
         if (Main.Loop != null)
-            Main.Loop.SetTimeScales(1f, 1f);
+            Main.Loop.SetGameSpeed(1f);
     }
 
     private void OnDestroy()
     {
         _castVfxSpawnCts?.Cancel();
         _castVfxSpawnCts?.Dispose();
+        StopReleaseEffects();
         _emitter.Dispose();
         if (_cachedWorld != null && _cachedWorld.IsCreated)
             _autoAimQuery.Dispose();
@@ -1147,5 +1200,3 @@ public class Character_AttackController : LoopMonoBehaviour
         }
     }
 }
-
-

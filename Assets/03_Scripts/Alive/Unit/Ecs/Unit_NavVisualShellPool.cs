@@ -71,10 +71,12 @@ namespace MapNav.Ecs
                 NavAgentAttack attack = _em.HasComponent<NavAgentAttack>(entity)
                     ? _em.GetComponentData<NavAgentAttack>(entity)
                     : default;
-                NavAgentHealth health = _em.HasComponent<NavAgentHealth>(entity)
-                    ? _em.GetComponentData<NavAgentHealth>(entity)
-                    : default;
-                shell.Tick(t, m, kb, launch, death, attack, health, deltaTime);
+                // 부활(NavDeathSystem) 시 ECS가 faction을 Ally로 바꾸므로, 비주얼이 매 틱 현재 진영을 읽어
+                // 사망→부활 순간 ConvertTo(파티클·머테리얼)·wakeup을 재생할 수 있게 한다.
+                NavFaction faction = _em.HasComponent<NavAgentFaction>(entity)
+                    ? _em.GetComponentData<NavAgentFaction>(entity).Faction
+                    : NavFaction.Enemy;
+                shell.Tick(t, m, kb, launch, death, attack, faction, deltaTime);
             }
 
             for (int i = 0; i < _releaseScratch.Count; i++)
@@ -144,7 +146,7 @@ namespace MapNav.Ecs
                 Unit_NavVisualShell shell = GetShell(data);
                 if (shell == null) continue;
 
-                shell.Bind(entity, faction, t, profile, data != null ? data.AnimationData : null);
+                shell.Bind(entity, faction, t, profile, data);
                 _active.Add(entity, shell);
             }
         }

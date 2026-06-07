@@ -18,24 +18,21 @@ public static class CombatFormula
 
 public static class SectorPowerFormula
 {
-    public static float Calculate(SO_Character_Data character, float fallbackPower = 0f)
+    public static float Calculate(SO_Character_Data character)
         => Calculate(
             character != null ? character.StatsData : null,
-            character != null ? character.DefaultLoadout : null,
-            fallbackPower);
+            character != null ? character.DefaultLoadout : null);
 
     public static float Calculate(
         SO_Character_Stats stats,
-        SO_Character_Loadout loadout,
-        float fallbackPower = 0f)
-        => Calculate(stats, loadout != null ? loadout.EquippedSkills : null, fallbackPower);
+        SO_Character_Loadout loadout)
+        => Calculate(stats, loadout != null ? loadout.EquippedSkills : null);
 
     public static float Calculate(
         SO_Character_Stats stats,
-        SO_Skill_Data[] equippedSkills,
-        float fallbackPower = 0f)
+        SO_Skill_Data[] equippedSkills)
     {
-        float power = stats != null ? stats.BaseSectorPower : fallbackPower;
+        float power = stats != null ? stats.BaseSectorPower : 0f;
 
         if (equippedSkills != null)
         {

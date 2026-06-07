@@ -1,3 +1,4 @@
+using MapNav.Ecs;
 using UnityEngine;
 
 // 장수 실체(현재 섹터에서만 인스턴스화)의 ECS 무관 다리.
@@ -36,6 +37,11 @@ public sealed class Elite_Embodiment : MonoBehaviour
             stats != null ? stats.BodyRadius : 0.5f);
 
         _vitals.OnHealthChanged += HandleHealthChanged;
+
+        Elite_HealthBar healthBar = GetComponent<Elite_HealthBar>();
+        if (healthBar == null)
+            healthBar = gameObject.AddComponent<Elite_HealthBar>();
+        healthBar.Bind(_vitals, State.Faction);
     }
 
     private void Update()
@@ -66,5 +72,136 @@ public sealed class Elite_Embodiment : MonoBehaviour
     {
         if (State != null)
             State.Health = current; // Health<=0이면 Elite_Manager.ReapDeadElites가 연출 후 수거.
+    }
+}
+
+[DisallowMultipleComponent]
+public sealed class Elite_HealthBar : MonoBehaviour
+{
+    private const float MinWidth = 1.8f;
+    private const float MaxWidth = 4f;
+    private const float BackgroundThickness = 0.22f;
+    private const float FillThickness = 0.14f;
+
+    private static Material _lineMaterial;
+
+    private Character_Vitals _vitals;
+    private Transform _root;
+    private LineRenderer _background;
+    private LineRenderer _fill;
+    private float _width;
+
+    public void Bind(Character_Vitals vitals, NavFaction faction)
+    {
+        if (_vitals != null)
+            _vitals.OnHealthChanged -= HandleHealthChanged;
+
+        _vitals = vitals;
+        EnsureVisuals(faction);
+
+        if (_vitals == null)
+        {
+            _root.gameObject.SetActive(false);
+            return;
+        }
+
+        _vitals.OnHealthChanged += HandleHealthChanged;
+        HandleHealthChanged(_vitals.Health, _vitals.MaxHealth);
+    }
+
+    private void OnDestroy()
+    {
+        if (_vitals != null)
+            _vitals.OnHealthChanged -= HandleHealthChanged;
+    }
+
+    private void LateUpdate()
+    {
+        if (_root == null || Camera.main == null)
+            return;
+
+        _root.rotation = Camera.main.transform.rotation;
+    }
+
+    private void EnsureVisuals(NavFaction faction)
+    {
+        if (_root == null)
+        {
+            CharacterController controller = GetComponent<CharacterController>();
+            float bodyRadius = controller != null
+                ? controller.radius
+                : (_vitals != null ? _vitals.BodyRadius : 0.5f);
+            _width = Mathf.Clamp(bodyRadius * 3f, MinWidth, MaxWidth);
+
+            Vector3 localPosition = controller != null
+                ? controller.center + Vector3.up * (controller.height * 0.5f + 0.35f)
+                : Vector3.up * (bodyRadius * 2f + 0.35f);
+
+            var rootObject = new GameObject("Elite Health Bar");
+            _root = rootObject.transform;
+            _root.SetParent(transform, false);
+            _root.localPosition = localPosition;
+
+            _background = CreateLine("Background", BackgroundThickness, new Color(0.03f, 0.04f, 0.05f, 0.92f), 50);
+            Color fillColor = faction == NavFaction.Ally
+                ? new Color(0.1f, 0.72f, 1f, 1f)
+                : new Color(1f, 0.18f, 0.18f, 1f);
+            _fill = CreateLine("Fill", FillThickness, fillColor, 51);
+        }
+
+        _root.gameObject.SetActive(true);
+        SetLine(_background, 0f, 1f);
+    }
+
+    private LineRenderer CreateLine(string objectName, float width, Color color, int sortingOrder)
+    {
+        var lineObject = new GameObject(objectName);
+        lineObject.transform.SetParent(_root, false);
+
+        LineRenderer line = lineObject.AddComponent<LineRenderer>();
+        line.useWorldSpace = false;
+        line.alignment = LineAlignment.View;
+        line.textureMode = LineTextureMode.Stretch;
+        line.positionCount = 2;
+        line.widthMultiplier = width;
+        line.numCapVertices = 2;
+        line.startColor = color;
+        line.endColor = color;
+        line.sharedMaterial = ResolveLineMaterial();
+        line.sortingOrder = sortingOrder;
+        return line;
+    }
+
+    private void HandleHealthChanged(float current, float max)
+    {
+        if (_root == null)
+            return;
+
+        float ratio = max > 0f ? Mathf.Clamp01(current / max) : 0f;
+        _root.gameObject.SetActive(ratio > 0f);
+        SetLine(_fill, 0f, ratio);
+    }
+
+    private void SetLine(LineRenderer line, float startRatio, float endRatio)
+    {
+        if (line == null)
+            return;
+
+        float left = -_width * 0.5f;
+        line.SetPosition(0, new Vector3(left + _width * startRatio, 0f, 0f));
+        line.SetPosition(1, new Vector3(left + _width * endRatio, 0f, 0f));
+    }
+
+    private static Material ResolveLineMaterial()
+    {
+        if (_lineMaterial != null)
+            return _lineMaterial;
+
+        Shader shader = Shader.Find("Sprites/Default");
+        if (shader == null)
+            shader = Shader.Find("Universal Render Pipeline/Unlit");
+
+        _lineMaterial = new Material(shader) { name = "Elite Health Bar Material" };
+        return _lineMaterial;
     }
 }

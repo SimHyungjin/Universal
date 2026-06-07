@@ -98,6 +98,8 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
         _sectorGateTransitioning = false;
         _vfx?.StopDash();
         EnterNormal();
+        // 도착 섹터에서 잡몹 떼에 둘러싸여 즉사하는 것을 막는 입장 무적. 전환 도중엔 이미 피격 무시이므로 완료 직후에 건다.
+        AddInvincible(GatePostTransitionInvincibleDuration);
     }
 
     private Character_MoveController _moveController;
@@ -443,15 +445,14 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
 
     private static async UniTaskVoid DoHitstop(AttackHitstopData hitstop, CancellationToken token)
     {
-        // 월드만 잠시 정지/감속, 플레이어는 그대로 — LoopManager.SetTimeScales(world, player) 시그니처를 따른다.
-        Main.Loop.SetTimeScales(Mathf.Clamp01(hitstop.timeScale), 1f);
+        Main.Loop.SetGameSpeed(Mathf.Clamp01(hitstop.timeScale));
         try
         {
             await UniTask.Delay(TimeSpan.FromSeconds(hitstop.duration), DelayType.UnscaledDeltaTime, cancellationToken: token);
         }
         catch (OperationCanceledException) { return; }
         if (Main.Loop != null)
-            Main.Loop.SetTimeScales(1f, 1f);
+            Main.Loop.SetGameSpeed(1f);
     }
 
     public void TakeDamage(float amount, Vector3 hitSource, float knockbackForce = 0f)
@@ -986,6 +987,7 @@ public class Character_ActionHandler : LoopMonoBehaviour, IDamageable, IHitTarge
     private float DashCooldown => dashRule != null ? dashRule.DashCooldown : 2f;
     private float DashInvincibleDuration => dashRule != null ? dashRule.DashInvincibleDuration : 0.12f;
     private float GateEntryGraceDuration => dashRule != null ? dashRule.GateEntryGraceDuration : 0.35f;
+    private float GatePostTransitionInvincibleDuration => dashRule != null ? dashRule.GatePostTransitionInvincibleDuration : 1f;
     // IDamageable.TakeDamage 등 공격 SO 없이 호출되는 경로에서 쓰이는 fallback 상수.
     private const float FallbackReactionDuration = 0.35f;
     private const float FallbackKnockbackFriction = 14f;

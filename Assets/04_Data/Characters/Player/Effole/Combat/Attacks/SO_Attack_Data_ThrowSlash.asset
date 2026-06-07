@@ -39,7 +39,7 @@ MonoBehaviour:
     length: 1
     width: 12
   hitbox:
-    timing: 0.8
+    timing: 0.75
     offset: 0
     yOffset: 0
     verticalTolerance: 1
@@ -104,14 +104,15 @@ MonoBehaviour:
     hitVfxAddress: CFXR3 Hit Fire B (Air)
     hitSfx: 0
   releaseEffects:
+    timing: 0.4
     shake:
-      enabled: 0
-      amplitude: 0
-      duration: 0
-      frequency: 0
+      enabled: 1
+      amplitude: 0.2
+      duration: 0.2
+      frequency: 0.2
     slowMo:
-      enabled: 0
-      worldScale: 0.3
+      enabled: 1
+      timeScale: 0.1
       duration: 0.5
   hitEffects:
     shake:
