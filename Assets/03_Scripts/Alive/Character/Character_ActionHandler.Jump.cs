@@ -1,7 +1,7 @@
 using UnityEngine;
 
-// Character_ActionHandler의 점프(아케이드 아크) 분리분. 상태머신·필드는 본체와 공유한다(partial).
-// 상승: EvaluateJumpAscentHeight 커브로 _jumpGroundY 기준 y를 직접 구동. 정점 이후: 중력 낙하 → 착지.
+// Character_ActionHandler의 점프 분리분. 점프 호(상승 커브·낙하·착지 감지)의 실제 물리는
+// Character_VerticalMotion이 소유하고, 여기서는 상태머신·입력(더블점프·착지 리커버리)만 다룬다.
 public partial class Character_ActionHandler
 {
     private void EnterJump()
@@ -12,17 +12,14 @@ public partial class Character_ActionHandler
 
     private void StartJumpArc()
     {
+        _jumpArcVersion++;
         _jumpBufferTimer = 0f;
         _coyoteTimer = 0f;
-        _jumpArcElapsed = 0f;
-        _jumpGroundY = transform.position.y;
-        _jumpFallingStarted = false;
-        _jumpIdlePlayed = false;
         _jumpEndPlayed = false;
-        _state = Character_ActionState.Jump;
+        SetState(Character_ActionState.Jump);
         _stateTimer = 0f;
-        _moveController.SetVerticalVelocity(0f);
-        PlayAction(JumpStartStateName);
+        _vertical.StartJumpArc(JumpHeight, JumpRiseTime, JumpAscentDuration);
+        // JumpStart/JumpIdle 공중 포즈는 Character_Animator가 IsAirborne으로 단독 재생한다.
         _vfx?.PlayJumpAfterimages();
     }
 
@@ -46,13 +43,8 @@ public partial class Character_ActionHandler
             return;
 
         _moveController.TickPlanarLocomotion(worldInput * JumpAirMoveScale, deltaTime);
-        TickArcadeJumpArc(deltaTime);
-
-        if (ShouldPlayJumpIdle())
-        {
-            _jumpIdlePlayed = true;
-            PlayAction(JumpIdleStateName);
-        }
+        if (_vertical.TickJumpArc(deltaTime))
+            CompleteJumpLanding();
     }
 
     private void TickJumpLanding(Vector3 worldInput, float deltaTime)
@@ -62,7 +54,6 @@ public partial class Character_ActionHandler
 
         if (_stateTimer > 0f) return;
 
-        _jumpIdlePlayed = false;
         _jumpEndPlayed = false;
         EnterNormal();
     }
@@ -82,41 +73,15 @@ public partial class Character_ActionHandler
         if (_state != Character_ActionState.Jump || _jumpEndPlayed)
             return;
 
-        _jumpArcElapsed = JumpAscentDuration;
-        _jumpFallingStarted = true;
-        _jumpIdlePlayed = false;
-    }
-
-    private void TickArcadeJumpArc(float deltaTime)
-    {
-        _jumpArcElapsed += deltaTime;
-
-        if (_jumpArcElapsed <= JumpAscentDuration)
-        {
-            float desiredY = _jumpGroundY + EvaluateJumpAscentHeight(_jumpArcElapsed);
-            _moveController.MoveDisplacement(new Vector3(0f, desiredY - transform.position.y, 0f));
-            return;
-        }
-
-        if (!_jumpFallingStarted)
-        {
-            _jumpFallingStarted = true;
-            _moveController.SetVerticalVelocity(0f);
-        }
-
-        _moveController.MoveVertical(deltaTime);
-        if (!_moveController.IsGrounded)
-            return;
-
-        CompleteJumpLanding();
+        _vertical.CutJumpArcToFall();
     }
 
     private void CompleteJumpLanding()
     {
+        // Jump_End 애니는 Character_Animator가 착지 에지에서 단독 재생한다(게임플레이 착지락과 분리).
+        // 여기서는 게임플레이 락(JumpLandingRecoveryTime)만 관리 — 0이면 즉시 Normal로 복귀해 반응성 유지.
         _jumpEndPlayed = true;
         _stateTimer = Mathf.Max(0f, JumpLandingRecoveryTime);
-        if (!string.IsNullOrWhiteSpace(JumpEndStateName))
-            PlayAction(JumpEndStateName);
 
         if (_stateTimer <= 0f)
             EnterNormal();
@@ -127,42 +92,10 @@ public partial class Character_ActionHandler
         if (_state != Character_ActionState.Jump || !_moveController.IsGrounded)
             return;
 
-        _state = Character_ActionState.Normal;
-        _jumpCount = 0;
-        _jumpIdlePlayed = false;
         _jumpEndPlayed = false;
-        _jumpFallingStarted = false;
-    }
-
-    private float EvaluateJumpAscentHeight(float elapsed)
-    {
-        float riseTime = JumpRiseTime;
-        float height = JumpHeight;
-
-        if (elapsed <= riseTime)
-        {
-            float t = Mathf.Clamp01(elapsed / riseTime);
-            return height * EaseOutCubic(t);
-        }
-
-        return height;
-    }
-
-    private bool ShouldPlayJumpIdle()
-    {
-        if (_jumpIdlePlayed || string.IsNullOrWhiteSpace(JumpIdleStateName))
-            return false;
-
-        if (string.IsNullOrWhiteSpace(JumpStartStateName))
-            return _jumpArcElapsed >= JumpRiseTime;
-
-        return _jumpArcElapsed >= JumpRiseTime || _animator.HasCurrentStateReachedEnd(JumpStartStateName);
-    }
-
-    private static float EaseOutCubic(float t)
-    {
-        t = Mathf.Clamp01(t);
-        float inv = 1f - t;
-        return 1f - inv * inv * inv;
+        // 다른 Normal 복귀 경로와 동일하게 EnterNormal로 통일한다(_jumpCount=0 + 로코모션 해제 +
+        // hitReaction 스케일 리셋). 직접 _state=Normal만 하던 기존 경로는 ReleaseLocomotion을 건너뛰어
+        // 막힌 액션 착지 후 로코모션이 억제된 채 남는 잔류 버그가 있었다.
+        EnterNormal();
     }
 }

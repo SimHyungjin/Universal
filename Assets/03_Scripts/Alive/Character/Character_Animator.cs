@@ -20,14 +20,17 @@ public class Character_Animator : LoopMonoBehaviour
     private bool _isAttacking;
     private bool _suppressLocomotion;
     private bool _holdIdleDuringComboWindow;
-    private Character_MoveController _moveController;
+    private bool _wasAirborne;
+    private bool _playingLanding;
+    private int _lastJumpArcVersion;
+    private Character_ActionHandler _actionHandler;
     private Character_CommandSource _commandSource;
     private readonly ActorAnimationPlayback _animation = new();
 
     private void Awake()
     {
         animator ??= GetComponentInChildren<Animator>(true);
-        _moveController = GetComponent<Character_MoveController>();
+        _actionHandler = GetComponent<Character_ActionHandler>();
         _commandSource = GetComponent<Character_CommandSource>();
         _animation.Bind(animator);
         CacheHashes();
@@ -112,19 +115,80 @@ public class Character_Animator : LoopMonoBehaviour
         if (animator == null) return;
 
         _animation.SyncSpeed(animationTimeDomain);
-        if (_isAttacking || _suppressLocomotion) return;
-
-        bool moving = IsMoving();
-        if (_holdIdleDuringComboWindow && !moving)
-            return;
-
-        if (_jumpIdleStateHash != 0 && _moveController != null && !_moveController.IsGrounded)
+        if (_isAttacking || _suppressLocomotion)
         {
-            _animation.Play(_jumpIdleStateHash, ActionTransition);
+            // 전신 동작(공격/대시/피격/사망)이 애니를 점유 중. 공중/착지 추적도 리셋.
+            _wasAirborne = false;
+            _playingLanding = false;
             return;
         }
 
+        // 공중 포즈(JumpStart→JumpIdle)의 단일 권한. ActionHandler의 논리적 IsAirborne로 판단한다
+        // (raw isGrounded 아님 → 착지 직후 플리커로 JumpIdle이 다시 끼어드는 경합이 구조적으로 불가능).
+        if (_actionHandler != null && _actionHandler.IsAirborne)
+        {
+            _wasAirborne = true;
+            _playingLanding = false;
+            PlayJumpPose();
+            return;
+        }
+
+        bool moving = IsMoving();
+
+        // 착지 에지(공중→지상): Jump_End를 재생하고 클립이 끝나거나 이동/행동으로 취소될 때까지 유지한다.
+        // 게임플레이 착지락(JumpLandingRecoveryTime)과 분리 — 락이 0이어도 착지 모션은 끝까지 보인다.
+        if (_wasAirborne)
+        {
+            _wasAirborne = false;
+            if (!string.IsNullOrWhiteSpace(JumpEndStateName))
+            {
+                _animation.Play(JumpEndStateName, ActionTransition);
+                _playingLanding = true;
+            }
+        }
+
+        if (_playingLanding)
+        {
+            if (!moving && !_animation.HasCurrentStateReachedEnd(JumpEndStateName))
+                return;
+            _playingLanding = false;
+        }
+
+        if (_holdIdleDuringComboWindow && !moving)
+            return;
+
         _animation.TickLocomotion(moving, gdt, _locomotion);
+    }
+
+    // 이륙 직후 JumpStart, 그 클립이 끝나면 JumpIdle. JumpStart가 없으면 바로 JumpIdle.
+    // _animation.Play는 멱등(같은 해시면 스킵)이라 매 프레임 호출해도 한 번만 크로스페이드된다.
+    private void PlayJumpPose()
+    {
+        if (_jumpIdleStateHash == 0) return;
+
+        string start = JumpStartStateName;
+        bool hasStart = !string.IsNullOrWhiteSpace(start);
+
+        // 새 점프 호(첫 점프·2단 점프 모두)면 처음부터 강제 재생한다. 안 그러면 2단 점프 때 이미 같은
+        // JumpIdle 해시가 떠 있어 멱등 Play가 스킵 → 1단 점프 마지막 프레임이 그대로 고정된다.
+        int arc = _actionHandler.JumpArcVersion;
+        if (arc != _lastJumpArcVersion)
+        {
+            _lastJumpArcVersion = arc;
+            _animation.ForcePlay(hasStart ? start : JumpIdleStateName, ActionTransition);
+            return;
+        }
+
+        // 진행 중: JumpStart가 끝나면 JumpIdle로 넘어간다.
+        if (hasStart
+            && _animation.CurrentHash != _jumpIdleStateHash
+            && !_animation.HasCurrentStateReachedEnd(start))
+        {
+            _animation.Play(start, ActionTransition);
+            return;
+        }
+
+        _animation.Play(_jumpIdleStateHash, ActionTransition);
     }
 
     private bool IsMoving()
@@ -154,10 +218,14 @@ public class Character_Animator : LoopMonoBehaviour
         _animation.RegisterStateNames(
             IdleStateName,
             RunStateName,
-            jumpIdle);
+            jumpIdle,
+            JumpStartStateName,
+            JumpEndStateName);
     }
 
+    private string JumpStartStateName => _data != null ? _data.JumpStartStateName : "";
     private string JumpIdleStateName => _data != null ? _data.JumpIdleStateName : jumpIdleStateName;
+    private string JumpEndStateName => _data != null ? _data.JumpEndStateName : "";
     private float ActionTransition => _data != null ? _data.ActionTransition : 0.05f;
     private string IdleStateName => _data != null ? _data.IdleStateName : idleStateName;
     private string RunStateName => _data != null ? _data.RunStateName : runStateName;

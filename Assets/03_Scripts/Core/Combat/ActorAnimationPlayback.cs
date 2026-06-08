@@ -138,7 +138,10 @@ public sealed class ActorAnimationPlayback
         if (!CanCrossFade(stateHash)) return;
 
         _currentHash = stateHash;
-        _animator.CrossFade(stateHash, transitionDuration);
+        // CrossFadeInFixedTime: transition을 "초"로 해석한다. 일반 CrossFade는 목적지 클립 길이에 대한
+        // 정규화 비율이라, 초 단위로 작성된 transition 값(ActionTransition 0.05 등)이 긴 루프 클립으로
+        // 전이할 때 과도하게 길고 들쭉날쭉하게 섞였다.
+        _animator.CrossFadeInFixedTime(stateHash, transitionDuration);
     }
 
     public void ForcePlay(string stateName, float transitionDuration)
@@ -154,7 +157,8 @@ public sealed class ActorAnimationPlayback
         if (!CanCrossFade(stateHash)) return;
 
         _currentHash = stateHash;
-        _animator.CrossFade(stateHash, transitionDuration, 0, 0f);
+        // 초 단위 transition + 목적지 0초부터 재생(ForcePlay 의미 유지).
+        _animator.CrossFadeInFixedTime(stateHash, transitionDuration, 0, 0f);
     }
 
     public void PlayHitReaction(in HitReactionAnimSet set, HitReactionKind kind)

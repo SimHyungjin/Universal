@@ -14,8 +14,7 @@ public enum Character_ActionState
     Down = 5,
     Wakeup = 6,
     Dead = 7,
-    Launched = 8,
-    Broken = 9
+    Launched = 8
 }
 
 [RequireComponent(typeof(Character_MoveController))]
@@ -40,6 +39,18 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
 
     public Character_ActionState State => _state;
     public bool IsInvincible => _invincibleTimer > 0f;
+    // "지금 피격당할 수 있나"의 단일 진실. ReceiveHit·IHitTarget.IsHittable·Character_EcsHitReceiver가
+    // 제각기 같은 조건을 복사해 들고 있던 것을 하나로 모은다. 한 곳만 고치면 세 경로가 동시에 일관된다.
+    public bool IsHittable => !_sectorGateTransitioning && !IsInvincible && _state != Character_ActionState.Dead;
+    // 논리적 "공중에 떠 있나"(raw isGrounded 아님). 점프 상승·하강 중과 launch 체공 중 true,
+    // 착지 리커버리(_jumpEndPlayed)부터는 false. Character_Animator가 공중 포즈(JumpIdle) 단독 재생에 쓴다.
+    // Jump/Launched는 상태로 즉시 판정(이륙 애니 지연 없음). 그 외 상태(에어 대시 후 Normal 낙하 등)는
+    // 실제 접지 여부로 판정하되, 착지 직후 raw isGrounded가 1~2프레임 false로 튀는 플리커는 디바운스로 무시.
+    public bool IsAirborne => _state == Character_ActionState.Launched
+                              || (_state == Character_ActionState.Jump && !_jumpEndPlayed)
+                              || _airborneTimer > AirborneFlickerDebounce;
+    // 점프 호 식별자. 값이 바뀌면 새 점프(첫/2단)가 시작된 것 → Animator가 공중 포즈를 처음부터 재생.
+    public int JumpArcVersion => _jumpArcVersion;
     public bool IsSectorGateTransitioning => _sectorGateTransitioning;
     public bool CanAttack => !_sectorGateTransitioning && _state == Character_ActionState.Normal;
     public bool CanUseSkill => !_sectorGateTransitioning && (_state == Character_ActionState.Normal || _state == Character_ActionState.Jump);
@@ -104,6 +115,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
     }
 
     private Character_MoveController _moveController;
+    private Character_VerticalMotion _vertical;
     private Character_AttackController _attackController;
     private Character_Animator _animator;
     private Character_Vfx _vfx;
@@ -111,6 +123,9 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
     private Character_BreakOutlineController _breakOutline;
     private CharacterController _characterController;
     private Character_CommandSource _commandSource;
+    [Header("Debug")]
+    [SerializeField, Tooltip("켜면 모든 액션 상태 전이를 콘솔에 찍는다(에디터 전용). '가끔 튀어나오는' 이상 전이 추적용.")]
+    private bool _logStateTransitions;
     private Character_ActionState _state;
     private Vector3 _forcedDirection;
     private float _forcedSpeed;
@@ -121,29 +136,24 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
     private float _sectorGateDashGraceUntil;
     private bool _sectorGateTransitioning;
     private float _hitReactionDurationScale = 1f;
-    // launch(공중 부양). 잡몹 NavLaunchSystem과 동일하게 LaunchPhysics(초기속도+중력 적분)로 y를 구동해
-    // 궤적·타이밍·체공을 통일한다. _launchGroundY는 최초 진입 시의 지면 y(잡몹 NavAgentLaunch.GroundY와 동형).
-    private float _launchVerticalVelocity;
-    private float _launchGroundY;
-    private float _launchHeight;
-    private float _launchSuspendTimer;
-    private float _launchElapsed;
-    private float _launchMaxDuration;
+    // launch 수직 적분·궤적·groundY는 Character_VerticalMotion 소유. 여기선 착지 후 다운 예약만 보유.
     private bool _launchPendingDown;
     private float _launchDownDuration;
     private float _coyoteTimer;
+    private float _airborneTimer;
     private float _jumpBufferTimer;
-    private float _jumpArcElapsed;
-    private float _jumpGroundY;
     private int _jumpCount;
-    private bool _jumpFallingStarted;
-    private bool _jumpIdlePlayed;
     private bool _jumpEndPlayed;
-    private static readonly RaycastHit[] LaunchGroundHits = new RaycastHit[8];
+    // 점프 호가 시작될 때마다 증가. Character_Animator가 이 변화를 보고 공중 포즈를 처음부터
+    // 강제 재생한다(2단 점프 때 같은 JumpIdle 해시라 멱등 Play가 스킵돼 1단 마지막 프레임이 고정되는 것 방지).
+    private int _jumpArcVersion;
 
     private void Awake()
     {
         _moveController = GetComponent<Character_MoveController>();
+        _vertical = GetComponent<Character_VerticalMotion>();
+        if (_vertical == null)
+            _vertical = gameObject.AddComponent<Character_VerticalMotion>();
         _attackController = GetComponent<Character_AttackController>();
         _animator = GetComponent<Character_Animator>();
         _vfx = GetComponent<Character_Vfx>();
@@ -284,7 +294,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
             if (_state == Character_ActionState.Dash)
             {
                 _vfx?.StopDash();
-                _state = Character_ActionState.Normal;
+                EnterNormal();
             }
             if (_attackController.IsSlamDescending)
             {
@@ -292,14 +302,16 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
                 return;
             }
             else if (_attackController.SuspendsAtApex)
-                _moveController.MoveVerticalUntilApexThenSuspend(gdt);
+                _vertical.SuspendAtApexMove(gdt);
             else
                 _moveController.MoveVertical(gdt);
             CompleteBlockedActionJumpLandingIfGrounded();
             return;
         }
 
-        if (_attackController != null && _attackController.IsComboWindowOpen)
+        // 콤보 윈도우 중 지상 이동 허용. 단 Normal일 때만 — Jump 상태에서 이걸로 빠지면 TickJump(공중 이동·
+        // 착지 완료)가 통째로 건너뛰어져, 공중 공격 후 그냥 내려오면 착지 처리가 안 돼 JumpIdle에 멈춘다.
+        if (_attackController != null && _attackController.IsComboWindowOpen && _state == Character_ActionState.Normal)
         {
             _moveController.TickLocomotion(worldInput, gdt);
             return;
@@ -321,9 +333,6 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
                 break;
             case Character_ActionState.Down:
                 TickDown(gdt);
-                break;
-            case Character_ActionState.Broken:
-                TickBroken(gdt);
                 break;
             case Character_ActionState.Launched:
                 TickLaunched(gdt);
@@ -347,15 +356,20 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         AttackLaunchData launch = default,
         Vector3 attackerForward = default)
     {
-        if (_sectorGateTransitioning || IsInvincible || _state == Character_ActionState.Dead) return;
+        if (!IsHittable) return;
 
-        bool alreadyBroken = _state == Character_ActionState.Broken || (_vitals != null && _vitals.IsBroken);
+        bool alreadyBroken = _vitals != null && _vitals.IsBroken;
         float resolvedDamage = alreadyBroken ? damage * BrokenDamageTakenMultiplier : damage;
         ApplyDamage(resolvedDamage);
         if (_state == Character_ActionState.Dead) return;
         bool broken = _vitals != null && _vitals.ApplyBreakDamage(resolvedDamage + Mathf.Max(0f, superArmorBreak));
         AddGauge(statsData != null ? statsData.GaugeGainOnReceive : 0f);
         TriggerHitstop(hitstop);
+
+        // 브레이크 "터진 순간" 1회 연출은 아래 반응 라우팅보다 먼저, 여기서 발사한다.
+        // (공중 저글링 중 브레이크는 juggle 유지 분기에서 일찍 return하므로 그 뒤에 두면 큐가 누락된다.)
+        if (broken)
+            PlayBreakFeedback();
 
         if (!IsSuperArmorDisabledByBreak(broken) && _attackController != null && _attackController.IsSuperArmoredAgainst(superArmorBreak))
             return;
@@ -387,9 +401,12 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
                 _launchDownDuration = Mathf.Max(_launchDownDuration, stateDuration);
             }
 
-            if (launch.suspendDuration > 0f)
-                _launchSuspendTimer = Mathf.Max(_launchSuspendTimer, launch.suspendDuration);
+            _vertical.RefreshLaunchSuspend(launch.suspendDuration);
 
+            // CancelAttack→ReleaseLocomotion이 푼 로코모션 억제를 다시 걸고 피격 모션을 유지한다.
+            // (안 하면 공중 상태라 Character_Animator가 Jump_Idle을 재생한다. 잡몹은 매 hit hit애니 재생.)
+            // launch 없이 suspendDuration만으로 묶는 경우(ComboAttack 2타 등)도 여기서 함께 처리한다.
+            PlayHitReaction(HitReactionKind.Launch);
             return;
         }
 
@@ -405,13 +422,6 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         _stateTimer = stateDuration;
         _moveController.StopPlanar();
 
-        if (broken)
-        {
-            PlayBreakFeedback();
-            EnterBroken(_vitals != null ? _vitals.BrokenDuration : BreakVulnerableDuration);
-            return;
-        }
-
         if (alreadyBroken && !incomingLaunch && !down.enabled)
         {
             PlayHitReaction(HitReactionKind.HeavyHit);
@@ -425,18 +435,6 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
             return;
         }
 
-        // launch.enabled가 아니어도, 이미 공중에 떠 있을 때 suspendDuration>0이면 체공 타이머만 갱신해
-        // juggle을 유지한다(잡몹 AttackHitEmitter와 동일 규칙). 상태를 Knockback/Hitstun으로
-        // 떨어뜨리지 않는다 — ComboAttack 2타처럼 launch 없이 suspendDuration만으로 묶는 경우.
-        if (_state == Character_ActionState.Launched && launch.suspendDuration > 0f)
-        {
-            _launchSuspendTimer = launch.suspendDuration;
-            // CancelAttack→ReleaseLocomotion이 푼 로코모션 억제를 다시 걸고 피격 모션을 유지한다.
-            // (안 하면 공중 상태라 Character_Animator가 Jump_Idle을 재생한다. 잡몹은 매 hit hit애니 재생.)
-            PlayHitReaction(HitReactionKind.Launch);
-            return;
-        }
-
         if (down.enabled)
         {
             EnterDown(stateDuration);
@@ -444,7 +442,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         }
 
         bool hasKnockback = knockback.force > 0f;
-        _state = hasKnockback ? Character_ActionState.Knockback : Character_ActionState.Hitstun;
+        SetState(hasKnockback ? Character_ActionState.Knockback : Character_ActionState.Hitstun);
         PlayHitReaction(hasKnockback ? HitReactionKind.HeavyHit : HitReactionKind.LightHit);
     }
 
@@ -465,7 +463,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
     // finalDamage는 공격자 쪽에서 이미 공격력 스케일을 적용한 값이라 그대로 사용한다.
     // ReceiveHit이 무시하는 상태(무적·사망)와 동일 조건. 공격자가 이때 시체/무적 대상을 건너뛰어
     // 타격 연출·히트스톱·게이지가 헛으로 들어가지 않게 한다.
-    bool IHitTarget.IsHittable => !_sectorGateTransitioning && !IsInvincible && _state != Character_ActionState.Dead;
+    bool IHitTarget.IsHittable => IsHittable;
 
     bool IHitTarget.IsAirborneHittable => _state == Character_ActionState.Launched;
 
@@ -482,7 +480,6 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
 
     private bool IsSuperArmorDisabledByBreak(bool brokenByThisHit)
         => brokenByThisHit
-           || _state == Character_ActionState.Broken
            || (_vitals != null && _vitals.IsBroken);
 
     private static async UniTaskVoid DoHitstop(AttackHitstopData hitstop, CancellationToken token)
@@ -523,7 +520,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
 
     private void EnterDead()
     {
-        _state = Character_ActionState.Dead;
+        SetState(Character_ActionState.Dead);
         _attackController?.CancelAttack();
         _vfx?.StopDash();
         _moveController.StopPlanar();
@@ -556,7 +553,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
     {
         Vector3 direction = ResolveActionDirection(input);
         float duration = Mathf.Max(0.01f, DashDuration);
-        _state = Character_ActionState.Dash;
+        SetState(Character_ActionState.Dash);
         _stateTimer = duration;
         _forcedDirection = direction;
         _forcedSpeed = DashDistance / duration;
@@ -576,7 +573,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         if (_stateTimer > 0f) return;
 
         bool endedDash = _state == Character_ActionState.Dash;
-        _state = nextState;
+        SetState(nextState);
         if (endedDash)
         {
             _sectorGateDashGraceUntil = Time.time + GateEntryGraceDuration;
@@ -611,21 +608,10 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
 
     private void EnterDown(float duration)
     {
-        _state = Character_ActionState.Down;
+        SetState(Character_ActionState.Down);
         _stateTimer = Mathf.Max(0f, duration);
         _moveController.StopPlanar();
         PlayHitReaction(HitReactionKind.Down);
-    }
-
-    private void EnterBroken(float duration)
-    {
-        _state = Character_ActionState.Broken;
-        _stateTimer = Mathf.Max(0.1f, duration);
-        _forcedDirection = Vector3.zero;
-        _forcedSpeed = 0f;
-        _forcedFriction = 0f;
-        _moveController.StopPlanar();
-        PlayHitReaction(HitReactionKind.HeavyHit);
     }
 
     private void PlayBreakFeedback()
@@ -644,16 +630,6 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         }
     }
 
-    private void TickBroken(float deltaTime)
-    {
-        _stateTimer -= deltaTime;
-        _moveController.MoveVertical(deltaTime);
-
-        if (_stateTimer > 0f) return;
-
-        EnterNormal();
-    }
-
     private void TickDown(float deltaTime)
     {
         _stateTimer -= deltaTime;
@@ -662,10 +638,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
 
         if (_stateTimer > 0f) return;
 
-        _state = Character_ActionState.Wakeup;
-        _stateTimer = WakeupDuration;
-        _invincibleTimer = Mathf.Max(_invincibleTimer, WakeupInvincibleDuration);
-        PlayHitReaction(HitReactionKind.Wakeup);
+        EnterWakeup();
     }
 
     private void TickWakeup(float deltaTime)
@@ -680,10 +653,30 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
 
     private void EnterNormal()
     {
-        _state = Character_ActionState.Normal;
+        SetState(Character_ActionState.Normal);
         _hitReactionDurationScale = 1f;
         _jumpCount = 0;
         _animator.ReleaseLocomotion();
+    }
+
+    private void EnterWakeup()
+    {
+        SetState(Character_ActionState.Wakeup);
+        _stateTimer = WakeupDuration;
+        _invincibleTimer = Mathf.Max(_invincibleTimer, WakeupInvincibleDuration);
+        PlayHitReaction(HitReactionKind.Wakeup);
+    }
+
+    // 모든 _state 쓰기는 반드시 이 한 곳을 통과한다(직접 _state = 대입 금지).
+    // 전이가 한 군데로 모여야 _logStateTransitions로 전체 전이 흐름을 한 줄씩 관찰할 수 있고,
+    // "어느 경로로 들어가면 이상" 류의 암묵 전이를 추적·검증할 수 있다.
+    private void SetState(Character_ActionState next)
+    {
+#if UNITY_EDITOR
+        if (_logStateTransitions && next != _state)
+            Debug.Log($"[ActionHandler] {name}: {_state} → {next}", this);
+#endif
+        _state = next;
     }
 
     private float ConsumeHitReactionDurationScale()
@@ -702,8 +695,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         => state == Character_ActionState.Hitstun
            || state == Character_ActionState.Knockback
            || state == Character_ActionState.Down
-           || state == Character_ActionState.Launched
-           || state == Character_ActionState.Broken;
+           || state == Character_ActionState.Launched;
 
     private void TickSharedTimers(float deltaTime)
     {
@@ -714,6 +706,10 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         _coyoteTimer = _moveController.IsGrounded
             ? CoyoteTime
             : Mathf.Max(0f, _coyoteTimer - deltaTime);
+
+        // 접지 시 0, 공중이면 누적. 착지 직후 1~2프레임 isGrounded 플리커가 IsAirborne을 오작동시키지 않게
+        // 디바운스 임계(AirborneFlickerDebounce)를 넘겨야 "진짜 공중"으로 친다.
+        _airborneTimer = _moveController.IsGrounded ? 0f : _airborneTimer + deltaTime;
     }
 
     private void BufferJumpInput()
@@ -783,10 +779,8 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
     private const float FallbackReactionDuration = 0.35f;
     private const float FallbackKnockbackFriction = 14f;
     private const float ChainedHitReactionDurationMultiplier = 0.8f;
-    private const float LaunchGroundProbeUp = 2f;
-    private const float LaunchGroundProbeDown = 12f;
-    private const float LaunchFailsafeExtraTime = 0.75f;
-    private const float LaunchFailsafeMaxDuration = 3f;
+    // 착지 직후 raw isGrounded가 1~2프레임 false로 튀는 것을 무시하는 공중 판정 디바운스(초).
+    private const float AirborneFlickerDebounce = 0.06f;
     private float WakeupDuration => actionRecovery != null ? actionRecovery.WakeupDuration : 0f;
     private float WakeupInvincibleDuration => actionRecovery != null ? actionRecovery.WakeupInvincibleDuration : 0f;
     private float BreakVulnerableDuration => breakFeel != null ? breakFeel.BrokenDuration : 1.5f;
@@ -801,9 +795,6 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
     private float ResolvedBreakHitstopTimeScale => breakFeel != null ? breakFeel.HitstopTimeScale : 0.01f;
     private SkillCutInData ResolvedBreakCameraCue => breakFeel != null ? breakFeel.CameraCue : default;
     private uint BreakOutlineRenderingLayerMask => breakFeel != null ? breakFeel.BrokenOutlineRenderingLayerMask : 8u;
-    private string JumpStartStateName => animationData != null ? animationData.JumpStartStateName : "";
-    private string JumpIdleStateName => animationData != null ? animationData.JumpIdleStateName : "";
-    private string JumpEndStateName => animationData != null ? animationData.JumpEndStateName : "";
     private string DashStateName => animationData != null ? animationData.DashStateName : "";
     private string DeathStateName => animationData != null ? animationData.DeathStateName : "";
     private float ActionTransition => animationData != null ? animationData.ActionTransition : 0.05f;

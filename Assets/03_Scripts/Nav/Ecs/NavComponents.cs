@@ -200,6 +200,9 @@ namespace MapNav.Ecs
         public float HitstopTimeScale;
         public byte IsDownAttack;
         public float DownDuration;
+        public byte LaunchEnabled;
+        public float LaunchHeight;
+        public float LaunchSuspendDuration;
         public AttackShape Shape;
         public float HitboxOffset;
         public float HitboxYOffset;

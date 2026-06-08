@@ -25,6 +25,7 @@ public partial class Character_AttackController : LoopMonoBehaviour
 
     private Character_Animator       _playerAnimator;
     private Character_MoveController _moveController;
+    private Character_VerticalMotion _vertical;
     private Character_Vfx            _vfx;
     private Character_ActionHandler  _actionHandler;
     private SO_Character_Stats      _playerStats;
@@ -71,6 +72,9 @@ public partial class Character_AttackController : LoopMonoBehaviour
     {
         _playerAnimator = GetComponent<Character_Animator>();
         _moveController = GetComponent<Character_MoveController>();
+        _vertical = GetComponent<Character_VerticalMotion>();
+        if (_vertical == null)
+            _vertical = gameObject.AddComponent<Character_VerticalMotion>();
         _vfx = GetComponent<Character_Vfx>();
         _actionHandler = GetComponent<Character_ActionHandler>();
         _ecsBridge = GetComponent<Character_EcsBridge>();
@@ -538,7 +542,7 @@ public partial class Character_AttackController : LoopMonoBehaviour
         if (data.Lunge.moveType == AttackMoveType.Slam)
         {
             if (_slamDescending && _moveController != null && !_moveController.IsGrounded)
-                _moveController.MoveDown(data.Lunge.slamDescentSpeed, deltaTime);
+                _vertical?.SlamMove(data.Lunge.slamDescentSpeed, deltaTime);
 
             if (!_slamLandingFired && (_moveController == null || _moveController.IsGrounded))
             {

@@ -1,16 +1,16 @@
 using UnityEngine;
 
 [RequireComponent(typeof(CharacterController))]
+[RequireComponent(typeof(Character_VerticalMotion))]
 [DisallowMultipleComponent]
 public class Character_MoveController : LoopMonoBehaviour
 {
     private SO_Character_Stats stats;
     private SO_Character_LocomotionFeel locomotionFeel;
-    private SO_WorldPhysics worldPhysics;
 
     private CharacterController _cc;
+    private Character_VerticalMotion _vertical;
     private Vector3 _planarVelocity;
-    private float _verticalVelocity;
     private Vector3 _lungeDirection;
     private float _lungeDistance;
     private float _lungeDuration;
@@ -25,11 +25,17 @@ public class Character_MoveController : LoopMonoBehaviour
         _cc = GetComponent<CharacterController>();
     }
 
+    // 수직 운동 위임 대상. RequireComponent로 보장되지만, Awake 순서/런타임 인스턴스 안전을 위해 지연 해석.
+    private Character_VerticalMotion Vertical
+        => _vertical != null
+            ? _vertical
+            : (_vertical = GetComponent<Character_VerticalMotion>() ?? gameObject.AddComponent<Character_VerticalMotion>());
+
     public void SetMovementData(SO_Character_Stats stats, SO_Character_LocomotionFeel feel, SO_WorldPhysics physics)
     {
         if (stats != null) this.stats = stats;
         if (feel != null) this.locomotionFeel = feel;
-        if (physics != null) this.worldPhysics = physics;
+        Vertical.SetWorldPhysics(physics);
     }
 
     public void StartLunge(Vector3 direction, AttackLungeData lunge)
@@ -65,10 +71,10 @@ public class Character_MoveController : LoopMonoBehaviour
         float speedChange = input.sqrMagnitude > 0.0001f ? Acceleration : Deceleration;
         _planarVelocity = Vector3.MoveTowards(_planarVelocity, targetVelocity, speedChange * deltaTime);
 
-        TickGravity(deltaTime);
+        Vertical.TickGravity(_cc.isGrounded, deltaTime);
 
         Vector3 velocity = _planarVelocity;
-        velocity.y = _verticalVelocity;
+        velocity.y = Vertical.VerticalVelocity;
 
         Rotate(input, deltaTime);
         _cc.Move(velocity * deltaTime);
@@ -84,34 +90,15 @@ public class Character_MoveController : LoopMonoBehaviour
         _cc.Move(_planarVelocity * deltaTime);
     }
 
-    public void TickGravity(float deltaTime)
-    {
-        if (_cc.isGrounded && _verticalVelocity < 0f)
-            _verticalVelocity = GroundedStickVelocity;
-
-        _verticalVelocity += Gravity * deltaTime;
-    }
-
     public void MoveVertical(float deltaTime)
     {
-        TickGravity(deltaTime);
-        _cc.Move(new Vector3(0f, _verticalVelocity * deltaTime, 0f));
+        Vertical.TickGravity(_cc.isGrounded, deltaTime);
+        _cc.Move(new Vector3(0f, Vertical.VerticalVelocity * deltaTime, 0f));
     }
 
     public void SetVerticalVelocity(float velocity)
     {
-        _verticalVelocity = velocity;
-    }
-
-    public void MoveVerticalUntilApexThenSuspend(float deltaTime)
-    {
-        if (_verticalVelocity > 0f)
-            TickGravity(deltaTime);
-
-        if (_verticalVelocity < 0f)
-            _verticalVelocity = 0f;
-
-        _cc.Move(new Vector3(0f, _verticalVelocity * deltaTime, 0f));
+        Vertical.SetVerticalVelocity(velocity);
     }
 
     public void MoveDisplacement(Vector3 displacement)
@@ -123,8 +110,8 @@ public class Character_MoveController : LoopMonoBehaviour
     {
         if (applyGravity)
         {
-            TickGravity(deltaTime);
-            velocity.y = _verticalVelocity;
+            Vertical.TickGravity(_cc.isGrounded, deltaTime);
+            velocity.y = Vertical.VerticalVelocity;
         }
 
         _cc.Move(velocity * deltaTime);
@@ -132,12 +119,7 @@ public class Character_MoveController : LoopMonoBehaviour
 
     public void Jump(float height)
     {
-        _verticalVelocity = Mathf.Sqrt(Mathf.Max(0f, height) * -2f * Gravity);
-    }
-
-    public void MoveDown(float speed, float deltaTime)
-    {
-        _cc.Move(Vector3.down * Mathf.Abs(speed) * deltaTime);
+        Vertical.ApplyJumpImpulse(height);
     }
 
     public void StopPlanar()
@@ -211,6 +193,4 @@ public class Character_MoveController : LoopMonoBehaviour
     private float Acceleration => locomotionFeel != null ? locomotionFeel.Acceleration : 80f;
     private float Deceleration => locomotionFeel != null ? locomotionFeel.Deceleration : 100f;
     private float RotationInterpolationSpeed => locomotionFeel != null ? locomotionFeel.RotationInterpolationSpeed : 30f;
-    private float Gravity => worldPhysics != null ? worldPhysics.Gravity : -15f;
-    private float GroundedStickVelocity => worldPhysics != null ? worldPhysics.GroundedStickVelocity : -1f;
 }
