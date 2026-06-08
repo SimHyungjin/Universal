@@ -133,6 +133,8 @@ MonoBehaviour:
   feedback:
     castVfxAddress: 
     castVfxOffset: {x: 0, y: 0, z: 0}
+    castVfxSpace: 0
+    castVfxScale: {x: 1, y: 1, z: 1}
     swingTrailIds: []
     swingSfx: 0
     timingVfxAddress: 

@@ -48,6 +48,7 @@ MonoBehaviour:
     interval: 0.2
     hitSameTargetOnce: 0
     cancelOnMiss: 0
+    maxCount: 0
   additionalHits:
   - shape:
       type: 0
@@ -65,6 +66,7 @@ MonoBehaviour:
       interval: 0.2
       hitSameTargetOnce: 1
       cancelOnMiss: 0
+      maxCount: 0
     hitResult:
       damage: 100
       hitType: 1
@@ -99,15 +101,43 @@ MonoBehaviour:
   superArmor:
     value: 1
     breakPower: 0
-  cameraCue:
-    enabled: 1
-    trigger: 0
-    duration: 0
-    fovOverride: 38
-    distanceOverride: 4.4
-    heightDelta: -0.35
-    yawVelocity: 18
+  projectile:
+    enabled: 0
+    prefabAddress: 
+    speed: 15
+    maxDistance: 12
+    lifetime: 1.5
+    spawnOffset: {x: 0, y: 0, z: 0}
+    pierce: 0
+    count: 1
+    spreadAngle: 0
+  field:
+    enabled: 0
+    prefabAddress: 
+    origin: 0
+    duration: 3
+    tickInterval: 0.5
+    forwardOffset: 2
+    followAttacker: 0
+  meleeAlongsideDelivery: 0
+  feedback:
+    castVfxAddress: CFXR Water Ripples2
+    castVfxTiming: 0
+    castVfxOffset: {x: 0, y: 0, z: 0}
+    castVfxEuler: {x: 90, y: 0, z: 0}
+    castVfxSpace: 1
+    castVfxScale: {x: 2, y: 2, z: 2}
+    swingTrailIds:
+    - 0
+    - 1
+    - 2
+    swingSfx: 0
+    timingVfxAddress: 
+    timingVfxOffset: {x: 0, y: 0, z: 0}
+    hitVfxAddress: CFXR3 Hit Fire B (Air)
+    hitSfx: 0
   releaseEffects:
+    timing: 0
     shake:
       enabled: 0
       amplitude: 0
@@ -115,7 +145,7 @@ MonoBehaviour:
       frequency: 0
     slowMo:
       enabled: 1
-      worldScale: 0.02
+      timeScale: 0.02
       duration: 0.2
   hitEffects:
     shake:
@@ -126,33 +156,13 @@ MonoBehaviour:
     hitstop:
       duration: 0
       timeScale: 0
-  projectile:
-    enabled: 0
-    prefabAddress: 
-    speed: 15
-    maxDistance: 12
-    lifetime: 1.5
-    spawnOffset: {x: 0, y: 0, z: 0}
-  field:
-    enabled: 0
-    prefabAddress: 
-    duration: 3
-    tickInterval: 0.5
-    forwardOffset: 2
-    followAttacker: 0
-  feedback:
-    castVfxAddress: CFXR Water Ripples2
-    castVfxTiming: 0
-    castVfxOffset: {x: 0, y: 0, z: 0}
-    castVfxEuler: {x: 90, y: 0, z: 0}
-    swingTrailIds:
-    - 0
-    - 1
-    - 2
-    swingSfx: 0
-    timingVfxAddress: 
-    timingVfxOffset: {x: 0, y: 0, z: 0}
-    hitVfxAddress: CFXR3 Hit Fire B (Air)
-    hitSfx: 0
+  cameraCue:
+    enabled: 1
+    trigger: 0
+    duration: 0
+    fovOverride: 38
+    distanceOverride: 4.4
+    heightDelta: -0.35
+    yawVelocity: 18
   hitVfxAddress: 
   hitSfx: 0

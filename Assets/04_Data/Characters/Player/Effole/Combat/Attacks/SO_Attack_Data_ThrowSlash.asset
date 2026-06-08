@@ -39,7 +39,7 @@ MonoBehaviour:
     length: 1
     width: 12
   hitbox:
-    timing: 0.75
+    timing: 0.2
     offset: 0
     yOffset: 0
     verticalTolerance: 1
@@ -90,10 +90,12 @@ MonoBehaviour:
     followAttacker: 0
   meleeAlongsideDelivery: 0
   feedback:
-    castVfxAddress: 
+    castVfxAddress: Slash
     castVfxTiming: 0
-    castVfxOffset: {x: 0, y: 0, z: 0}
-    castVfxEuler: {x: 0, y: 0, z: 0}
+    castVfxOffset: {x: 0, y: 0.5, z: 1}
+    castVfxEuler: {x: 0, y: 150, z: 0}
+    castVfxSpace: 0
+    castVfxScale: {x: 2, y: 2, z: 2}
     swingTrailIds:
     - 0
     - 1

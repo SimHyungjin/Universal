@@ -130,6 +130,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: d6cf73a254c0b1b4bbe9cba23350d6a2
+    m_Address: Slash
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: e419d17ccc2698242b8011899ac95f56
     m_Address: CFXR3 Hit Fire B (Air)
     m_ReadOnly: 0

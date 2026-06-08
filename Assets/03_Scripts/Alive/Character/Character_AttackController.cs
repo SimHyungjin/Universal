@@ -405,7 +405,7 @@ public partial class Character_AttackController : LoopMonoBehaviour
         StopCastVfx();
         if (!string.IsNullOrEmpty(fb.castVfxAddress))
         {
-            SpawnCastVfxAsync(fb.castVfxAddress, fb.castVfxOffset, fb.castVfxEuler, _currentData.Duration, fb.castVfxTiming).Forget();
+            SpawnCastVfxAsync(fb.castVfxAddress, fb.castVfxOffset, fb.castVfxEuler, fb.castVfxSpace, fb.castVfxScale, _currentData.Duration, fb.castVfxTiming).Forget();
         }
         _vfx?.PlaySwingTrails(fb.swingTrailIds);
         App.PlaySfx(fb.swingSfx, transform.position);
@@ -818,7 +818,7 @@ public partial class Character_AttackController : LoopMonoBehaviour
             : null;
 
 
-    private async Cysharp.Threading.Tasks.UniTaskVoid SpawnCastVfxAsync(string address, Vector3 offset, Vector3 euler, float duration, float timing)
+    private async Cysharp.Threading.Tasks.UniTaskVoid SpawnCastVfxAsync(string address, Vector3 offset, Vector3 euler, CastVfxSpace space, Vector3 scale, float duration, float timing)
     {
         _castVfxSpawnCts?.Cancel();
         _castVfxSpawnCts?.Dispose();
@@ -833,14 +833,31 @@ public partial class Character_AttackController : LoopMonoBehaviour
 
             var vfx = await App.SpawnAsync<AutoDespawn>(address, token: token);
             if (vfx == null || token.IsCancellationRequested) return;
-            vfx.transform.position = transform.position + transform.rotation * offset;
-            vfx.transform.rotation = transform.rotation * Quaternion.Euler(euler);
+            Vector3 resolvedScale = ResolveCastVfxScale(scale);
+            if (space == CastVfxSpace.Actor)
+            {
+                vfx.transform.SetParent(transform, false);
+                vfx.transform.localPosition = offset;
+                vfx.transform.localRotation = Quaternion.Euler(euler);
+                vfx.transform.localScale = resolvedScale;
+            }
+            else
+            {
+                vfx.transform.SetParent(null, true);
+                vfx.transform.position = transform.position + transform.rotation * offset;
+                vfx.transform.rotation = transform.rotation * Quaternion.Euler(euler);
+                vfx.transform.localScale = resolvedScale;
+            }
+            vfx.Restart();
             _castVfxInstance = vfx;
         }
         catch (OperationCanceledException)
         {
         }
     }
+
+    private static Vector3 ResolveCastVfxScale(Vector3 scale)
+        => scale.sqrMagnitude > 0f ? scale : Vector3.one;
 
     private void StopCastVfx()
     {
@@ -851,7 +868,9 @@ public partial class Character_AttackController : LoopMonoBehaviour
         if (_castVfxInstance == null) return;
         AutoDespawn instance = _castVfxInstance;
         _castVfxInstance = null;
-        if (instance != null && instance.gameObject.activeInHierarchy)
+        if (instance == null) return;
+        instance.transform.SetParent(null, true);
+        if (instance.gameObject.activeInHierarchy)
             App.Despawn(instance.gameObject);
     }
 

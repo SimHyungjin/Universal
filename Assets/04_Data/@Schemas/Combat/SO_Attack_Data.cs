@@ -54,6 +54,12 @@ public enum FieldOrigin
     ProjectileImpact = 2
 }
 
+public enum CastVfxSpace
+{
+    World = 0,
+    Actor = 1
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 1 — Setup: 공격 발동 전 단계
 // ─────────────────────────────────────────────────────────────────────────────
@@ -321,6 +327,8 @@ public struct AttackFeedbackData
     [Tooltip("플레이어 위치 기준 로컬 오프셋 (플레이어 forward/right/up 기준)")]
     public Vector3 castVfxOffset;
     public Vector3 castVfxEuler;
+    public CastVfxSpace castVfxSpace;
+    public Vector3 castVfxScale;
 
     [Header("Swing")]
     [Tooltip("WeaponRoot 자식 TrailRenderer GameObject 이름 목록. 비어 있으면 트레일을 켜지 않음.")]

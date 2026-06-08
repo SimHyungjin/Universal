@@ -22,6 +22,11 @@ public class AutoDespawn : MonoBehaviour, IPoolable
 
     public void OnSpawn()
     {
+        Restart();
+    }
+
+    public void Restart()
+    {
         _cts?.Cancel();
         _cts?.Dispose();
         _cts = CancellationTokenSource.CreateLinkedTokenSource(destroyCancellationToken);
