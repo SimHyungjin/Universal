@@ -41,7 +41,10 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
     public bool IsInvincible => _invincibleTimer > 0f;
     // "지금 피격당할 수 있나"의 단일 진실. ReceiveHit·IHitTarget.IsHittable·Character_EcsHitReceiver가
     // 제각기 같은 조건을 복사해 들고 있던 것을 하나로 모은다. 한 곳만 고치면 세 경로가 동시에 일관된다.
-    public bool IsHittable => !_sectorGateTransitioning && !IsInvincible && _state != Character_ActionState.Dead;
+    // 퍼펙트 닷지 윈도우 중엔 무적이어도 "맞을 수 있음"으로 노출한다 — 그래야 적 타격이 ReceiveHit까지
+    // 도달해 퍼펙트 닷지로 전환된다(ReceiveHit이 데미지 대신 반격창을 연다).
+    public bool IsHittable => !_sectorGateTransitioning && _state != Character_ActionState.Dead
+                              && (!IsInvincible || _perfectDodgeWindowTimer > 0f);
     // 논리적 "공중에 떠 있나"(raw isGrounded 아님). 점프 상승·하강 중과 launch 체공 중 true,
     // 착지 리커버리(_jumpEndPlayed)부터는 false. Character_Animator가 공중 포즈(JumpIdle) 단독 재생에 쓴다.
     // Jump/Launched는 상태로 즉시 판정(이륙 애니 지연 없음). 그 외 상태(에어 대시 후 Normal 낙하 등)는
@@ -133,6 +136,9 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
     private float _stateTimer;
     private float _invincibleTimer;
     private float _dashCooldownTimer;
+    // 닷지 시작 직후 퍼펙트 윈도우. 이 동안 적 타격이 닿으면 퍼펙트 닷지(데미지 무효+반격창). 그 뒤 반격창.
+    private float _perfectDodgeWindowTimer;
+    private float _counterWindowTimer;
     private float _sectorGateDashGraceUntil;
     private bool _sectorGateTransitioning;
     private float _hitReactionDurationScale = 1f;
@@ -247,6 +253,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         SO_Character_Loadout loadout = ActiveLoadout;
         _attackController?.SetBasicAttackCombo(loadout != null ? loadout.EquippedAttackCombo : null);
         _attackController?.SetSkills(loadout != null ? loadout.EquippedSkills : null);
+        _attackController?.SetCounterAttack(loadout != null ? loadout.CounterAttack : null);
     }
 
     public void SetCommandSource(Character_CommandSource commandSource)
@@ -286,8 +293,27 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         _attackController?.UpdateLookDirection(GetLookWorld(worldInput));
 
         bool attackPressed = _commandSource != null && _commandSource.ConsumeAttack();
-        if (attackPressed && _attackController != null && (_state == Character_ActionState.Normal || _state == Character_ActionState.Jump || _attackController.IsInCombo))
-            _attackController.RequestAttack();
+        if (attackPressed && _attackController != null)
+        {
+            // 키 압축: 퍼펙트 닷지 직후 반격창이 열려 있으면 같은 공격 버튼이 '반격기'가 된다.
+            if (_counterWindowTimer > 0f)
+            {
+                _counterWindowTimer = 0f;
+                // 닷지 중이면 먼저 닷지를 정리한 뒤 반격을 시작한다. 순서가 반대면, 같은 프레임의
+                // BlocksMovement 블록이 EnterNormal→ReleaseLocomotion으로 방금 켠 _isAttacking을 도로 꺼서
+                // 반격 애니가 죽고 로코모션/공중 포즈가 duration 동안 굳는다.
+                if (_state == Character_ActionState.Dash)
+                {
+                    _vfx?.StopDash();
+                    EnterNormal();
+                }
+                _attackController.TriggerCounter();
+            }
+            else if (_state == Character_ActionState.Normal || _state == Character_ActionState.Jump || _attackController.IsInCombo)
+            {
+                _attackController.RequestAttack();
+            }
+        }
 
         if (_attackController != null && _attackController.BlocksMovement)
         {
@@ -296,6 +322,17 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
                 _vfx?.StopDash();
                 EnterNormal();
             }
+
+            // 닷지 캔슬: 공격 중에도 닷지로 끊고 빠져나간다(반응성 + 반격 루프 진입 — 공격하다 적 윈드업을 보고
+            // 닷지로 회피). 닷지의 퍼펙트 윈도우가 곧바로 열려 퍼펙트 닷지→반격으로 이어진다.
+            // CancelAttack이 ResetCombo까지 하므로 다음 프레임 BlocksMovement가 풀려 닷지가 정상 진행된다.
+            if (_commandSource != null && _commandSource.ConsumeDash() && _dashCooldownTimer <= 0f)
+            {
+                _attackController.CancelAttack();
+                EnterDash(GetMoveWorld(), gdt);
+                return;
+            }
+
             if (_attackController.IsSlamDescending)
             {
                 CompleteBlockedActionJumpLandingIfGrounded();
@@ -356,6 +393,12 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         AttackLaunchData launch = default,
         Vector3 attackerForward = default)
     {
+        // 퍼펙트 닷지: 닷지 시작 직후 윈도우 중 적 타격이 닿으면 데미지를 무효화하고 반격창을 연다.
+        if (_perfectDodgeWindowTimer > 0f)
+        {
+            TriggerPerfectDodge();
+            return;
+        }
         if (!IsHittable) return;
 
         bool alreadyBroken = _vitals != null && _vitals.IsBroken;
@@ -478,6 +521,28 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         DoHitstop(hitstop, destroyCancellationToken).Forget();
     }
 
+    // 퍼펙트 닷지 성공: 데미지를 무효화하고(이미 return) 반격창을 연다 + 짧은 슬로모/무적으로 반격 입력 여유를 준다.
+    private void TriggerPerfectDodge()
+    {
+        _perfectDodgeWindowTimer = 0f;
+        _counterWindowTimer = CounterWindow;
+        _invincibleTimer = Mathf.Max(_invincibleTimer, PerfectDodgeInvincibleDuration);
+        if (Main.Loop != null)
+            DoPerfectDodgeSlowMo(PerfectDodgeTimeScale, PerfectDodgeSlowMoDuration, destroyCancellationToken).Forget();
+    }
+
+    private static async UniTaskVoid DoPerfectDodgeSlowMo(float timeScale, float duration, CancellationToken token)
+    {
+        Main.Loop.SetGameSpeed(Mathf.Clamp01(timeScale));
+        try
+        {
+            await UniTask.Delay(TimeSpan.FromSeconds(duration), DelayType.UnscaledDeltaTime, cancellationToken: token);
+        }
+        catch (OperationCanceledException) { return; }
+        if (Main.Loop != null)
+            Main.Loop.SetGameSpeed(1f);
+    }
+
     private bool IsSuperArmorDisabledByBreak(bool brokenByThisHit)
         => brokenByThisHit
            || (_vitals != null && _vitals.IsBroken);
@@ -558,6 +623,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         _forcedDirection = direction;
         _forcedSpeed = DashDistance / duration;
         _invincibleTimer = Mathf.Max(_invincibleTimer, DashInvincibleDuration);
+        _perfectDodgeWindowTimer = PerfectDodgeWindow;
         _dashCooldownTimer = DashCooldown;
         _moveController.StopPlanar();
         _moveController.RotateTowards(direction, deltaTime);
@@ -702,6 +768,8 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         _invincibleTimer = Mathf.Max(0f, _invincibleTimer - deltaTime);
         _dashCooldownTimer = Mathf.Max(0f, _dashCooldownTimer - deltaTime);
         _jumpBufferTimer = Mathf.Max(0f, _jumpBufferTimer - deltaTime);
+        _perfectDodgeWindowTimer = Mathf.Max(0f, _perfectDodgeWindowTimer - deltaTime);
+        _counterWindowTimer = Mathf.Max(0f, _counterWindowTimer - deltaTime);
 
         _coyoteTimer = _moveController.IsGrounded
             ? CoyoteTime
@@ -781,6 +849,12 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
     private const float ChainedHitReactionDurationMultiplier = 0.8f;
     // 착지 직후 raw isGrounded가 1~2프레임 false로 튀는 것을 무시하는 공중 판정 디바운스(초).
     private const float AirborneFlickerDebounce = 0.06f;
+    // 반응 루프(닷지→퍼펙트→반격) 튜닝값은 SO_Character_DashRule에서 온다(fallback은 기본값).
+    private float PerfectDodgeWindow => dashRule != null ? dashRule.PerfectDodgeWindow : 0.15f;
+    private float CounterWindow => dashRule != null ? dashRule.CounterWindow : 0.6f;
+    private float PerfectDodgeInvincibleDuration => dashRule != null ? dashRule.PerfectDodgeInvincibleDuration : 0.2f;
+    private float PerfectDodgeTimeScale => dashRule != null ? dashRule.PerfectDodgeTimeScale : 0.4f;
+    private float PerfectDodgeSlowMoDuration => dashRule != null ? dashRule.PerfectDodgeSlowMoDuration : 0.3f;
     private float WakeupDuration => actionRecovery != null ? actionRecovery.WakeupDuration : 0f;
     private float WakeupInvincibleDuration => actionRecovery != null ? actionRecovery.WakeupInvincibleDuration : 0f;
     private float BreakVulnerableDuration => breakFeel != null ? breakFeel.BrokenDuration : 1.5f;

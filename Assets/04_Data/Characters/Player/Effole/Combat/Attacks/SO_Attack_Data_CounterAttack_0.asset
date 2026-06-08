@@ -1,0 +1,137 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 04afefad81cf42009a9997add1629312, type: 3}
+  m_Name: SO_Attack_Data_CounterAttack_0
+  m_EditorClassIdentifier: 
+  animation:
+    stateName: OneHand_Combo
+    transition: 0.05
+  lunge:
+    moveType: 3
+    distance: 0
+    duration: 0
+    speedCurve:
+      serializedVersion: 2
+      m_Curve: []
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    stopOnHit: 0
+    slamDescentSpeed: 0
+  jump:
+    enabled: 0
+    height: 0
+    suspendAtApex: 1
+  duration: 0.1
+  shape:
+    type: 0
+    radius: 5
+    angle: 360
+    length: 3
+    width: 2
+  hitbox:
+    timing: 0
+    offset: 0
+    yOffset: 0
+    verticalTolerance: 3
+  repeat:
+    enabled: 0
+    interval: 0.1
+    hitSameTargetOnce: 0
+    cancelOnMiss: 0
+    maxCount: 0
+  additionalHits: []
+  damage: 10
+  hitType: 1
+  knockback:
+    type: 0
+    force: 0
+    friction: 12
+  launch:
+    enabled: 0
+    height: 5
+    suspendDuration: 0
+  down:
+    enabled: 0
+    duration: 1
+  lifeSteal:
+    enabled: 0
+    ratio: 0.1
+    maxPerHit: 0
+  superArmor:
+    value: 1000
+    breakPower: 1000
+  projectile:
+    enabled: 0
+    prefabAddress: 
+    speed: 15
+    maxDistance: 12
+    lifetime: 1.5
+    spawnOffset: {x: 0, y: 0, z: 0}
+    pierce: 0
+    count: 1
+    spreadAngle: 0
+  field:
+    enabled: 0
+    prefabAddress: 
+    origin: 0
+    duration: 3
+    tickInterval: 0.5
+    forwardOffset: 2
+    followAttacker: 0
+  meleeAlongsideDelivery: 0
+  feedback:
+    castVfxAddress: Slash_Aoe_A 1
+    castVfxTiming: 0
+    castVfxOffset: {x: 0, y: 0.5, z: 0}
+    castVfxEuler: {x: 0, y: 0, z: 0}
+    castVfxSpace: 1
+    castVfxScale: {x: 3, y: 3, z: 3}
+    swingTrailIds:
+    - 0
+    - 1
+    - 2
+    swingSfx: 0
+    timingVfxAddress: 
+    timingVfxOffset: {x: 0, y: 0, z: 0}
+    hitVfxAddress: CFXR3 Hit Fire B (Air)
+    hitSfx: 0
+  releaseEffects:
+    timing: 0
+    shake:
+      enabled: 1
+      amplitude: 0.08
+      duration: 0.12
+      frequency: 28
+    slowMo:
+      enabled: 0
+      timeScale: 0.3
+      duration: 0.5
+  hitEffects:
+    shake:
+      enabled: 1
+      amplitude: 0.15
+      duration: 0.18
+      frequency: 25
+    hitstop:
+      duration: 0.1
+      timeScale: 0.02
+  cameraCue:
+    enabled: 1
+    trigger: 0
+    duration: 0
+    fovOverride: 80
+    distanceOverride: 4.4
+    heightDelta: -0.35
+    yawVelocity: 30
+  hitVfxAddress: 
+  hitSfx: 0

@@ -13,6 +13,7 @@ MonoBehaviour:
   m_Name: SO_Character_Loadout_Player
   m_EditorClassIdentifier: 
   equippedAttackCombo: {fileID: 11400000, guid: 7ad18502b41c40248abaf079558fdf65, type: 2}
+  counterAttack: {fileID: 11400000, guid: 388d46153f904dd47a14b65435107da3, type: 2}
   equippedSkills:
   - {fileID: 11400000, guid: 2918a5334dd55f3418a9f5bba6549b54, type: 2}
   - {fileID: 11400000, guid: aeaf77ed07744294c909ae26e9110ef4, type: 2}

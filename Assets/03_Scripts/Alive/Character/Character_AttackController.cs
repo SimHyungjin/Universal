@@ -12,6 +12,7 @@ public partial class Character_AttackController : LoopMonoBehaviour
     [SerializeField] private int gizmoAttackIndex;
     [SerializeField] private Color attackGizmoColor = new Color(1f, 0.2f, 0.2f, 0.35f);
 
+
     public bool IsAttacking => _attackTimer > 0f;
     public bool IsInCombo   => _attackTimer > 0f || _comboTimer > 0f;
     public bool IsComboWindowOpen => _attackTimer <= 0f && _comboTimer > 0f;
@@ -31,6 +32,7 @@ public partial class Character_AttackController : LoopMonoBehaviour
     private SO_Character_Stats      _playerStats;
     private float                  _attackPower;
     private SO_Attack_Data[] _attacks;
+    private SO_Attack_Data _counterAttack;
     private float _comboWindow = 0.35f;
     private bool _lockMovementDuringComboWindow = true;
     private const float ExplicitLookInputSqrThreshold = 0.04f;
@@ -124,6 +126,12 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _skills = skills;
         for (int i = 0; i < _skillCooldowns.Length; i++)
             _skillCooldowns[i] = 0f;
+    }
+
+    // 퍼펙트 닷지 반격기를 로드아웃에서 주입한다(콤보·스킬과 동일 경로). 비우면 TriggerCounter가 기본 콤보 1타로 폴백.
+    public void SetCounterAttack(SO_Attack_Data counterAttack)
+    {
+        _counterAttack = counterAttack;
     }
 
     public SO_Skill_Data GetSkillData(int slot)
@@ -265,6 +273,20 @@ public partial class Character_AttackController : LoopMonoBehaviour
             shake.amplitude,
             shake.duration,
             shake.frequency > 0f ? shake.frequency : 25f);
+    }
+
+    // 반응 루프의 반격: 퍼펙트 닷지 후 공격 버튼이 호출한다. 진행 중 동작을 끊고 반격기를 즉시 시전한다.
+    // _counterAttack 미할당 시 기본 콤보 1타로 폴백(슬라이스 즉시 테스트용).
+    public void TriggerCounter()
+    {
+        SO_Attack_Data counter = _counterAttack != null
+            ? _counterAttack
+            : (_attacks != null && _attacks.Length > 0 ? _attacks[0] : null);
+        if (counter == null) return;
+
+        CancelAttack();
+        ResetCombo();
+        StartAttackDataWithEffects(counter);
     }
 
     private void StartAttack()
