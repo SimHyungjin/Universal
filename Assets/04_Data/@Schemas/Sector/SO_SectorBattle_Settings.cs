@@ -21,17 +21,20 @@ public class SO_SectorBattle_Settings : ScriptableObject
     [Tooltip("변이 배출 임계(마리). 이만큼 누적될 때까지 모았다가 한 번에 배출한다. 배출 사이 틈이 생겨 플레이어가 100%를 찍을 여지를 만든다.")]
     public int MutationBurstThreshold = 5;
 
-    [Header("싸움 시뮬 (배경 경합 섹터)")]
+    [Header("전투력 지원 Power (A 통합 압력의 전투력 입력)")]
     [Tooltip("같은 진영 링크 점령지가 전선으로 전달하는 자기 전투 Power 비율. 1이면 100%.")]
     [Range(0f, 1f)]
     public float SupportPowerRatio = 0.2f;
     [Tooltip("지원 Power 거리 감쇠. 1칸(인접)=1배, 2칸=falloff, 3칸=falloff² … 0.5면 한 칸당 절반.")]
     [Range(0f, 1f)]
     public float SupportDistanceFalloff = 0.5f;
-    [Tooltip("전투 Power 차이 1당 초당 제로섬 전환 유닛 수")]
-    public float BattleAttritionPerPowerPerSec = 0.15f;
-    [Tooltip("싸움 시뮬 초당 전환 상한(섹터당)")]
-    public float BattleAttritionMaxPerSec = 4f;
+
+    [Header("(A) 통합 점령 압력")]
+    [Tooltip("위상(영역 크기=net) vs 전투력(aP-eP) 비중. 0=순수 전투력, 1=순수 위상. 0.5=균형. 허브 붕괴 순간 위상이 전투력 우세를 뒤집는 정도를 결정.")]
+    [Range(0f, 1f)]
+    public float TopoShare = 0.5f;
+    [Tooltip("초당 점령 전환 비율(섹터 총병력 대비). 0.015면 압력 ±1에서 초당 그 섹터 1.5%씩 전환. 병력 규모가 바뀌어도 비율이라 속도가 일관.")]
+    public float ConquestFractionPerSec = 0.015f;
 
     [Header("엘리트 생존 및 연출")]
     [Tooltip("비실체 엘리트가 상대 진영 Power 1당 초당 받는 피해. 0이면 백그라운드에서 피해를 받지 않는다.")]

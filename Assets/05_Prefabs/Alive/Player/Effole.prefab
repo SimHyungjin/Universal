@@ -748,6 +748,7 @@ GameObject:
   - component: {fileID: 9071750097683020078}
   - component: {fileID: 8962790408040097452}
   - component: {fileID: 3127557224295628091}
+  - component: {fileID: 4614229192037860718}
   m_Layer: 0
   m_Name: Effole
   m_TagString: Untagged
@@ -886,6 +887,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d57b0e13423643a88c105e8ee0e9b72c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _logStateTransitions: 0
 --- !u!114 &8531269072957618353
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -913,6 +915,7 @@ MonoBehaviour:
   drawAttackGizmosAlways: 1
   gizmoAttackIndex: 0
   attackGizmoColor: {r: 1, g: 0.2, b: 0.2, a: 0.35}
+  _counterAttack: {fileID: 11400000, guid: 388d46153f904dd47a14b65435107da3, type: 2}
 --- !u!114 &9071750097683020078
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -949,6 +952,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b803cad97457b35418d08411a5c7cca9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Player_InputCommandSource
+--- !u!114 &4614229192037860718
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7612322823134115492}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8c519f01a159e5448b01a8a84cf56430, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Character_VerticalMotion
 --- !u!1 &7699430002954538567
 GameObject:
   m_ObjectHideFlags: 0

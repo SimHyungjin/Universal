@@ -121,6 +121,8 @@ MonoBehaviour:
     castVfxTiming: 0
     castVfxOffset: {x: 0, y: 0, z: 0}
     castVfxEuler: {x: 0, y: 0, z: 0}
+    castVfxSpace: 0
+    castVfxScale: {x: 0, y: 0, z: 0}
     swingTrailIds:
     - 0
     - 1

@@ -28,8 +28,9 @@ public sealed class SectorBattleManager : IDisposable
     private int   MutationBurstThreshold => _settings != null ? _settings.MutationBurstThreshold : 5;
     private float SupportPowerRatio => _settings != null ? _settings.SupportPowerRatio : 0.2f;
     private float SupportDistanceFalloff => _settings != null ? _settings.SupportDistanceFalloff : 0.5f;
-    private float BattleAttritionPerPowerPerSec => _settings != null ? _settings.BattleAttritionPerPowerPerSec : 0.15f;
-    private float BattleAttritionMaxPerSec => _settings != null ? _settings.BattleAttritionMaxPerSec : 4f;
+    // (A) 통합 점령 압력 튜닝.
+    private float TopoShare             => _settings != null ? Mathf.Clamp01(_settings.TopoShare) : 0.5f;
+    private float ConquestFractionPerSec => _settings != null ? _settings.ConquestFractionPerSec : 0.015f;
 
     private readonly Dictionary<Sector, SectorBattleState> _states = new();
     private readonly SectorManager _sectorManager;
@@ -43,12 +44,14 @@ public sealed class SectorBattleManager : IDisposable
     private CancellationTokenSource _cts = new();
     private float _logTimer;
     private Sector _polledSector; // 플레이어 섹터 폴링 기준. 섹터가 바뀌면 첫 틱은 동기화만 한다.
+    private Sector _prevPlayerSector; // 직전 틱의 플레이어 섹터. 이탈 핸드오프 때 떠난 섹터에 안정화 유예를 준다.
 
     // 링크(연결 컴포넌트) BFS 재사용 버퍼(매 틱 new 방지).
     private readonly HashSet<Sector> _linkVisited = new();
     private readonly Queue<Sector> _linkQueue = new();
     private readonly List<SectorBattleState> _linkComponent = new();
     private readonly HashSet<Sector> _hubVisited = new();
+    private int _maxLink = 1; // 이번 틱 최대 링크 크기(위상 압력 정규화 분모). RecomputeLinks가 갱신.
 
     // 지원 Power 거리 감쇠 BFS 재사용 버퍼(레벨별 탐색, 스왑하므로 non-readonly).
     private readonly HashSet<Sector> _supportVisited = new();
@@ -235,12 +238,54 @@ public sealed class SectorBattleManager : IDisposable
         return SectorPowerFormula.Calculate(character);
     }
 
-    // 배경 섹터: 링크 압력 변이(양방향) + 양측 공존 시 싸움 시뮬.
+    // 배경 섹터: (A) 위상(영역 크기)과 전투력을 합성한 단일 점령 압력.
     private void TickSector(SectorBattleState state, float dt)
     {
-        TickMutation(state, dt, false);
-        TickBattle(state, dt);
+        TickConquest(state, dt);
         UpdateOwnership(state);
+    }
+
+    // ── (A) 통합 점령 압력 ─────────────────────────────────────────────────────────
+    // 위상(net=링크 영역 크기)과 전투력(aP-eP)을 각각 [-1,1]로 정규화해 단일 압력으로 합성한다.
+    // 둘이 같은 방향이면 가속, 반대면 차감(상쇄 아닌 합성) — 변이+싸움이 같은 변수를 반대로 밀던 문제 해소.
+    // net만으로도 압력이 작동하므로(공존 게이팅 없음) 적 0인 100% 칸도 큰 적 영역에 인접하면 직접 밀린다.
+    private void TickConquest(SectorBattleState state, float dt)
+    {
+        if (state.TotalSum <= 0f) return;
+
+        // 면역(100% 점령 직후 안정화 유예) — 잡몹 차원 배경 압력으로부터 점령지를 보호.
+        // 플레이어가 찢어 점령한 성과가 떠나자마자 뺏기지 않게 하는 게 목적(긴 면역 = 결정타 유지 시간).
+        // 단, 엘리트(장수)가 개입한 섹터는 면역을 뚫는다: 장수는 지루함을 깨는 와일드카드로,
+        // 단신으로 면역 구역도 함락/탈환할 수 있다(점령을 직접 깎는 권능).
+        bool elitePresent = state.AllyElitePower > 0f || state.EnemyElitePower > 0f;
+        if (state.MutationImmunityTimer > 0f && !elitePresent)
+        {
+            state.MutationImmunityTimer -= dt;
+            return;
+        }
+
+        float enemyward = ResolveConquestPressure(state); // +면 적이 민다(아군→적)
+        // 전환량 = 압력 × 섹터 총병력 비율(규모 불변). 병력 400이든 4000이든 같은 비율 속도로 점령된다.
+        ShiftZeroSum(state, -enemyward * ConquestFractionPerSec * state.TotalSum * dt);
+    }
+
+    // 단일 점령 압력 ∈ [-1,1]. +면 적 방향(AllyTotal 감소), -면 아군 방향. 로그 진단도 공유.
+    //  · 위상: net(자기 영역 크기로 방어하는 링크 압력차)을 최대 링크 크기로 정규화·clamp.
+    //  · 전투력: (아군 power − 적 power)를 tanh로 포화 정규화. 큰 격차도 ±1로 수렴.
+    private float ResolveConquestPressure(SectorBattleState state)
+    {
+        float net = ResolveMutationNet(state); // +면 적 방향(아군→적)
+        float topoNorm = Mathf.Clamp(net / Mathf.Max(1, _maxLink), -1f, 1f);
+
+        float aP = state.AllyPower  + ResolveSupportPower(state, NavFaction.Ally);
+        float eP = state.EnemyPower + ResolveSupportPower(state, NavFaction.Enemy);
+        float pd = aP - eP; // +면 아군 우세
+        // 상대 비율 정규화: 항상 [-1,1]이고 병력 규모에 불변(tanh 스케일 상수 불필요).
+        float battleNorm = pd / Mathf.Max(1f, aP + eP);
+
+        // 적 방향(+) = 위상 적 우세(topoNorm) + 전투력 적 우세(−battleNorm).
+        float share = TopoShare;
+        return Mathf.Clamp(share * topoNorm - (1f - share) * battleNorm, -1f, 1f);
     }
 
     // ── 링크(연결 컴포넌트) ────────────────────────────────────────────────────────
@@ -249,6 +294,7 @@ public sealed class SectorBattleManager : IDisposable
     private void RecomputeLinks()
     {
         int nextLinkId = 1;
+        _maxLink = 1;
         foreach (KeyValuePair<Sector, SectorBattleState> kv in _states)
         {
             SectorBattleState s = kv.Value;
@@ -294,6 +340,7 @@ public sealed class SectorBattleManager : IDisposable
             }
 
             int influence = _linkComponent.Count;
+            if (influence > _maxLink) _maxLink = influence;
             for (int i = 0; i < _linkComponent.Count; i++)
             {
                 _linkComponent[i].LinkInfluence = influence;
@@ -463,25 +510,6 @@ public sealed class SectorBattleManager : IDisposable
         if (state.Control == SectorControl.Ally)  return enemyPressure - state.LinkInfluence;
         if (state.Control == SectorControl.Enemy) return state.LinkInfluence - allyPressure;
         return enemyPressure - allyPressure;
-    }
-
-    // ── 싸움 시뮬 (배경 섹터) ────────────────────────────────────────────────────
-    // 양측 전투 주체(현지 병력 또는 엘리트)가 있으면 Power 차이만큼 제로섬 전환.
-    // 순수 0% 적 섹터라도 아군 엘리트가 들어오면 AllyTotal을 밀어 올려 전선을 만들 수 있다.
-    private void TickBattle(SectorBattleState state, float dt)
-    {
-        bool allyPresent = state.AllyTotal > 0f || state.AllyElitePower > 0f;
-        bool enemyPresent = state.EnemyTotal > 0f || state.EnemyElitePower > 0f;
-        if (!allyPresent || !enemyPresent || state.TotalSum <= 0f) return;
-
-        float allyPower  = state.AllyPower  + ResolveSupportPower(state, NavFaction.Ally);
-        float enemyPower = state.EnemyPower + ResolveSupportPower(state, NavFaction.Enemy);
-        float diff = allyPower - enemyPower; // +면 아군 우세
-        if (Mathf.Abs(diff) < 0.0001f) return;
-
-        float amount = Mathf.Min(Mathf.Abs(diff) * BattleAttritionPerPowerPerSec, BattleAttritionMaxPerSec) * dt;
-        // diff>0(아군 우세) → 적이 아군으로 = AllyTotal 증가.
-        ShiftZeroSum(state, diff > 0 ? amount : -amount);
     }
 
     // 같은 진영 링크 점령지가 거리 감쇠로 전선을 지원한다: 1칸(인접)=1배, 2칸=falloff, 3칸=falloff² …
@@ -736,6 +764,15 @@ public sealed class SectorBattleManager : IDisposable
 
         var sb = new System.Text.StringBuilder("[SectorBattle] ");
         int shown = 0;
+
+        // (A) 통합 압력 정규화 스케일 실측용 분포 집계.
+        //  · net 범위/|net|max  → NormalizeTopo 분모(위상 압력 포화점, 보통 maxLink에 근접).
+        //  · 전선 칸(양 진영 공존) powerDiff 전형값 → NormalizeBattle tanh scale.
+        int active = 0, front = 0, maxLink = 0;
+        float netMin = float.MaxValue, netMax = float.MinValue, absNetMax = 0f, absNetSum = 0f;
+        float pdMin = float.MaxValue, pdMax = float.MinValue, absPdMax = 0f, absPdSum = 0f;
+        float frontAbsPdSum = 0f, frontAbsPdMax = 0f;
+
         foreach (KeyValuePair<Sector, SectorBattleState> kv in _states)
         {
             SectorBattleState s = kv.Value;
@@ -745,11 +782,38 @@ public sealed class SectorBattleManager : IDisposable
             float net = ResolveMutationNet(s);
             float aP = s.AllyPower + ResolveSupportPower(s, NavFaction.Ally);
             float eP = s.EnemyPower + ResolveSupportPower(s, NavFaction.Enemy);
-            sb.Append($"{s.Sector.DisplayName}[{s.Control} L{s.LinkInfluence} net{net:0.0} aP{aP:0} eP{eP:0} {s.GaugeNormalized * 100f:0}%] ");
-            if (++shown >= 12) break;
+            float pd = aP - eP;
+
+            active++;
+            if (s.LinkInfluence > maxLink) maxLink = s.LinkInfluence;
+            netMin = Mathf.Min(netMin, net); netMax = Mathf.Max(netMax, net);
+            absNetMax = Mathf.Max(absNetMax, Mathf.Abs(net)); absNetSum += Mathf.Abs(net);
+            pdMin = Mathf.Min(pdMin, pd); pdMax = Mathf.Max(pdMax, pd);
+            absPdMax = Mathf.Max(absPdMax, Mathf.Abs(pd)); absPdSum += Mathf.Abs(pd);
+
+            bool isFront = s.AllyTotal > 0f && s.EnemyTotal > 0f; // 양 진영 공존 = 실제 전선
+            if (isFront)
+            {
+                front++;
+                frontAbsPdSum += Mathf.Abs(pd);
+                frontAbsPdMax = Mathf.Max(frontAbsPdMax, Mathf.Abs(pd));
+            }
+
+            if (shown < 12)
+            {
+                // ew = 통합 점령 압력(+면 적이 민다, −면 아군이 민다).
+                float ew = ResolveConquestPressure(s);
+                sb.Append($"{s.Sector.DisplayName}[{s.Control} L{s.LinkInfluence} net{net:0.0} ew{ew:+0.00;-0.00} aP{aP:0} eP{eP:0} {s.GaugeNormalized * 100f:0}%] ");
+                shown++;
+            }
         }
 
-        // if (shown > 0)
-        //     Debug.Log(sb.ToString());
+        if (active == 0) return;
+
+        Debug.Log(sb.ToString());
+        Debug.Log($"[SectorBattle/Dist] n={active} front={front} maxLink={maxLink} " +
+                  $"| net[{netMin:0.0}..{netMax:0.0}] |net|avg{absNetSum / active:0.00} |net|max{absNetMax:0.0} " +
+                  $"| pDiff[{pdMin:0}..{pdMax:0}] |pd|avg{absPdSum / active:0} |pd|max{absPdMax:0} " +
+                  $"| frontPd avg{(front > 0 ? frontAbsPdSum / front : 0f):0} max{frontAbsPdMax:0}");
     }
 }

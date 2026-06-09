@@ -17,10 +17,19 @@ MonoBehaviour:
   category: 0
   icon: {fileID: 21300000, guid: 098dafe51c34c254286ed83a925ed4d5, type: 3}
   description: 
-  cooldown: 2
+  cooldown: 0
   resourceCost: 0
+  invincibleDuration: 0
+  overlay:
+    enabled: 0
+    flashColor: {r: 0, g: 0, b: 0, a: 0}
+    portrait: {fileID: 0}
+    fadeInDuration: 0
+    holdDuration: 0
+    fadeOutDuration: 0
   attackSequence:
   - {fileID: 11400000, guid: 55873228e00a6ee45a25495ebbf6774a, type: 2}
   - {fileID: 11400000, guid: eb41118ac9fc26841b40efe1f766b27e, type: 2}
   - {fileID: 11400000, guid: 95df9afd9356c7d4cbed4a67b20295bd, type: 2}
+  advanceWithoutHit: 0
   sectorPowerBonus: 0

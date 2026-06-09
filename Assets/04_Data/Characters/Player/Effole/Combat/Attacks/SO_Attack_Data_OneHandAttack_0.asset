@@ -92,7 +92,7 @@ MonoBehaviour:
   feedback:
     castVfxAddress: Slash
     castVfxTiming: 0.4
-    castVfxOffset: {x: 0, y: 0.8, z: 1}
+    castVfxOffset: {x: -0.5, y: 0.8, z: 1}
     castVfxEuler: {x: -15, y: 180, z: 110}
     castVfxSpace: 1
     castVfxScale: {x: 1, y: 1, z: 1}
@@ -123,7 +123,7 @@ MonoBehaviour:
       duration: 0.18
       frequency: 25
     hitstop:
-      duration: 0.2
+      duration: 0
       timeScale: 0.02
   cameraCue:
     enabled: 0

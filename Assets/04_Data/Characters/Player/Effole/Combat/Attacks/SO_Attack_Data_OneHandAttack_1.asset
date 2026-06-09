@@ -17,7 +17,7 @@ MonoBehaviour:
     transition: 0.05
   lunge:
     moveType: 0
-    distance: 2
+    distance: 3
     duration: 0.5
     speedCurve:
       serializedVersion: 2
@@ -54,11 +54,11 @@ MonoBehaviour:
   hitType: 1
   knockback:
     type: 1
-    force: 50
+    force: 10
     friction: 12
   launch:
-    enabled: 0
-    height: 1.5
+    enabled: 1
+    height: 2
     suspendDuration: 0
   down:
     enabled: 0
@@ -123,7 +123,7 @@ MonoBehaviour:
       duration: 0.18
       frequency: 25
     hitstop:
-      duration: 0.2
+      duration: 0.1
       timeScale: 0.02
   cameraCue:
     enabled: 0

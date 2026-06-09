@@ -17,7 +17,7 @@ MonoBehaviour:
   category: 0
   icon: {fileID: 21300000, guid: 098dafe51c34c254286ed83a925ed4d5, type: 3}
   description: 
-  cooldown: 0
+  cooldown: 5
   resourceCost: 0
   invincibleDuration: 0
   overlay:
@@ -29,4 +29,5 @@ MonoBehaviour:
     fadeOutDuration: 0
   attackSequence:
   - {fileID: 11400000, guid: 872b8c25b3396c04ba9f0cd9a01063be, type: 2}
+  advanceWithoutHit: 0
   sectorPowerBonus: 0

@@ -31,7 +31,7 @@ MonoBehaviour:
     enabled: 0
     height: 0
     suspendAtApex: 1
-  duration: 0.1
+  duration: 0.3
   shape:
     type: 0
     radius: 5

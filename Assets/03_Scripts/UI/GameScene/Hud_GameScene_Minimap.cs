@@ -16,7 +16,6 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
 
     private static readonly Vector2 StandaloneScreenMargin = new(20f, 20f);
     private static readonly Color FallbackRoomColor = new(0.20f, 0.25f, 0.36f, 1f);
-    private static readonly Color FallbackVisitedColor = new(0.42f, 0.52f, 0.72f, 1f);
     private static readonly Color FallbackCurrentColor = new(1.00f, 0.78f, 0.18f, 1f);
     private static readonly Color FallbackStartColor = new(0.30f, 0.78f, 0.42f, 1f);
     private static readonly Color TransitionColor = new(0.26f, 0.86f, 0.78f, 1f);
@@ -30,7 +29,13 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     [Header("Colors")]
     [SerializeField] private Color backgroundColor = new(0.05f, 0.06f, 0.09f, 0.85f);
     [SerializeField] private Color corridorColor   = new(0.34f, 0.40f, 0.54f, 1f);
-    [SerializeField] private Color unexploredTint   = new(0.34f, 0.36f, 0.45f, 1f); // 미방문 방 스프라이트 어둡게
+
+    [Header("Outer frame")]
+    [SerializeField] private bool showOuterFrame = true;
+    [SerializeField] private Color outerFrameColor = new(0.08f, 0.78f, 1f, 0.85f);
+    [SerializeField] private float outerFramePaddingPx = 10f;
+    [SerializeField] private float outerFrameThicknessPx = 2f;
+    [SerializeField] private float outerFrameCornerLengthPx = 24f;
 
     [Header("Markers")]
     [SerializeField] private float markerSmoothing = 12f; // 목표로 수렴하는 속도(작을수록 러프, 0이면 즉시)
@@ -65,6 +70,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     [SerializeField] private float badgeOffsetPx   = 9f; // 아군/적 숫자를 노드 중심 좌우로 벌리는 간격
 
     [Header("Sector control gauge")]
+    [SerializeField] private bool showSectorControlPercent = true;
     [SerializeField] private Color gaugeAllyColor  = new(0.30f, 0.60f, 1f, 1f);   // 아군 우세 → 파랑
     [SerializeField] private Color gaugeEnemyColor = new(1f, 0.35f, 0.35f, 1f);   // 적 우세 → 빨강
     [SerializeField] private int   gaugeFontSize   = 14;
@@ -75,6 +81,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     private Texture2D    _texture;
     private Color32[]    _buffer;
     private RectTransform _rootRect;
+    private RectTransform _frameRoot;
     private bool          _usesHudLayout;
 
     private Vector2    _mapMinCell;
@@ -84,7 +91,6 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     private float      _renderScale;    // 텍스처 px → 이미지 로컬 px
     private float      _worldToImagePx; // 월드 단위 → 이미지 로컬 px (마커/방 공용 스케일)
 
-    private readonly HashSet<int> _visited = new();
     private long? _transitionEdgeKey;
     private int   _transitionFromIndex = -1; // 이동 중 방향 배지를 그릴 출발 노드
     private int   _transitionToIndex   = -1;
@@ -159,6 +165,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
 
     // 방 오버레이(스프라이트 또는 단색 박스). 상태 변화 시 색만 갱신.
     private readonly List<(int index, Image image)> _rooms = new();
+    private readonly List<Image> _outerFrameSegments = new();
 
     public void Init(MinimapModel model)
     {
@@ -171,6 +178,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         _cellSize = _model.CellSize;
         BuildCanvas();
         BuildTexture();
+        BuildOuterFrame();
         BuildRooms();
         SyncCurrentSector();
         DrawStaticMap();
@@ -855,7 +863,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
                 }
 
                 // 점령 게이지%: 0=적 완전 점령(빨강) ~ 100=아군 완전 점령(파랑). 병력 있는 섹터만.
-                if (both || ally > 0 || enemy > 0)
+                if (showSectorControlPercent && (both || ally > 0 || enemy > 0))
                 {
                     float n = state.GaugeNormalized;
                     Color gaugeColor = Color.Lerp(gaugeEnemyColor, gaugeAllyColor, n);
@@ -997,7 +1005,6 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
 
         int previousIndex = _currentIndex;
         _currentIndex = index;
-        if (index >= 0) _visited.Add(index);
         if (previousIndex >= 0 && index >= 0 && HasEdge(previousIndex, index))
         {
             _transitionEdgeKey   = EdgeKey(previousIndex, index);
@@ -1130,6 +1137,62 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
 
     // ── 정적 맵(배경 + 통로) — 1회 래스터화 ──────────────────────────────────────
 
+    private void BuildOuterFrame()
+    {
+        if (!showOuterFrame || _image == null) return;
+
+        RectTransform imageRect = _image.rectTransform;
+        Vector2 imageSize = imageRect.sizeDelta;
+        float padding = Mathf.Max(0f, outerFramePaddingPx);
+        Vector2 frameSize = imageSize + Vector2.one * padding * 2f;
+        Vector2 pivot = imageRect.pivot;
+
+        var go = new GameObject("MapFrame", typeof(RectTransform));
+        _frameRoot = go.GetComponent<RectTransform>();
+        _frameRoot.SetParent(_rootRect != null ? _rootRect : transform, false);
+        _frameRoot.anchorMin = _frameRoot.anchorMax = _frameRoot.pivot = pivot;
+        _frameRoot.anchoredPosition = imageRect.anchoredPosition + new Vector2(
+            (pivot.x * 2f - 1f) * padding,
+            (pivot.y * 2f - 1f) * padding);
+        _frameRoot.sizeDelta = frameSize;
+
+        float thickness = Mathf.Max(1f, outerFrameThicknessPx);
+        float cornerLength = Mathf.Clamp(
+            outerFrameCornerLengthPx,
+            thickness,
+            Mathf.Min(frameSize.x, frameSize.y) * 0.45f);
+        float halfW = frameSize.x * 0.5f;
+        float halfH = frameSize.y * 0.5f;
+        float halfThickness = thickness * 0.5f;
+        float halfLength = cornerLength * 0.5f;
+
+        AddFrameSegment("TopLeftHorizontal", new Vector2(-halfW + halfLength, halfH - halfThickness), new Vector2(cornerLength, thickness));
+        AddFrameSegment("TopLeftVertical", new Vector2(-halfW + halfThickness, halfH - halfLength), new Vector2(thickness, cornerLength));
+        AddFrameSegment("TopRightHorizontal", new Vector2(halfW - halfLength, halfH - halfThickness), new Vector2(cornerLength, thickness));
+        AddFrameSegment("TopRightVertical", new Vector2(halfW - halfThickness, halfH - halfLength), new Vector2(thickness, cornerLength));
+        AddFrameSegment("BottomLeftHorizontal", new Vector2(-halfW + halfLength, -halfH + halfThickness), new Vector2(cornerLength, thickness));
+        AddFrameSegment("BottomLeftVertical", new Vector2(-halfW + halfThickness, -halfH + halfLength), new Vector2(thickness, cornerLength));
+        AddFrameSegment("BottomRightHorizontal", new Vector2(halfW - halfLength, -halfH + halfThickness), new Vector2(cornerLength, thickness));
+        AddFrameSegment("BottomRightVertical", new Vector2(halfW - halfThickness, -halfH + halfLength), new Vector2(thickness, cornerLength));
+
+        _frameRoot.SetAsLastSibling();
+    }
+
+    private void AddFrameSegment(string name, Vector2 position, Vector2 size)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        var rt = go.GetComponent<RectTransform>();
+        rt.SetParent(_frameRoot, false);
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = position;
+        rt.sizeDelta = size;
+
+        var image = go.AddComponent<Image>();
+        image.color = outerFrameColor;
+        image.raycastTarget = false;
+        _outerFrameSegments.Add(image);
+    }
+
     private void DrawStaticMap()
     {
         FillAll(backgroundColor);
@@ -1151,8 +1214,6 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     {
         if (IsGateTransitioning() && node.Index == _currentIndex) return TransitionColor;
         if (node.Index == _currentIndex)   return FallbackCurrentColor;
-        // TODO: 방문/미방문 섹터 색 구분은 임시 비활성화.
-        // if (_visited.Contains(node.Index)) return FallbackVisitedColor;
         if (node.IsStart)                  return FallbackStartColor;
         return FallbackRoomColor;
     }
@@ -1231,10 +1292,10 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         _image = null;
         _buffer = null;
         _rootRect = null;
+        _frameRoot = null;
         _cellSize = 0f;
         _renderScale = 0f;
         _worldToImagePx = 0f;
-        _visited.Clear();
         _transitionEdgeKey = null;
         _transitionFromIndex = -1;
         _transitionToIndex = -1;
@@ -1245,6 +1306,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         _routePool.Clear();   // 이동 표시 GameObject도 MapImage 자식이라 아래에서 함께 파괴된다.
         _linkLinePool.Clear();
         _hubFramePool.Clear();
+        _outerFrameSegments.Clear();
         _currentIndex = -1;
         _wasTransitioning = false;
         _dirty = false;
@@ -1259,7 +1321,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         for (int i = t.childCount - 1; i >= 0; i--)
         {
             Transform child = t.GetChild(i);
-            if (child.name == "MapImage")
+            if (child.name == "MapImage" || child.name == "MapFrame")
                 Destroy(child.gameObject);
         }
     }
