@@ -22,6 +22,9 @@ public sealed class SectorBattleState
     public int LinkId { get; set; }
     // 링크를 제거했을 때 영역을 가장 잘 분할하는 대표 섹터.
     public bool IsLinkHub { get; set; }
+    // 직전 틱의 허브 여부. 허브 선정 hysteresis가 쓴다 — 직전 허브가 여전히 충분히 좋으면 유지해
+    // 허브가 매 틱 인접 칸으로 튀는 진동을 막는다(디펜더가 그 진동을 따라다니지 않게).
+    public bool WasLinkHub { get; set; }
 
     // 100%(완전 점령, 상대 진영 0) 도달 직후 변이 면역 시간. >0이면 변이를 받지 않는다(점령 안정화 유예).
     public float MutationImmunityTimer { get; set; }

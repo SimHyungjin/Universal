@@ -19,6 +19,9 @@ public sealed class SectorBattleManager : IDisposable
 {
     private const float LogInterval = 2f; // 검증 로그 주기(설정 대상 아님).
     private const float VisibleTotalEpsilon = 0.5f;
+    // 허브 선정 hysteresis: 직전 허브의 분할 점수가 최적의 이 비율 이상이면 그대로 유지한다.
+    // 근소 차로 매 틱 인접 칸으로 튀는 허브 진동을 흡수하되, 명확히 더 좋은 절단점이 나오면 양보한다.
+    private const float HubHysteresisRatio = 0.8f;
 
     // 튜닝값은 SO_SectorBattle_Settings에서 주입(없으면 기본값 폴백).
     private readonly SO_SectorBattle_Settings _settings;
@@ -299,6 +302,7 @@ public sealed class SectorBattleManager : IDisposable
         foreach (KeyValuePair<Sector, SectorBattleState> kv in _states)
         {
             SectorBattleState s = kv.Value;
+            s.WasLinkHub = s.IsLinkHub; // 이번 틱 리셋 전에 직전 허브 여부 보존(hysteresis 입력).
             s.LinkInfluence = 0;
             s.LinkId = 0;
             s.IsLinkHub = false;
@@ -365,6 +369,8 @@ public sealed class SectorBattleManager : IDisposable
         SectorBattleState best = null;
         int bestSplitScore = int.MinValue;
         int bestDegree = int.MinValue;
+        SectorBattleState incumbent = null; // 직전 허브였던 후보 중 분할 점수 최고(hysteresis 후보).
+        int incumbentScore = int.MinValue;
 
         for (int i = 0; i < component.Count; i++)
         {
@@ -379,7 +385,18 @@ public sealed class SectorBattleManager : IDisposable
                 bestSplitScore = splitScore;
                 bestDegree = degree;
             }
+
+            if (candidate.WasLinkHub && splitScore > incumbentScore)
+            {
+                incumbent = candidate;
+                incumbentScore = splitScore;
+            }
         }
+
+        // hysteresis: 직전 허브가 여전히 이 컴포넌트에 있고 분할 점수가 최적의 일정 비율 이상이면 유지(진동 흡수).
+        if (incumbent != null && incumbent != best
+            && incumbentScore >= Mathf.CeilToInt(bestSplitScore * HubHysteresisRatio))
+            return incumbent;
 
         return best;
     }

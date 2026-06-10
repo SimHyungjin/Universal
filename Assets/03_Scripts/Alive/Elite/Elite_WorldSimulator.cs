@@ -662,11 +662,6 @@ public sealed class Elite_WorldSimulator
     // 같은 진영 디펜더를 링크 크기(LinkInfluence)에 비례해 각 허브에 안정적으로 분배한다.
     private Sector ChooseDefenderHubTarget(Elite_State state, IReadOnlyList<Elite_State> elites)
     {
-        // 이미 commit한 허브가 여전히 자기 진영 허브면 전체 재배분 없이 그대로 유지(허브 진동 차단).
-        // 허브가 점령을 잃거나 사라지면(IsOwnLinkHub=false) 아래 재배분으로 새 허브를 잡고 commit을 갱신한다.
-        if (state.CommittedHubSector != null && IsOwnLinkHub(state.CommittedHubSector, state.Faction))
-            return state.CommittedHubSector;
-
         _defenderHubs.Clear();
         for (int i = 0; i < _knownSectors.Count; i++)
         {
@@ -766,10 +761,7 @@ public sealed class Elite_WorldSimulator
             assigned.Add(bestDefender);
             hubQuotas[bestHubIndex]--;
             if (bestDefender == state)
-            {
-                state.CommittedHubSector = _defenderHubs[bestHubIndex].Sector; // 새 배정을 commit해 다음 think부터 유지.
-                return state.CommittedHubSector;
-            }
+                return _defenderHubs[bestHubIndex].Sector;
         }
 
         return null;

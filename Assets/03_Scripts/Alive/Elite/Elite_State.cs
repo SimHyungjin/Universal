@@ -35,10 +35,6 @@ public sealed class Elite_State : IMinimapTracked
     // 전투 대신 게이트까지 걸어가 통과 → Elite_Manager.FinalizeGateExit로 매크로 복귀시킨다. 비실체면 무의미.
     public Sector PendingExitSector { get; set; }
 
-    // 디펜더가 맡기로 commit한 허브 섹터. 매 think마다 최적 허브로 재배치하면 허브(절단점)가 점령 변동으로
-    // 흔들릴 때 디펜더가 따라 진동하므로, 한번 정한 허브를 그게 자기 진영 허브인 동안 붙잡아 둔다(안정화).
-    public Sector CommittedHubSector { get; set; }
-
     // 매크로 진실 좌표. 실체화 중에는 Elite_Embodiment가 transform(Character_MoveController 구동)에서 미러하고,
     // 비실체일 땐 Elite_WorldSimulator(필드 이동)가 갱신한다.
     public Vector3 WorldPosition { get; set; }
