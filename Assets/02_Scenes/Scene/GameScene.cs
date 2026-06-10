@@ -67,6 +67,9 @@ public class GameScene : SceneBase
             _eliteManager.SeedStartRoster(startSettings.enemyElites, enemySectors, NavFaction.Enemy);
         }
 
+        // 본진 결전: 플레이어가 적 본진(침식 앵커)에 진입하면 살아있는 적 엘리트가 전원 소집된다.
+        _eliteManager.SetCapital(erosion.EnemyHome);
+
         sectorManager.Enter(playerStart);
 
         // 스폰 위치 결정(연결된 게이트 우선, 없으면 섹터 중심 상공).

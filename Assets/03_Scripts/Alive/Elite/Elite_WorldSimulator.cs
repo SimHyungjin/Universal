@@ -44,6 +44,16 @@ public sealed class Elite_WorldSimulator
         public BfsNode(Sector sector, int depth) { Sector = sector; Depth = depth; }
     }
 
+    // 본진 결전 소집: 활성이면 소집 진영 엘리트가 역할/교전을 무시하고 _rallySector로 직행한다(순차 도착=웨이브).
+    private Sector _rallySector;
+    private NavFaction _rallyFaction;
+    public bool IsRallying => _rallySector != null;
+    public NavFaction RallyFaction => _rallyFaction;
+    public void SetRally(Sector capital, NavFaction faction) { _rallySector = capital; _rallyFaction = faction; }
+    public void ClearRally() => _rallySector = null;
+    private bool IsRallied(Elite_State state)
+        => _rallySector != null && state != null && state.Faction == _rallyFaction;
+
     private readonly SO_SectorBattle_Settings _settings;
 
     public Elite_WorldSimulator(MinimapModel map = null, SO_SectorBattle_Settings settings = null)
@@ -113,6 +123,21 @@ public sealed class Elite_WorldSimulator
 
             if (state.CurrentSector == playerSector)
                 continue;
+
+            // 본진 결전 소집: 소집 대상 엘리트는 역할/교전을 무시하고 본진으로 직행한다(거리차 순차 도착=웨이브).
+            // 본진(_rallySector)은 곧 플레이어 섹터이므로 도착하면 위 분기에서 실체화 대상이 된다.
+            if (IsRallied(state))
+            {
+                state.FieldThinkTimer -= deltaTime;
+                if (state.FieldThinkTimer <= 0f)
+                {
+                    state.FieldThinkTimer = GetThinkInterval(state);
+                    Sector hop = ChooseFirstHopTowardSector(state.CurrentSector, _rallySector);
+                    if (hop != null)
+                        BeginTravel(state, hop);
+                }
+                continue;
+            }
 
             // 같은 섹터에 적대 대상이 있으면 매 틱 섹터 내 교전 위치를 연출하고(미니맵에서 싸우는 듯) 이동 결정은 보류.
             bool engaged = IsEngagedInCurrentSector(state, elites, playerSector, hasBackgroundHostile);

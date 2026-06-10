@@ -22,6 +22,10 @@ public sealed class Elite_Manager : IDisposable
     private CancellationTokenSource _embodyCts = new();
     private CancellationTokenSource _worldCts = new();
 
+    // 본진 결전: 플레이어가 본진(EnemyHome)에 진입하면 소집 시작. _siegeWon은 승리 로그 1회성 가드.
+    private Sector _capitalSector;
+    private bool _siegeWon;
+
     public static Elite_Manager Instance { get; private set; }
     public IReadOnlyList<Elite_State> Elites => _elites;
 
@@ -108,7 +112,51 @@ public sealed class Elite_Manager : IDisposable
 
     private void OnSectorChanged(Sector sector)
     {
+        UpdateCapitalSiege(sector);
         RefreshEmbodiments();
+    }
+
+    // 본진(적 코어) 결전 제어. 플레이어가 본진에 들어가면 살아있는 본진 소유 진영 엘리트를 전원 소집한다.
+    // 본진을 떠나면 소집 해제(재진입 시 재개). 게이트 잠금·패배·결과 화면은 이후 슬라이스.
+    public void SetCapital(Sector capital) => _capitalSector = capital;
+
+    private void UpdateCapitalSiege(Sector sector)
+    {
+        if (_capitalSector == null) return;
+
+        if (sector == _capitalSector)
+        {
+            NavFaction owner = NavFaction.Enemy;
+            if (_sectorBattleManager != null && _sectorBattleManager.TryGetState(_capitalSector, out SectorBattleState s))
+                owner = s.OwnerFaction;
+            _worldSimulator.SetRally(_capitalSector, owner);
+            _siegeWon = false;
+        }
+        else
+        {
+            _worldSimulator.ClearRally();
+        }
+    }
+
+    // 승리 판정(간이): 소집 활성 중 살아있는 소집 진영 엘리트가 0이 되면 1회 로그하고 소집을 닫는다.
+    private void TickCapitalSiege()
+    {
+        if (!_worldSimulator.IsRallying) return;
+
+        NavFaction faction = _worldSimulator.RallyFaction;
+        for (int i = 0; i < _elites.Count; i++)
+        {
+            Elite_State e = _elites[i];
+            if (e != null && e.IsAlive && e.Faction == faction)
+                return; // 아직 소집 진영 엘리트가 남아 있다.
+        }
+
+        if (!_siegeWon)
+        {
+            _siegeWon = true;
+            Debug.Log("[CapitalSiege] 결전 승리 — 본진 적 엘리트 전멸");
+        }
+        _worldSimulator.ClearRally();
     }
 
     // 시작 엘리트를 진영 점령 섹터들에 라운드로빈으로 분산 배치한다(영역 전체에 펼쳐 지키게 — 본진 1곳 집중 대신).
@@ -767,6 +815,7 @@ public sealed class Elite_Manager : IDisposable
 
                 TickEliteAttrition(Time.deltaTime);
                 ReapDeadElites(Time.deltaTime);
+                TickCapitalSiege();
 
                 if (needsRefresh)
                     RefreshEmbodiments();
