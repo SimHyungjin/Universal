@@ -111,10 +111,11 @@ public sealed class Elite_Manager : IDisposable
         RefreshEmbodiments();
     }
 
-    // 침식 시작 시 중앙집중 배치: 한 섹터에 로스터를 펼쳐 등록한다(진영은 인자로 강제). 아군→플레이어, 적→본진.
-    public void SeedStartRoster(EliteSpawnEntry[] roster, Sector sector, NavFaction faction)
+    // 시작 엘리트를 진영 점령 섹터들에 라운드로빈으로 분산 배치한다(영역 전체에 펼쳐 지키게 — 본진 1곳 집중 대신).
+    // 이후 매크로 AI(Elite_WorldSimulator)가 첫 think에 각자 역할 위치(Defender=허브, Vanguard=전선 등)로 정렬한다.
+    public void SeedStartRoster(EliteSpawnEntry[] roster, IReadOnlyList<Sector> sectors, NavFaction faction)
     {
-        if (roster == null || sector == null) return;
+        if (roster == null || sectors == null || sectors.Count == 0) return;
 
         int totalCount = CountSpawnEntries(roster);
         int spawnIndex = 0;
@@ -125,6 +126,7 @@ public sealed class Elite_Manager : IDisposable
 
             for (int j = 0; j < entry.Count; j++)
             {
+                Sector sector = sectors[spawnIndex % sectors.Count];
                 Vector3 position = ResolveSectorSpawnPosition(sector, entry.Data, spawnIndex, totalCount);
                 Vector3 forward = sector.transform.forward.sqrMagnitude > 0.0001f
                     ? sector.transform.forward

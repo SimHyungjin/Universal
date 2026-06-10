@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using MapNav.Ecs;
@@ -52,15 +53,18 @@ public class GameScene : SceneBase
         // 진입 시 점령 상태(진영 비율)대로 표시상한만큼 잡몹을 스폰한다.
         sectorManager.SetMobSpawnResolver(ResolveMobSpawnsFromBackground);
 
-        // 침식 모드: 섹터별 자동 엘리트 시딩을 끄고, 아래 SeedStartRoster로만 중앙 배치한다.
+        // 침식 모드: 섹터별 자동 엘리트 시딩을 끄고, 아래 SeedStartRoster로만 영역 분산 배치한다.
         _eliteManager = new Elite_Manager(
             sectorManager, generator.Map, _sectorBattleManager, battleSettings);
 
-        // 시작 엘리트 중앙 배치: 아군→플레이어 섹터, 적→본진(침식 앵커).
+        // 시작 엘리트를 각 진영 영역 전체에 분산 배치(본진 1곳 집중 대신) → 시작부터 영역을 지키는 상태.
+        // 이후 매크로 AI가 역할대로 정렬한다(Defender=허브, Vanguard=전선 강습 등).
         if (startSettings != null)
         {
-            _eliteManager.SeedStartRoster(startSettings.allyElites, playerStart, NavFaction.Ally);
-            _eliteManager.SeedStartRoster(startSettings.enemyElites, erosion.EnemyHome, NavFaction.Enemy);
+            List<Sector> allySectors = CollectErosionSectors(erosion, NavFaction.Ally);
+            List<Sector> enemySectors = CollectErosionSectors(erosion, NavFaction.Enemy);
+            _eliteManager.SeedStartRoster(startSettings.allyElites, allySectors, NavFaction.Ally);
+            _eliteManager.SeedStartRoster(startSettings.enemyElites, enemySectors, NavFaction.Enemy);
         }
 
         sectorManager.Enter(playerStart);
@@ -104,6 +108,17 @@ public class GameScene : SceneBase
 
     private NavAgentSpawnEntry[] ResolveMobSpawnsFromBackground(Sector sector)
         => _sectorBattleManager != null ? _sectorBattleManager.BuildEntrySpawns(sector) : null;
+
+    // 침식 보드에서 해당 진영이 점령한 섹터 목록(시작 엘리트를 영역 전체에 분산 배치하는 대상).
+    private static List<Sector> CollectErosionSectors(ErosionBootstrap erosion, NavFaction faction)
+    {
+        var list = new List<Sector>();
+        if (erosion?.Owners == null) return list;
+
+        foreach (KeyValuePair<Sector, NavFaction> kv in erosion.Owners)
+            if (kv.Value == faction) list.Add(kv.Key);
+        return list;
+    }
 
     private static SectorGate GetRandomConnectedGate(SectorGate[] gates)
     {
