@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c5b9b72f23a32454692a23d4211dca26, type: 3}
   m_Name: SO_Unit_Stats_Knight_1
   m_EditorClassIdentifier: Assembly-CSharp::SO_Unit_Stats
-  maxHealth: 100
+  maxHealth: 200
   attackPower: 0
   defense: 0
   moveSpeed: 4

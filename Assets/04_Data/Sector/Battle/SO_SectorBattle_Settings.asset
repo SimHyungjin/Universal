@@ -12,16 +12,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dc43fe681a42ec7408d171a046c68f47, type: 3}
   m_Name: SO_SectorBattle_Settings
   m_EditorClassIdentifier: Assembly-CSharp::SO_SectorBattle_Settings
-  LiveCapTotal: 100
+  LiveCapTotal: 200
   CaptureThreshold: 0.8
   MutationPerInfluencePerSec: 0.2
   MutationMaxPerSec: 100
-  MutationImmunityDuration: 0
+  MutationImmunityDuration: 30
   MutationBurstThreshold: 1
   SupportPowerRatio: 1
   SupportDistanceFalloff: 0.5
-  BattleAttritionPerPowerPerSec: 0.01
-  BattleAttritionMaxPerSec: 100
+  TopoShare: 0.5
+  ConquestFractionPerSec: 0.015
   EliteDamagePerHostilePowerPerSec: 0.001
   DeathDisplayDelay: 1
   CombatRoamRadius: 10

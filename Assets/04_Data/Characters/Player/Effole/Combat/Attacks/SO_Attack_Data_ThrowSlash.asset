@@ -50,7 +50,7 @@ MonoBehaviour:
     cancelOnMiss: 0
     maxCount: 2
   additionalHits: []
-  damage: 500
+  damage: 50
   hitType: 1
   knockback:
     type: 1
@@ -78,8 +78,8 @@ MonoBehaviour:
     lifetime: 4
     spawnOffset: {x: 0, y: 1, z: 0}
     pierce: 1
-    count: 1
-    spreadAngle: 90
+    count: 16
+    spreadAngle: 120
   field:
     enabled: 0
     prefabAddress: 
