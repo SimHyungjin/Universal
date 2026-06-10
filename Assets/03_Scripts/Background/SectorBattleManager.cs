@@ -11,8 +11,10 @@ using UnityEngine;
 //
 // 제로섬 모델: 섹터 총 병력(ally+enemy) 합은 고정. 한 진영을 줄이면 반대 진영이 그만큼 늘어난다(영역 물들이기).
 //  · 점령 게이지 = ally/(ally+enemy) 비율의 파생(별도 누적/튜닝 없음).
-//  · 플레이어 섹터: 실제 NavAgent 사망을 폴링 → 죽은 진영 감소·반대 증가(즉시 비율 반영). 화면은 LiveCap을 비율 분배.
-//  · 배경 섹터: 전력 우세 진영이 시간당 조금씩 잠식(제로섬, 전력차 비례·상한).
+//  · (A) 통합 점령 압력: 위상(net=링크 영역 크기)과 전투력(aP-eP)을 단일 enemyward로 합성해 점령을 민다.
+//  · 배경 섹터(TickConquest): enemyward를 Total 제로섬 전환(ShiftZeroSum)으로 적용.
+//  · 플레이어 섹터(TickPlayerConquest): 같은 enemyward를 실체 toggle(MutateAgents)로 적용. 단 아군 우세(≤0)면
+//    적 주입 정지 — 아군화는 오직 플레이어 처치→부활이 담당한다. 게이지는 화면 실체 비율을 그대로 따라온다.
 public sealed class SectorBattleManager : IDisposable
 {
     private const float LogInterval = 2f; // 검증 로그 주기(설정 대상 아님).
@@ -22,8 +24,6 @@ public sealed class SectorBattleManager : IDisposable
     private readonly SO_SectorBattle_Settings _settings;
     private int   LiveCapTotal      => _settings != null ? _settings.LiveCapTotal      : 200;
     private float CaptureThreshold  => _settings != null ? _settings.CaptureThreshold  : 0.9f;
-    private float MutationPerInfluencePerSec => _settings != null ? _settings.MutationPerInfluencePerSec : 0.3f;
-    private float MutationMaxPerSec => _settings != null ? _settings.MutationMaxPerSec : 3f;
     private float MutationImmunityDuration => _settings != null ? _settings.MutationImmunityDuration : 3f;
     private int   MutationBurstThreshold => _settings != null ? _settings.MutationBurstThreshold : 5;
     private float SupportPowerRatio => _settings != null ? _settings.SupportPowerRatio : 0.2f;
@@ -255,10 +255,11 @@ public sealed class SectorBattleManager : IDisposable
 
         // 면역(100% 점령 직후 안정화 유예) — 잡몹 차원 배경 압력으로부터 점령지를 보호.
         // 플레이어가 찢어 점령한 성과가 떠나자마자 뺏기지 않게 하는 게 목적(긴 면역 = 결정타 유지 시간).
-        // 단, 엘리트(장수)가 개입한 섹터는 면역을 뚫는다: 장수는 지루함을 깨는 와일드카드로,
-        // 단신으로 면역 구역도 함락/탈환할 수 있다(점령을 직접 깎는 권능).
-        bool elitePresent = state.AllyElitePower > 0f || state.EnemyElitePower > 0f;
-        if (state.MutationImmunityTimer > 0f && !elitePresent)
+        // 단, 침략자(점령 진영의 반대편) 장수가 개입하면 면역을 뚫는다: 장수는 지루함을 깨는 와일드카드로,
+        // 단신으로 면역 구역도 함락할 수 있다. 수비측 아군 장수는 자기편 보호막을 깨지 않는다.
+        NavFaction invader = state.OwnerFaction == NavFaction.Ally ? NavFaction.Enemy : NavFaction.Ally;
+        float invaderElite = invader == NavFaction.Ally ? state.AllyElitePower : state.EnemyElitePower;
+        if (state.MutationImmunityTimer > 0f && invaderElite <= 0f)
         {
             state.MutationImmunityTimer -= dt;
             return;
@@ -271,7 +272,7 @@ public sealed class SectorBattleManager : IDisposable
 
     // 단일 점령 압력 ∈ [-1,1]. +면 적 방향(AllyTotal 감소), -면 아군 방향. 로그 진단도 공유.
     //  · 위상: net(자기 영역 크기로 방어하는 링크 압력차)을 최대 링크 크기로 정규화·clamp.
-    //  · 전투력: (아군 power − 적 power)를 tanh로 포화 정규화. 큰 격차도 ±1로 수렴.
+    //  · 전투력: (아군 power − 적 power)를 합으로 나눈 상대 비율 정규화. 항상 [-1,1], 병력 규모에 불변.
     private float ResolveConquestPressure(SectorBattleState state)
     {
         float net = ResolveMutationNet(state); // +면 적 방향(아군→적)
@@ -443,51 +444,50 @@ public sealed class SectorBattleManager : IDisposable
     {
         if (s.TotalSum <= 0f) return SectorControl.Contested;
         float n = s.GaugeNormalized;
-        if (n >= CaptureThreshold) return SectorControl.Ally;
-        if (n <= 1f - CaptureThreshold) return SectorControl.Enemy;
+        // 침략자(점령하려는 진영의 반대편) 장수가 그 섹터에 있으면 완전 점령을 확정하지 않는다(Contested 유지).
+        // 게이지(잡몹 비율)는 100%까지 차오르되, 점령 확정·면역·링크 참여는 적 장수를 치우기 전까지 보류.
+        // 장수가 도망·유인으로 빠지면 ElitePower가 0이 되어 곧바로 확정된다(위치 연동).
+        if (n >= CaptureThreshold) return s.EnemyElitePower > 0f ? SectorControl.Contested : SectorControl.Ally;
+        if (n <= 1f - CaptureThreshold) return s.AllyElitePower > 0f ? SectorControl.Contested : SectorControl.Enemy;
         return SectorControl.Contested;
     }
 
-    // ── 변이 (링크 영향력, 양방향 대칭) ────────────────────────────────────────────
-    // 들어오는 적/아군 링크 영향력 합을 자기 링크 영향력으로 방어하고, 우세 쪽으로 유닛을 반대 진영으로 전환한다.
-    // 배경=Total 제로섬 전환, 플레이어=실체 토글(MutateAgents). 죽임이 아니라 진영 전환(합 보존).
-    private void TickMutation(SectorBattleState state, float dt, bool playerSector)
+    // ── (A) 플레이어 섹터 점령 압력 ────────────────────────────────────────────────
+    // 배경 TickConquest와 같은 enemyward 압력·같은 속도 모델을 쓰되, 적용만 실체 toggle(MutateAgents).
+    // 아군/플레이어 우세(enemyward ≤ 0)면 적 주입을 정지한다 — 아군화(적→아군)는 오직 플레이어 처치→부활이
+    // 담당한다("플레이어가 유일한 결정타"). 플레이어가 싸워 AllyTotal을 올리면 aP↑→battleNorm↑→enemyward가
+    // 음수로 기울어 적 주입이 멎으므로, 인접 적에 둘러싸인 섹터도 100% 점령에 도달할 수 있다.
+    private void TickPlayerConquest(SectorBattleState state, float dt)
     {
         if (state.TotalSum <= 0f) { state.MutationAccum = 0f; return; }
 
-        // 100% 점령 직후 안정화 유예 — 면역 동안에는 변이를 받지 않는다.
-        if (state.MutationImmunityTimer > 0f)
+        // 면역(100% 점령 직후 안정화 유예) — 배경 TickConquest와 동일 통로.
+        // 침략자(점령 진영의 반대편) 장수가 개입하면 면역을 뚫는다(수비 아군 장수는 자기편 보호막을 안 깬다).
+        NavFaction invader = state.OwnerFaction == NavFaction.Ally ? NavFaction.Enemy : NavFaction.Ally;
+        float invaderElite = invader == NavFaction.Ally ? state.AllyElitePower : state.EnemyElitePower;
+        if (state.MutationImmunityTimer > 0f && invaderElite <= 0f)
         {
             state.MutationImmunityTimer -= dt;
             state.MutationAccum = 0f;
             return;
         }
 
-        float net = ResolveMutationNet(state); // +면 아군→적, -면 적→아군
-        if (Mathf.Abs(net) < 0.0001f) { state.MutationAccum = 0f; return; }
+        // 현장 우선 게이팅: 플레이어가 충분히 점령(게이지 ≥ CaptureThreshold)한 섹터는 적 주입을 정지한다.
+        // 거시 위상(topoNorm)·지원(support) 압력이 플레이어의 실제 현장 성과를 덮지 못하게 한다 — 인접 거대
+        // 적 영역에 둘러싸여(topoNorm=1) ew가 +로 유지돼도, 플레이어가 제압한 섹터는 100%까지 안정화된다.
+        if (state.GaugeNormalized >= CaptureThreshold) { state.MutationAccum = 0f; return; }
 
-        // 연속이 아니라 누적했다가 임계(N마리)에 도달하면 한 번에 배출한다.
-        // 배출 사이에 변이가 멈춘 틈이 생겨 플레이어가 100%를 찍을 여지가 만들어진다.
-        state.MutationAccum += Mathf.Clamp(net * MutationPerInfluencePerSec, -MutationMaxPerSec, MutationMaxPerSec) * dt;
-
+        float enemyward = ResolveConquestPressure(state); // +면 적이 민다(아군→적)
+        // 적이 미는 동안만(enemyward>0) 누적해 배출한다. 아군/거시 우세 구간은 누적을 0에서 멈춰(음수 빚 방지)
+        // 자연히 주입이 안 된다 — 게이지 게이팅이 상한, 이 0 바닥이 하한을 맡아 별도 정지 분기가 필요 없다.
+        // 아군화(적→아군)는 오직 플레이어 처치→부활이 담당한다("플레이어가 유일한 결정타").
+        state.MutationAccum = Mathf.Max(0f, state.MutationAccum + enemyward * ConquestFractionPerSec * state.TotalSum * dt);
         int threshold = Mathf.Max(1, MutationBurstThreshold);
-        if (Mathf.Abs(state.MutationAccum) < threshold) return;
+        if (state.MutationAccum < threshold) return;
 
-        int burst = (int)state.MutationAccum; // 부호 포함, |누적|≥임계이므로 |burst|≥임계
+        int burst = (int)state.MutationAccum;
         state.MutationAccum -= burst;
-
-        if (burst > 0) ApplyMutation(state, playerSector, NavFaction.Ally, burst);    // 아군→적
-        else           ApplyMutation(state, playerSector, NavFaction.Enemy, -burst);  // 적→아군
-    }
-
-    // from 진영 count마리를 반대로 전환. 플레이어 섹터=실체 토글, 배경=Total 제로섬.
-    private void ApplyMutation(SectorBattleState state, bool playerSector, NavFaction from, int count)
-    {
-        if (count <= 0) return;
-        if (playerSector)
-            MutateAgents(from, count);
-        else
-            ShiftZeroSum(state, from == NavFaction.Ally ? -count : count);
+        MutateAgents(NavFaction.Ally, burst); // 아군→적
     }
 
     // 이 섹터가 받는 순 변이 압력. +면 아군이 적으로, -면 적이 아군으로.
@@ -586,8 +586,8 @@ public sealed class SectorBattleManager : IDisposable
             return;
         }
 
-        // ① 링크 압력만큼 화면 실체의 진영을 toggle(변이)한다 — 적의 반격/균형(배경과 공용).
-        TickMutation(state, dt, true);
+        // ① (A) 통합 점령 압력으로 화면 실체를 toggle한다 — 배경과 동일 압력, 적용만 실체 toggle.
+        TickPlayerConquest(state, dt);
 
         // ② 게이지 = 화면 실체 비율. 총 병력량(TotalSum)은 보존하고 ally/enemy 비율만 화면에서 가져온다.
         //    부활(적→아군)·변이(양방향)가 화면을 바꾸면 게이지가 그대로 따라온다 — 사망 폴링 불필요.

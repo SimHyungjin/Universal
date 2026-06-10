@@ -11,14 +11,10 @@ public class SO_SectorBattle_Settings : ScriptableObject
     [Range(0.5f, 1f), Tooltip("비율이 이 값 이상/이하 = 완전 점령(링크 참여). 0.9면 90% 이상이어야 점령지.")]
     public float CaptureThreshold = 0.9f;
 
-    [Header("변이 (링크 영향력)")]
-    [Tooltip("링크 영향력 차이 1당 초당 변이 유닛 수. 양방향 대칭(적 영향력 우세면 내 유닛이 적으로, 반대도).")]
-    public float MutationPerInfluencePerSec = 0.3f;
-    [Tooltip("변이 초당 상한(섹터당)")]
-    public float MutationMaxPerSec = 3f;
-    [Tooltip("섹터가 100%(완전 점령)에 막 도달한 직후, 변이를 받지 않는 안정화 시간(초)")]
+    [Header("점령 안정화 / 배출")]
+    [Tooltip("섹터가 100%(완전 점령)에 막 도달한 직후, 압력을 받지 않는 안정화 시간(초)")]
     public float MutationImmunityDuration = 3f;
-    [Tooltip("변이 배출 임계(마리). 이만큼 누적될 때까지 모았다가 한 번에 배출한다. 배출 사이 틈이 생겨 플레이어가 100%를 찍을 여지를 만든다.")]
+    [Tooltip("점령 전환 배출 임계(마리). 이만큼 누적될 때까지 모았다가 한 번에 배출한다. 배출 사이 틈이 생겨 플레이어가 100%를 찍을 여지를 만든다.")]
     public int MutationBurstThreshold = 5;
 
     [Header("전투력 지원 Power (A 통합 압력의 전투력 입력)")]
