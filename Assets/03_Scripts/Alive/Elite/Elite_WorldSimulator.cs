@@ -180,8 +180,17 @@ public sealed class Elite_WorldSimulator
         state.FieldThinkTimer = GetThinkInterval(state);
 
         Sector destination = ChooseDestination(state, playerSector, elites);
-        if (destination != null && destination != state.CurrentSector)
-            state.BeginEmbodiedGateExit(destination);
+        if (destination == null || destination == state.CurrentSector)
+            return;
+
+        // 결정 즉시 게이트 통과 대쉬 — 걸어서 게이트까지 가는 구간을 없앤다(진입 대쉬와 대칭).
+        // 도보 구간에서 잡몹에 맞아 넉백·사망하던 문제 해소. 대쉬 중에는 Brain/Action을 꺼 무피격.
+        SectorGate gate = FindGate(state.CurrentSector, destination);
+        Elite_Brain brain = state.Embodiment != null ? state.Embodiment.GetComponent<Elite_Brain>() : null;
+        if (gate != null && Elite_Manager.Instance != null)
+            Elite_Manager.Instance.BeginGateExitDash(state, brain, gate);
+        else
+            state.BeginEmbodiedGateExit(destination); // 폴백: 게이트를 못 찾으면 기존 걷기(Elite_Brain.TickGateExit).
     }
 
     public void SeedKnownSectorElites(Action<Sector> seedSector)
@@ -583,11 +592,16 @@ public sealed class Elite_WorldSimulator
                    && state.CurrentSector == playerSector;
         }
 
-        // 디펜더는 허브에서만 교전한다. 비허브 전투에는 붙잡히지 않고 자기 진영 허브로 복귀한다.
+        // 디펜더는 자기 허브에서 교전하되, 플레이어가 들어온 섹터면 허브가 아니어도 떠나지 않고 맞붙는다
+        // (플레이어 앞에서 등 돌리고 도망가는 게 불쾌 + 장수 1:1 결투가 게임 깊이). 플레이어가 떠나면 다시 허브로 복귀.
+        // 그 외 비허브 전투에는 붙잡히지 않고 자기 진영 허브로 복귀한다.
         if (GetBattleRole(state) == BattleRole.Defender)
-            return IsOwnLinkHub(state.CurrentSector, state.Faction)
+        {
+            bool atPlayerSector = state.CurrentSector == playerSector;
+            return (atPlayerSector || IsOwnLinkHub(state.CurrentSector, state.Faction))
                    && (SectorHasHostile(state.CurrentSector, state.Faction, elites, playerSector)
                        || (hasBackgroundHostile != null && hasBackgroundHostile(state.CurrentSector, state.Faction)));
+        }
 
         return SectorHasHostile(state.CurrentSector, state.Faction, elites, playerSector)
                || (hasBackgroundHostile != null && hasBackgroundHostile(state.CurrentSector, state.Faction));
@@ -648,6 +662,11 @@ public sealed class Elite_WorldSimulator
     // 같은 진영 디펜더를 링크 크기(LinkInfluence)에 비례해 각 허브에 안정적으로 분배한다.
     private Sector ChooseDefenderHubTarget(Elite_State state, IReadOnlyList<Elite_State> elites)
     {
+        // 이미 commit한 허브가 여전히 자기 진영 허브면 전체 재배분 없이 그대로 유지(허브 진동 차단).
+        // 허브가 점령을 잃거나 사라지면(IsOwnLinkHub=false) 아래 재배분으로 새 허브를 잡고 commit을 갱신한다.
+        if (state.CommittedHubSector != null && IsOwnLinkHub(state.CommittedHubSector, state.Faction))
+            return state.CommittedHubSector;
+
         _defenderHubs.Clear();
         for (int i = 0; i < _knownSectors.Count; i++)
         {
@@ -747,7 +766,10 @@ public sealed class Elite_WorldSimulator
             assigned.Add(bestDefender);
             hubQuotas[bestHubIndex]--;
             if (bestDefender == state)
-                return _defenderHubs[bestHubIndex].Sector;
+            {
+                state.CommittedHubSector = _defenderHubs[bestHubIndex].Sector; // 새 배정을 commit해 다음 think부터 유지.
+                return state.CommittedHubSector;
+            }
         }
 
         return null;
