@@ -50,7 +50,7 @@ MonoBehaviour:
     cancelOnMiss: 0
     maxCount: 2
   additionalHits: []
-  damage: 50
+  damage: 5000
   hitType: 1
   knockback:
     type: 1

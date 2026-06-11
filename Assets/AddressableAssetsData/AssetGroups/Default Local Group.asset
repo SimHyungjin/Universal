@@ -75,6 +75,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 7306b82aa7978b945bbcbe12dde5d75e
+    m_Address: Popup_BannerMessage
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 6cb8d6db13e4b6e46b2996bd3a55fb29
     m_Address: SO_Player_Data
     m_ReadOnly: 0

@@ -17,7 +17,7 @@ MonoBehaviour:
   category: 0
   icon: {fileID: 21300000, guid: 098dafe51c34c254286ed83a925ed4d5, type: 3}
   description: 
-  cooldown: 5
+  cooldown: 0
   resourceCost: 0
   invincibleDuration: 0
   overlay:
