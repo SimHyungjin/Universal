@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: SO_Character_Stats_Player
   m_EditorClassIdentifier: Assembly-CSharp::SO_Player_Stats
   maxHealth: 2000
-  attackPower: 20
+  attackPower: 100
   defense: 0
   breakMax: 0
   moveSpeed: 4

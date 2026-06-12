@@ -30,6 +30,9 @@ public sealed class SectorBattleState
     public float MutationImmunityTimer { get; set; }
     // 직전 틱 완전 점령 여부. false→true로 바뀌는 순간(=막 100% 달성)에만 면역을 부여한다.
     public bool WasFullyControlled { get; set; }
+    // 직전 틱 "아군" 완전 점령 여부. 점령 알림(PlayerSectorCaptured)의 엣지 추적용 — WasFullyControlled는
+    // 진영 무관이라 적-full→아군-full로 한 번에 뒤집으면 엣지가 안 생겨 누락된다. 아군 점령만 따로 본다.
+    public bool WasAllyFull { get; set; }
     // 변이 누적기. |값|이 임계(MutationBurstThreshold)에 도달하면 한 번에 정수만큼 배출한다(연속 아닌 뭉텅이 변이).
     public float MutationAccum { get; set; }
 

@@ -31,7 +31,7 @@ MonoBehaviour:
     enabled: 0
     height: 2
     suspendAtApex: 0
-  duration: 0.5
+  duration: 1
   shape:
     type: 0
     radius: 3
@@ -39,7 +39,7 @@ MonoBehaviour:
     length: 3
     width: 3
   hitbox:
-    timing: 0.8
+    timing: 0.5
     offset: 0
     yOffset: 0
     verticalTolerance: 3

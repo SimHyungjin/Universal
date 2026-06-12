@@ -140,6 +140,11 @@ public sealed class UIManager_PopupLayer
 
         if (topActiveIdx == -1)
         {
+            // 클릭 가드 팝업이 없는 상태. 가드 패널이 이미 꺼져 있으면 페이드아웃할 대상이 없다 —
+            // 비활성·알파 0인 패널에 트윈을 걸면 PrimeTween이 "inactive GameObject"·"endValue==current"
+            // 경고를 낸다(가드 없는 배너 팝업이 열고 닫을 때마다 반복). 꺼져 있으면 그냥 건너뛴다.
+            if (!_panelCanvas.gameObject.activeSelf) return;
+
             _panelTween = Tween.Alpha(_panelImage, 0f, GUARD_DURATION, useUnscaledTime: true)
                 .OnComplete(() =>
                 {

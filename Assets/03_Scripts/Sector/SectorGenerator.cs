@@ -234,6 +234,7 @@ public class SectorGenerator
                 Cells         = cells,
                 IsStart       = i == 0,
                 Sprite        = sectors[i].MinimapSprite,
+                FrameSprite   = sectors[i].MinimapFrameSprite,
                 RotationSteps = rotation[i],
                 WorldSize     = worldSize,
                 LocalCenter   = localCenter,

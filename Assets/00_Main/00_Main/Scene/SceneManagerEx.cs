@@ -73,6 +73,68 @@ public class SceneManagerEx : ContentManager
         }
     }
 
+    /// <summary>
+    /// 현재 씬을 깨끗이 재로드합니다(한 판 재시작 등). ChangeSceneAsync는 동일 이름 씬을 언로드 대상에서
+    /// 제외하므로 같은 씬 재시작에는 쓸 수 없다 — 여기서는 직전 씬을 핸들로 직접 언로드한다.
+    /// </summary>
+    public async UniTask ReloadCurrentSceneAsync()
+    {
+        if (_isTransitioning) return;
+        _isTransitioning = true;
+
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        var token = _cts.Token;
+
+        try
+        {
+            Scene oldScene = SceneManager.GetActiveScene();
+            string sceneName = oldScene.name;
+
+            _currentScene?.ExitScene();
+            Main.Data?.SaveIfDirty();
+            Main.Clear();
+
+            var op = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Additive);
+            op.allowSceneActivation = false;
+
+            while (op.progress < 0.9f)
+                await UniTask.Yield(token);
+
+            op.allowSceneActivation = true;
+            await op.ToUniTask(cancellationToken: token);
+
+            // 새로 로드된 씬은 같은 이름이지만 oldScene과 다른 핸들이다 — 그걸 활성화하고 옛 씬을 언로드한다.
+            Scene newScene = FindLoadedSceneByName(sceneName, oldScene);
+            if (newScene.IsValid()) SceneManager.SetActiveScene(newScene);
+
+            if (oldScene.IsValid() && oldScene.isLoaded)
+                await SceneManager.UnloadSceneAsync(oldScene).ToUniTask(cancellationToken: token);
+
+            await CreateAndEnterScene(sceneName, token);
+        }
+        catch (OperationCanceledException)
+        {
+            Debug.Log("Scene reload was canceled.");
+        }
+        finally
+        {
+            _isTransitioning = false;
+        }
+    }
+
+    // 같은 이름의 로드된 씬 중 exclude가 아닌 첫 번째(= 방금 additive로 새로 로드된 씬)를 찾는다.
+    private static Scene FindLoadedSceneByName(string sceneName, Scene exclude)
+    {
+        for (int i = 0; i < SceneManager.sceneCount; i++)
+        {
+            Scene s = SceneManager.GetSceneAt(i);
+            if (s.name == sceneName && s != exclude) return s;
+        }
+        return default;
+    }
+
     private async UniTask UnloadOldScenes(string currentSceneName, CancellationToken token)
     {
         var scenesToUnload = new List<Scene>();

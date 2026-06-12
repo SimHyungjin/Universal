@@ -64,8 +64,11 @@ public class Popup_BannerMessage : UI_Popup, IPoolable
         CacheReferences();
         ConfigureStyleManager();
 
+        // 스폰 시점에 styleManager를 켜면 PlayIn 전에 Animator 기본 포즈(완성 모습)가 한 프레임 렌더돼
+        // "팝업이 떴다가 닫히고 다시 인트로"처럼 보인다(특히 첫 로드의 Addressables 갭). 표시는 PlayInAnimation이
+        // 활성화·재생·0프레임 적용까지 한 프레임에 처리하므로, 여기서는 숨겨 둔다.
         if (_styleManager != null)
-            _styleManager.gameObject.SetActive(true);
+            _styleManager.gameObject.SetActive(false);
     }
 
     public void OnDespawn()
@@ -177,6 +180,13 @@ public class Popup_BannerMessage : UI_Popup, IPoolable
             _styleManager.gameObject.SetActive(true);
 
         _styleManager.PlayIn();
+
+        // PlayIn은 Animator.Play로 In 상태를 큐잉만 해 다음 애니메이터 갱신 때 적용된다. 그 전에 한 프레임
+        // 기본 상태(완성 포즈=다 떠 있는 모습)가 렌더되면 "팝업이 떴다가 닫히고 다시 인트로"처럼 보인다
+        // (첫 스폰은 Addressables 로드 갭으로 특히 두드러짐). In 0프레임을 즉시 평가해 첫 렌더부터 적용한다.
+        Animator animator = _styleManager.styleAnimator;
+        if (animator != null && animator.isActiveAndEnabled)
+            animator.Update(0f);
     }
 
     private void DisableRaycastTargets()

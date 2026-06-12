@@ -23,6 +23,10 @@ public class SectorManager : MonoBehaviour
     public Sector CurrentSector { get; private set; }
     public bool IsTransitioning { get; private set; }
 
+    // 게이트 전환(대쉬) 진행도. 미니맵은 실제 위치 대신 이 값만 받아 게이트~게이트 px를 보간한다(확대 무관).
+    // 출발/도착 섹터는 미니맵이 CurrentSector 변화로 알고, 게이트는 두 섹터 연결에서 역추적한다.
+    public float GateTransitionProgress { get; private set; } // 0~1, 거리/속도/시간 기반.
+
     /// <summary>현재 섹터가 바뀔 때 발생. ECS 잡몹은 SwitchMap으로 따라가지만,
     /// Mono 에이전트(장수 등)는 이 이벤트를 구독해 자기 nav 맵을 새 섹터 것으로 교체한다.</summary>
     public event Action<Sector> SectorChanged;
@@ -60,6 +64,8 @@ public class SectorManager : MonoBehaviour
         Sector targetSector = arrivalGate.Sector;
         if (targetSector == null || targetSector == CurrentSector) return;
         Elite_Manager.Instance?.ForceGateCrossingWithPlayer(arrivalGate.ConnectedGate, arrivalGate);
+
+        GateTransitionProgress = 0f; // 미니맵 마커 글라이드 진행도 초기화(대쉬 중 DashPlayerTo가 갱신).
 
         _spawnCts?.Cancel();
         _spawnCts?.Dispose();
@@ -134,12 +140,14 @@ public class SectorManager : MonoBehaviour
             {
                 elapsed += Time.unscaledDeltaTime;
                 float t = Mathf.Clamp01(elapsed / duration);
+                GateTransitionProgress = t; // 미니맵 마커가 게이트 라우트 위를 이 진행도로 글라이드.
                 float eased = t * t * (3f - 2f * t);
                 float arc = Mathf.Sin(t * Mathf.PI) * gateDashArcHeight;
                 playerTransform.position = Vector3.Lerp(start, destination, eased) + Vector3.up * arc;
                 await UniTask.Yield(PlayerLoopTiming.Update, ct);
             }
 
+            GateTransitionProgress = 1f;
             playerTransform.position = destination;
             vfx?.PlayDashEnd(planarDirection);
             actionHandler?.CompleteSectorGateTransition();

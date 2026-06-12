@@ -241,7 +241,8 @@ public class CameraManager : CoreManager
     public override void Clear()
     {
         base.Clear();
-        if (Main.Loop != null) Main.Loop.OnLateUpdate -= LateUpdate;
+        // Loop 구독은 유지한다(영속 매니저 — InputManager와 동일 패턴). 끊으면 OnInitializeAsync가 재로드 때
+        // 다시 안 돌아 카메라 틱이 영영 죽는다. 여기서는 attach된 씬 상태(_target)만 비운다.
         _target = null;
     }
 

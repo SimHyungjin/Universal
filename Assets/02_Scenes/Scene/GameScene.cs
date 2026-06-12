@@ -11,6 +11,11 @@ public class GameScene : SceneBase
     private const string DefaultPlayerDataKey = "SO_Player_Data";
     private Elite_Manager _eliteManager;
     private SectorBattleManager _sectorBattleManager;
+    private Character_Vitals _playerVitals;
+    private bool _gameEnded; // 승패 확정 1회 가드(사망·전멸·승리 중 먼저 온 것).
+
+    // 결과 배너 표시 후 자동 재시작까지의 시간(초). 우선 하드코딩.
+    private const float ResultRestartDelay = 3f;
 
     public override async UniTask EnterScene(CancellationToken token)
     {
@@ -20,7 +25,7 @@ public class GameScene : SceneBase
         var catalog = await App.LoadAssetAsync<SO_Sector_Catalog>("SO_Sector_Catalog", token: token);
         
         var generator = new SectorGenerator(
-            sectorCount: 48,
+            sectorCount: 20,
             gridSize: new Vector2Int(8, 6),
             cellSize: 200f,
             extraConnectionCount: 2,
@@ -50,6 +55,11 @@ public class GameScene : SceneBase
             startSettings != null ? startSettings.allyComposition : null,
             startSettings != null ? startSettings.enemyComposition : null);
 
+        // 플레이어가 자기 섹터를 100% 점령한 순간 배너로 알린다(승패 루프 UI 슬라이스).
+        _sectorBattleManager.PlayerSectorCaptured += OnPlayerSectorCaptured;
+        // 패배 조건 ②: 아군 점령 섹터 전멸.
+        _sectorBattleManager.AllyEliminated += OnAllyEliminated;
+
         // 진입 시 점령 상태(진영 비율)대로 표시상한만큼 잡몹을 스폰한다.
         sectorManager.SetMobSpawnResolver(ResolveMobSpawnsFromBackground);
 
@@ -69,6 +79,9 @@ public class GameScene : SceneBase
 
         // 본진 결전: 플레이어가 적 본진(침식 앵커)에 진입하면 살아있는 적 엘리트가 전원 소집된다.
         _eliteManager.SetCapital(erosion.EnemyHome);
+
+        // 승리: 본진 결전에서 소집된 적 엘리트 전멸.
+        _eliteManager.SiegeWon += OnSiegeWon;
 
         sectorManager.Enter(playerStart);
 
@@ -91,26 +104,78 @@ public class GameScene : SceneBase
             return;
         }
 
+        // 패배 조건 ①: 플레이어 사망.
+        _playerVitals = playerGo.GetComponent<Character_Vitals>();
+        if (_playerVitals != null)
+            _playerVitals.OnDied += OnPlayerDied;
+
         Hud_GameScene hud = await App.ShowHud<Hud_GameScene>(token: token);
         if (hud != null)
         {
             hud.Bind(player.GetComponent<Character_ActionHandler>());
             hud.BindMinimap(generator.Map, player.transform, playerData);
             hud.BindEliteManager(_eliteManager);
+            hud.BindCapital(erosion.EnemyHome); // 결전 목표(본진) 미니맵 마커.
         }
     }
 
     public override void ExitScene()
     {
+        if (_playerVitals != null)
+            _playerVitals.OnDied -= OnPlayerDied;
+        _playerVitals = null;
+
+        if (_sectorBattleManager != null)
+        {
+            _sectorBattleManager.PlayerSectorCaptured -= OnPlayerSectorCaptured;
+            _sectorBattleManager.AllyEliminated -= OnAllyEliminated;
+        }
         _sectorBattleManager?.Dispose();
         _sectorBattleManager = null;
 
+        if (_eliteManager != null)
+            _eliteManager.SiegeWon -= OnSiegeWon;
         _eliteManager?.Dispose();
         _eliteManager = null;
     }
 
     private NavAgentSpawnEntry[] ResolveMobSpawnsFromBackground(Sector sector)
         => _sectorBattleManager != null ? _sectorBattleManager.BuildEntrySpawns(sector) : null;
+
+    // 플레이어가 현재 섹터를 100% 점령한 순간의 연출.
+    // 폰트(Roboto)에 한글 글리프가 없어 배너는 당장 영어로 표기한다(한글 폰트/폴백 도입 전).
+    private void OnPlayerSectorCaptured(Sector sector)
+    {
+        // 점령 순간 짧은 히트스톱으로 타격감을 준다 — 기존 전투 히트스톱 시스템 재사용(BannerMessage와 무관).
+        // 배너는 unscaledTime으로 애니메이션하므로 월드가 멎는 동안에도 정상 재생된다.
+        // 연출 값은 우선 하드코딩 — 추후 점령 연출 튜닝 SO로 옮길 수 있다.
+        CombatOnHit.TriggerHitstop(
+            new AttackHitstopData { duration = 0.5f, timeScale = 0.02f },
+            CancellationToken.None).Forget();
+
+        Popup_BannerMessage.ShowAsync("SECTOR CAPTURED!").Forget();
+    }
+
+    // ── 승패 처리 ──────────────────────────────────────────────────────────────────
+    private void OnSiegeWon() => EndGame(true).Forget();
+    private void OnAllyEliminated() => EndGame(false).Forget();
+    private void OnPlayerDied() => EndGame(false).Forget();
+
+    // 승패 확정 → 결과 배너를 띄우고 잠시 뒤 GameScene을 재로드해 한 판을 재시작한다.
+    // 폰트(Roboto)에 한글 글리프가 없어 결과 문구도 당장 영어로 표기한다.
+    private async UniTaskVoid EndGame(bool win)
+    {
+        if (_gameEnded) return;
+        _gameEnded = true;
+
+        Popup_BannerMessage.ShowAsync(win ? "VICTORY!" : "DEFEATED", ResultRestartDelay).Forget();
+
+        // 결과 표시 동안 대기. 사망/히트스톱으로 timeScale이 낮아져 있어도 진행되도록 Realtime.
+        await UniTask.Delay(TimeSpan.FromSeconds(ResultRestartDelay), DelayType.Realtime);
+
+        // 재로드 중 Main.Clear가 timeScale·루프 이벤트를 리셋하므로 슬로모/히트스톱 잔여도 깨끗이 복원된다.
+        Main.Scene.ReloadCurrentSceneAsync().Forget();
+    }
 
     // 침식 보드에서 해당 진영이 점령한 섹터 목록(시작 엘리트를 영역 전체에 분산 배치하는 대상).
     private static List<Sector> CollectErosionSectors(ErosionBootstrap erosion, NavFaction faction)

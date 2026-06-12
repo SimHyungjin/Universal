@@ -118,11 +118,11 @@ MonoBehaviour:
   meleeAlongsideDelivery: 0
   feedback:
     castVfxAddress: 
-    castVfxTiming: 0
+    castVfxTiming: 0.6
     castVfxOffset: {x: 0, y: 0, z: 0}
     castVfxEuler: {x: 0, y: 0, z: 0}
-    castVfxSpace: 0
-    castVfxScale: {x: 0, y: 0, z: 0}
+    castVfxSpace: 1
+    castVfxScale: {x: 3, y: 3, z: 3}
     swingTrailIds:
     - 0
     - 1

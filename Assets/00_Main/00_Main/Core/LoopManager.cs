@@ -185,9 +185,9 @@ public class LoopManager : PrimaryManager
     public override void Clear()
     {
         CancelSlowMotion();
-        OnUpdate = null;
-        OnGameUpdate = null;
-        OnLateUpdate = null;
+        // Loop 이벤트 구독은 비우지 않는다. 영속 매니저(Camera·Input 등)는 OnInitializeAsync에서 한 번만
+        // 구독하므로, 씬 재로드 때 여기서 null로 밀면 재초기화가 안 돌아 그 매니저들의 틱이 영영 죽는다.
+        // 씬 객체(LoopMonoBehaviour) 구독은 각자의 OnDisable이 스스로 해제한다(언로드 시).
         foreach (var seq in _listSequence)
             seq.Stop();
         _listSequence.Clear();

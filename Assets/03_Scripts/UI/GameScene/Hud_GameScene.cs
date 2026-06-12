@@ -40,6 +40,13 @@ public sealed class Hud_GameScene : UI_Hud
         eliteManager?.BindMinimap(minimap);
     }
 
+    // 본진(적 코어)을 미니맵에 마커로 표시 — 결전 목표 위치를 항상 보이게.
+    public void BindCapital(Sector capital)
+    {
+        Initialize();
+        if (minimap != null) minimap.SetCapital(capital);
+    }
+
     public void Unbind()
     {
         Initialize();

@@ -253,6 +253,7 @@ MonoBehaviour:
   _defaultDuration: 2
   _animationSpeed: 1
   _useUnscaledTime: 1
+  _disableRaycastTargets: 1
 --- !u!1001 &1798563061886489096
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -267,15 +268,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3600316704515890997, guid: 5dcba64b235a5df4e95050313425d9d8, type: 3}
       propertyPath: m_Color.b
-      value: 0.9294118
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3600316704515890997, guid: 5dcba64b235a5df4e95050313425d9d8, type: 3}
       propertyPath: m_Color.g
-      value: 0.7254902
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3600316704515890997, guid: 5dcba64b235a5df4e95050313425d9d8, type: 3}
       propertyPath: m_Color.r
-      value: 0.07450981
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3600316704515890998, guid: 5dcba64b235a5df4e95050313425d9d8, type: 3}
       propertyPath: thickness
@@ -283,15 +284,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3600316704515890998, guid: 5dcba64b235a5df4e95050313425d9d8, type: 3}
       propertyPath: imageColor.b
-      value: 0.9294118
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3600316704515890998, guid: 5dcba64b235a5df4e95050313425d9d8, type: 3}
       propertyPath: imageColor.g
-      value: 0.7254902
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3600316704515890998, guid: 5dcba64b235a5df4e95050313425d9d8, type: 3}
       propertyPath: imageColor.r
-      value: 0.07450981
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3600316704913000170, guid: 5dcba64b235a5df4e95050313425d9d8, type: 3}
       propertyPath: m_Pivot.x

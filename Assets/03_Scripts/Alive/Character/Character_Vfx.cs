@@ -351,6 +351,9 @@ public sealed class Character_Vfx : MonoBehaviour
 
     private void EmitMotionAfterimage()
     {
+        // 풀이 씬 전환 등으로 Clear된 뒤에도 재등록을 보장한다(없으면 Addressable 폴백 → MotionAfterimage 키 없음 에러).
+        // RegisterPrefab은 이미 등록돼 있으면 무시되므로(idempotent) 매 스폰 호출이 안전하다.
+        EnsureMotionAfterimagePoolRegistered(motionAfterimagePoolSize);
         SpawnMotionAfterimageAsync(destroyCancellationToken).Forget();
     }
 

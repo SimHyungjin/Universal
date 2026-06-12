@@ -119,7 +119,14 @@ public sealed class Elite_WorldSimulator
             }
 
             if (state.IsApproachingGate || state.IsFieldTraveling)
+            {
+                // 게이트 통과(FieldTravel) 후 목적지가 플레이어 섹터면, 도착점까지 가길 기다리지 않고 지금 실체화 트리거.
+                // RefreshEmbodiments의 TryBeginObservedGateArrival이 남은 백그라운드 이동을 실체화 대쉬로 승격한다.
+                // → 미니맵 도착 후에야 실체화되던 순서 어긋남 해소(게이트 통과 시점 = 실체화 시점).
+                if (state.IsFieldTraveling && state.FieldDestinationSector == playerSector)
+                    needsEmbodimentRefresh = true;
                 continue;
+            }
 
             if (state.CurrentSector == playerSector)
                 continue;

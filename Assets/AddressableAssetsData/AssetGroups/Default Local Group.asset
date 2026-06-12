@@ -30,18 +30,8 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 10fc98fa6a854ef4b8e7e1ee670ff7e8
-    m_Address: Sector
-    m_ReadOnly: 0
-    m_SerializedLabels: []
-    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 110d0f382b989064282d78b391ed0f26
     m_Address: Hud_GameScene
-    m_ReadOnly: 0
-    m_SerializedLabels: []
-    FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 13fef7660d3141740ba3f9420be4ef17
-    m_Address: Sector 1
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -75,11 +65,6 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 7306b82aa7978b945bbcbe12dde5d75e
-    m_Address: Popup_BannerMessage
-    m_ReadOnly: 0
-    m_SerializedLabels: []
-    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 6cb8d6db13e4b6e46b2996bd3a55fb29
     m_Address: SO_Player_Data
     m_ReadOnly: 0
@@ -92,6 +77,16 @@ MonoBehaviour:
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 70572c59c24cbcf46a56fa1b230befa9
     m_Address: UnitRespawn
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 7306b82aa7978b945bbcbe12dde5d75e
+    m_Address: Popup_BannerMessage
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 77475ca9c6aa24047bba9c05c68956af
+    m_Address: FX_Fireball 2
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

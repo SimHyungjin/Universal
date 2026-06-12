@@ -46,6 +46,8 @@ public sealed class SectorBattleManager : IDisposable
     private readonly SO_Sector_AliveComposition _enemyComposition;
     private CancellationTokenSource _cts = new();
     private float _logTimer;
+    private bool _allyEliminated; // 아군 전멸 1회 발화 가드.
+    private bool _allySeen;       // 아군 섹터를 한 번이라도 확인한 뒤부터 전멸 판정(시작 0프레임 오발 방지).
     private Sector _polledSector; // 플레이어 섹터 폴링 기준. 섹터가 바뀌면 첫 틱은 동기화만 한다.
     private Sector _prevPlayerSector; // 직전 틱의 플레이어 섹터. 이탈 핸드오프 때 떠난 섹터에 안정화 유예를 준다.
 
@@ -63,6 +65,12 @@ public sealed class SectorBattleManager : IDisposable
 
     public static SectorBattleManager Instance { get; private set; }
     public IReadOnlyDictionary<Sector, SectorBattleState> States => _states;
+
+    // 플레이어가 자기 현재 섹터를 막 100%(아군 완전 점령)로 채운 순간 1회 발화한다. 인자=그 섹터.
+    public event Action<Sector> PlayerSectorCaptured;
+
+    // 아군이 점령한 섹터가 하나도 안 남은(전멸) 순간 1회 발화 = 게임 패배 조건의 하나.
+    public event Action AllyEliminated;
 
     public SectorBattleManager(
         MinimapModel map,
@@ -137,6 +145,11 @@ public sealed class SectorBattleManager : IDisposable
             if (sector != excludedSector)
                 SeedInitialTotal(state, sector);
             InitOwnership(state);
+            // 시드 시점에 이미 한쪽으로 완전 점령된 섹터는 "막 점령됨" 전이로 오인하지 않도록 미리 표시한다
+            // (시작 섹터가 아군 100%라 첫 틱에 가짜 PlayerSectorCaptured가 발화하는 것을 막는다).
+            state.WasFullyControlled = state.TotalSum > 0f && (state.AllyTotal <= 0f || state.EnemyTotal <= 0f);
+            // 아군 점령 엣지 추적도 시드 상태로 초기화(시작 섹터=아군 full→true, 적 섹터→false).
+            state.WasAllyFull = state.AllyTotal > 0f && state.EnemyTotal <= 0f;
             _states.Add(sector, state);
         }
     }
@@ -206,6 +219,31 @@ public sealed class SectorBattleManager : IDisposable
             else
                 TickSector(state, dt);
         }
+
+        CheckAllyEliminated();
+    }
+
+    // 아군이 점령한(비어있지 않고 아군 소유) 섹터가 하나도 안 남으면 전멸로 1회 알린다.
+    // 빈 섹터(TotalSum==0)는 기본 소유가 Ally로 잡히므로 제외한다 — 실제 병력이 있는 섹터만 센다.
+    private void CheckAllyEliminated()
+    {
+        if (_allyEliminated) return;
+
+        foreach (KeyValuePair<Sector, SectorBattleState> kv in _states)
+        {
+            SectorBattleState s = kv.Value;
+            if (s.TotalSum > 0f && s.OwnerFaction == NavFaction.Ally)
+            {
+                _allySeen = true; // 아군 섹터 확인 — 이후 이게 0이 되면 전멸로 본다.
+                return;
+            }
+        }
+
+        // 시작 시드/첫 실체화 전이라 아직 아군을 한 번도 못 봤으면 전멸로 오판하지 않는다.
+        if (!_allySeen) return;
+
+        _allyEliminated = true;
+        AllyEliminated?.Invoke();
     }
 
     // 매 틱 섹터별 엘리트 전력을 다시 합산한다(엘리트는 이동/생사하므로 매번 갱신). 엘리트=전력 가산 가속기.
@@ -312,6 +350,14 @@ public sealed class SectorBattleManager : IDisposable
             bool full = s.Control != SectorControl.Contested && (s.AllyTotal <= 0f || s.EnemyTotal <= 0f);
             if (full && !s.WasFullyControlled) s.MutationImmunityTimer = MutationImmunityDuration;
             s.WasFullyControlled = full;
+
+            // 플레이어가 서 있는 섹터를 아군 100%로 막 만든 순간만 알린다(배경 섹터의 자동 점령은 제외).
+            // WasFullyControlled(진영 무관)에 얹으면 적-full→아군-full로 한 번에 쓸 때 full이 계속 true라
+            // 엣지가 안 생겨 누락된다 → "아군 완전 점령" 전이를 따로 추적한다.
+            bool allyFull = s.Control == SectorControl.Ally && s.EnemyTotal <= 0f;
+            if (allyFull && !s.WasAllyFull && _sectorManager != null && s.Sector == _sectorManager.CurrentSector)
+                PlayerSectorCaptured?.Invoke(s.Sector);
+            s.WasAllyFull = allyFull;
         }
 
         _linkVisited.Clear();

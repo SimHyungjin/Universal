@@ -20,18 +20,19 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     private static readonly Color FallbackStartColor = new(0.30f, 0.78f, 0.42f, 1f);
     private static readonly Color TransitionColor = new(0.26f, 0.86f, 0.78f, 1f);
 
-    [Header("Visuals")]
+    [Header("Layout")]
     [SerializeField] private RectTransform minimapRoot;
-    [SerializeField] private int     corridorThickness = 2;
     [SerializeField] private float   sectorVisualScale = 2f;
     [SerializeField] private float   boundsPaddingCells = 0.25f;
-
-    [Header("Colors")]
-    [SerializeField] private Color backgroundColor = new(0.05f, 0.06f, 0.09f, 0.85f);
-    [SerializeField] private Color corridorColor   = new(0.34f, 0.40f, 0.54f, 1f);
+    [SerializeField] private Color   backgroundColor = new(0.05f, 0.06f, 0.09f, 0.85f);
 
     [Header("Outer frame")]
     [SerializeField] private bool showOuterFrame = true;
+    [Tooltip("바깥 테두리에 쓸 9-slice 프레임 스프라이트. 지정하면 코너 선분 대신 이 이미지를 미니맵 영역에 맞춰 " +
+             "늘려 그린다(코너 보존). Sprite Editor에서 border(상/하/좌/우)를 지정해야 9-slice가 적용된다. 비우면 코너 선분 폴백.")]
+    [SerializeField] private Sprite outerFrameSprite;
+    [Tooltip("프레임 스프라이트 9-slice의 가운데(센터)를 채울지. 보통 false라야 맵이 비친다.")]
+    [SerializeField] private bool outerFrameFillCenter;
     [SerializeField] private Color outerFrameColor = new(0.08f, 0.78f, 1f, 0.85f);
     [SerializeField] private float outerFramePaddingPx = 10f;
     [SerializeField] private float outerFrameThicknessPx = 2f;
@@ -39,28 +40,28 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
 
     [Header("Markers")]
     [SerializeField] private float markerSmoothing = 12f; // 목표로 수렴하는 속도(작을수록 러프, 0이면 즉시)
+    [SerializeField] private MinimapMarkerSettings playerMarker = MinimapMarkerSettings.DefaultPlayer;
+    [SerializeField] private MinimapMarkerSettings allyEliteMarker = new(null, new Color(0f, 0.31f, 1f, 1f), 15f, 8f, 30f, false);
+    [SerializeField] private MinimapMarkerSettings enemyEliteMarker = new(null, new Color(1f, 0.06f, 0f, 1f), 15f, 8f, 30f, false);
+    // 본진(적 코어) 마커 — 결전 목표를 항상 표시. 어느 섹터에 있든 그 노드에 고정·렌더 최상단. sprite 비우면 금색 마커.
+    [SerializeField] private MinimapMarkerSettings capitalMarker = new(null, new Color(1f, 0.84f, 0.1f, 1f), 50f, 18f, 64f, false);
+    // 링크 허브(영향력 큰 점령지) 마커 — 허브 섹터 중심에 고정. capital과 동일 방식(sprite 비우면 색 마커).
+    [SerializeField] private MinimapMarkerSettings hubMarker = new(null, new Color(1f, 1f, 1f, 0.9f), 40f, 12f, 50f, false);
+
+    [Header("Player direction arrow")]
     [SerializeField] private Sprite playerDirectionSprite;
     [SerializeField] private Vector2 playerDirectionSizeRatio = new(0.78f, 0.62f);
     [SerializeField] private float playerDirectionOffsetRatio = 0.42f;
     [SerializeField] private Color playerDirectionColor = Color.black;
-    [SerializeField] private MinimapMarkerSettings playerMarker = MinimapMarkerSettings.DefaultPlayer;
-    [SerializeField] private MinimapMarkerSettings allyEliteMarker = new(null, new Color(0f, 0.31f, 1f, 1f), 15f, 8f, 30f, false);
-    [SerializeField] private MinimapMarkerSettings enemyEliteMarker = new(null, new Color(1f, 0.06f, 0f, 1f), 15f, 8f, 30f, false);
 
-    [Header("Route movement")]
-    [SerializeField] private float routeLaneOffsetPx = 16f;
-    [SerializeField] private float routeBadgeOffsetPx = 16f;
-    [SerializeField] private float routeBadgeSpacingPx = 18f;
-    [SerializeField] private Vector2 routeArrowSize = new(18f, 30f);
-    [SerializeField] private int   routeBadgeFontSize = 14;
-    [SerializeField] private Color routeArrowColor = new(0.70f, 0.86f, 1f, 1f);
-    [SerializeField] private Sprite routeArrowSprite;
-
-    [Header("Strategic links")]
-    [SerializeField] private Color linkAllyColor = new(0.18f, 0.55f, 0.82f, 0.52f);
-    [SerializeField] private Color linkEnemyColor = new(0.72f, 0.18f, 0.16f, 0.52f);
-    [SerializeField] private float linkLineWidthPx = 2f;
-    [SerializeField] private Sprite hubFrameSprite;
+    [Header("Gate routes")]
+    [Tooltip("중립(양쪽 점령 진영 불일치/미점령) 게이트 라우트 색.")]
+    [SerializeField] private Color gateRouteColor = new(0.85f, 0.9f, 1f, 1f);
+    [Tooltip("양쪽 섹터가 모두 아군 점령일 때 색.")]
+    [SerializeField] private Color gateRouteAllyColor = new(0.30f, 0.60f, 1f, 1f);
+    [Tooltip("양쪽 섹터가 모두 적 점령일 때 색.")]
+    [SerializeField] private Color gateRouteEnemyColor = new(1f, 0.35f, 0.35f, 1f);
+    [SerializeField] private float gateRouteWidthPx = 3f;
 
     [Header("Background sector badge")]
     [SerializeField] private bool showSectorMobCounts = true;
@@ -84,6 +85,12 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     private RectTransform _frameRoot;
     private bool          _usesHudLayout;
 
+    // z순서 고정 레이어 컨테이너(아래→위). 요소를 부모로 분류해 매 프레임 sibling reorder를 없앤다.
+    private RectTransform _roomLayer;      // 방 fill/frame
+    private RectTransform _gateRouteLayer; // 게이트 라우트 라인
+    private RectTransform _overlayLayer;   // 일반 마커·배지·경로 인디케이터·hub 프레임
+    private RectTransform _topLayer;       // 항상 최상단 마커(본진·플레이어)
+
     private Vector2    _mapMinCell;
     private int        _texWidth;
     private int        _texHeight;
@@ -91,12 +98,10 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     private float      _renderScale;    // 텍스처 px → 이미지 로컬 px
     private float      _worldToImagePx; // 월드 단위 → 이미지 로컬 px (마커/방 공용 스케일)
 
-    private long? _transitionEdgeKey;
     private int   _transitionFromIndex = -1; // 이동 중 방향 배지를 그릴 출발 노드
     private int   _transitionToIndex   = -1;
     private int  _currentIndex = -1;
     private bool _wasTransitioning;
-    private bool _dirty;
 
     // 월드 좌표를 따라다니는 마커(플레이어/유닛 공용). 좌표 소스만 갈아끼우면 재사용된다.
     public sealed class Marker
@@ -108,7 +113,6 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         public bool            RotateWithTarget;
         // 플레이어처럼 현재 섹터 게이트 전환 상태를 전역 SectorManager에서 받을지. 장수 등은 false.
         public bool            FollowsCurrentSectorTransition;
-        public bool            RenderOnTop;
         public bool            Placed; // 첫 배치는 즉시(스냅), 이후엔 러프하게 수렴
     }
 
@@ -130,25 +134,26 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         }
     }
 
+    // 한 섹터에 고정된 추적 소스(본진 등). 위치=섹터 중심, 게이트 전환 보간 없음. Elite_State가 아니라
+    // 마커 숨김 로직(ShouldHideEliteMarker)에 안 걸려 어느 섹터에 있든 항상 그 노드에 표시된다.
+    private sealed class SectorTracked : IMinimapTracked
+    {
+        private readonly Sector _sector;
+        private readonly NavFaction _faction;
+        public SectorTracked(Sector sector, NavFaction faction) { _sector = sector; _faction = faction; }
+        public Sector  Sector        => _sector;
+        public Vector3 WorldPosition => _sector != null ? _sector.transform.position : Vector3.zero;
+        public Vector3 Forward       => Vector3.forward;
+        public NavFaction Faction    => _faction;
+        public bool TryGetTransition(out Sector from, out Sector to, out float t)
+        {
+            from = null; to = null; t = 0f;
+            return false;
+        }
+    }
+
     private readonly List<Marker> _markers = new();
-
-    private struct RouteCounts
-    {
-        public int Ally;
-        public int Enemy;
-    }
-
-    private sealed class RouteIndicator
-    {
-        public RectTransform Root;
-        public RectTransform ArrowRect;
-        public Graphic       Arrow;
-        public Text          AllyBadge;
-        public Text          EnemyBadge;
-    }
-
-    private readonly Dictionary<long, RouteCounts> _routeCounts = new();
-    private readonly List<RouteIndicator> _routePool = new();
+    private Marker _capitalMarker; // 본진 마커(재바인딩 시 교체).
 
     private sealed class LinkLine
     {
@@ -156,15 +161,23 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         public Image Image;
     }
 
-    private readonly List<LinkLine> _linkLinePool = new();
-    private readonly List<Image> _hubFramePool = new();
+    private readonly List<LinkLine> _gateRoutePool = new(); // 실제 게이트 위치끼리 잇는 라인 풀.
+    private readonly List<Image> _hubMarkerPool = new();
 
     // 배경 섹터 요약 배지(잡몹 병력 숫자 + 점령 게이지%). 풀에서 Text 라벨을 재사용한다.
     private readonly List<Text> _badgePool = new();
     private static Font _badgeFont;
 
     // 방 오버레이(스프라이트 또는 단색 박스). 상태 변화 시 색만 갱신.
-    private readonly List<(int index, Image image)> _rooms = new();
+    // Fill=방 내부 이미지(원색 유지), Frame=테두리 이미지(상태/게이지 색을 입힘). Frame이 없으면 Fill 전체를 칠한다.
+    private struct RoomVisual
+    {
+        public int   Index;
+        public Image Fill;
+        public Image Frame;
+    }
+
+    private readonly List<RoomVisual> _rooms = new();
     private readonly List<Image> _outerFrameSegments = new();
 
     public void Init(MinimapModel model)
@@ -177,12 +190,12 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
 
         _cellSize = _model.CellSize;
         BuildCanvas();
+        BuildLayers();
         BuildTexture();
         BuildOuterFrame();
         BuildRooms();
         SyncCurrentSector();
-        DrawStaticMap();
-        _dirty = false;
+        DrawStaticMap(); // 배경 단색 1회 래스터화(통로는 UI 게이트 라우트가 그린다).
         RefreshRoomTints();
     }
 
@@ -190,8 +203,6 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     {
 #if UNITY_EDITOR
         playerDirectionSprite ??= UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/01_Assets/UI/Minimap/Arrow2.png");
-        routeArrowSprite ??= UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/01_Assets/UI/Minimap/Arrow 1.png");
-        hubFrameSprite ??= UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/01_Assets/UI/Frame 1.png");
 #endif
     }
 
@@ -207,12 +218,8 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         if (_model == null) return;
         SyncCurrentSector();
         SyncTransitionState();
-        if (_dirty)
-        {
-            _dirty = false;
-            DrawStaticMap();
-        }
         RefreshRoomTints();  // 점령 게이지 색은 매 프레임 변하므로 항상 갱신.
+        RenderGateRoutes();  // 마커보다 먼저: 게이트 라인을 깔고 그 위에 마커/배지가 오도록.
         UpdateMarkers();
     }
 
@@ -224,25 +231,37 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     {
         foreach (MinimapModel.Node node in _model.Nodes)
         {
-            var go = new GameObject("Room", typeof(RectTransform));
-            var rt = go.GetComponent<RectTransform>();
-            rt.SetParent(_image.rectTransform, false);
-            rt.anchorMin = rt.anchorMax = new Vector2(0f, 0f); // 이미지 좌하단 기준
-            rt.pivot     = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta        = RoomSizePx(node);            // 회전 전 크기. 회전은 아래에서 적용
-            rt.anchoredPosition = RoomCenterImageLocal(node);
-            // 셀 회전((x,y)->(y,-x), 시계)과 같은 방향. 비대칭 스프라이트로 부호 한 번 확인 필요.
-            rt.localEulerAngles = new Vector3(0f, 0f, -90f * node.RotationSteps);
-
-            var img = go.AddComponent<Image>();
-            img.raycastTarget = false;
-            if (node.Sprite != null)
-            {
-                img.sprite         = node.Sprite;
-                img.preserveAspect = node.WorldSize.x <= 0f; // 월드 크기 알면 박스에 꽉 채움
-            }
-            _rooms.Add((node.Index, img));
+            // 내부(fill) 이미지: 방 원본 스프라이트. 색은 항상 원색(흰색) 유지.
+            Image fill = CreateRoomImage(node, node.Sprite, "Room");
+            // 프레임(테두리) 이미지: fill 위에 얹어 상태/게이지 색을 입힌다. 없으면 fill 전체를 칠한다.
+            Image frame = node.FrameSprite != null
+                ? CreateRoomImage(node, node.FrameSprite, "RoomFrame")
+                : null;
+            _rooms.Add(new RoomVisual { Index = node.Index, Fill = fill, Frame = frame });
         }
+    }
+
+    // 방 한 장(fill 또는 frame)을 nav 월드 크기·위치·회전에 맞춰 만든다. 두 레이어가 같은 변환을 공유.
+    private Image CreateRoomImage(MinimapModel.Node node, Sprite sprite, string name)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        var rt = go.GetComponent<RectTransform>();
+        rt.SetParent(_roomLayer, false);
+        rt.anchorMin = rt.anchorMax = new Vector2(0f, 0f); // 이미지 좌하단 기준
+        rt.pivot     = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta        = RoomSizePx(node);            // 회전 전 크기. 회전은 아래에서 적용
+        rt.anchoredPosition = RoomCenterImageLocal(node);
+        // 셀 회전((x,y)->(y,-x), 시계)과 같은 방향. 비대칭 스프라이트로 부호 한 번 확인 필요.
+        rt.localEulerAngles = new Vector3(0f, 0f, -90f * node.RotationSteps);
+
+        var img = go.AddComponent<Image>();
+        img.raycastTarget = false;
+        if (sprite != null)
+        {
+            img.sprite         = sprite;
+            img.preserveAspect = node.WorldSize.x <= 0f; // 월드 크기 알면 박스에 꽉 채움
+        }
+        return img;
     }
 
     private void RefreshRoomTints()
@@ -250,21 +269,27 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         SectorBattleManager battle = SectorBattleManager.Instance;
         for (int i = 0; i < _rooms.Count; i++)
         {
-            var (index, img) = _rooms[i];
-            img.color = ResolveRoomColor(_model.Nodes[index], battle);
+            RoomVisual room = _rooms[i];
+            Color tint = ResolveRoomColor(_model.Nodes[room.Index], battle);
+            if (room.Frame != null)
+            {
+                room.Frame.color = tint;        // 상태 색은 프레임에만.
+                room.Fill.color  = Color.white; // 내부는 원색 유지.
+            }
+            else
+            {
+                room.Fill.color = tint;         // 프레임 없으면 방 전체에 색(기존 동작).
+            }
         }
     }
 
-    // 병력이 있는 섹터는 점령 게이지 색(적 빨강 ~ 아군 파랑)으로 칠한다. 현재 섹터는 살짝 밝게 강조.
+    // 병력이 있는 섹터는 점령 게이지 색(적 빨강 ~ 아군 파랑)으로 칠한다.
     private Color ResolveRoomColor(MinimapModel.Node node, SectorBattleManager battle)
     {
         if (battle != null && battle.TryGetState(node.Sector, out SectorBattleState state)
             && (state.AllyTotal > 0f || state.EnemyTotal > 0f))
         {
-            Color gauge = Color.Lerp(gaugeEnemyColor, gaugeAllyColor, state.GaugeNormalized);
-            if (node.Index == _currentIndex)
-                gauge = Color.Lerp(gauge, Color.white, 0.35f);
-            return gauge;
+            return Color.Lerp(gaugeEnemyColor, gaugeAllyColor, state.GaugeNormalized);
         }
 
         // 병력 없는(정리된/무주공산) 섹터: 스프라이트는 원색, 아니면 기존 상태색.
@@ -341,6 +366,21 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         => source == null ? null
             : CreateMarker(source, marker, followsTransition: false, renderOnTop: false);
 
+    // 본진(적 코어) 마커를 설정한다. 결전 목표를 항상 표시(어느 섹터에 있든 그 노드에 고정).
+    public void SetCapital(Sector capital)
+    {
+        if (_capitalMarker != null)
+        {
+            RemoveMarker(_capitalMarker);
+            _capitalMarker = null;
+        }
+        if (capital == null) return;
+
+        _capitalMarker = CreateMarker(
+            new SectorTracked(capital, NavFaction.Enemy),
+            capitalMarker, followsTransition: false, renderOnTop: true);
+    }
+
     public Marker AddEliteMarker(IMinimapTracked source, Sprite sprite)
     {
         if (source == null) return null;
@@ -360,7 +400,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
 
         var go = new GameObject("Marker", typeof(RectTransform));
         var rt = go.GetComponent<RectTransform>();
-        rt.SetParent(_image.rectTransform, false);
+        rt.SetParent(renderOnTop ? _topLayer : _overlayLayer, false); // 최상단 마커는 TopLayer, 그 외 OverlayLayer.
         rt.anchorMin = rt.anchorMax = new Vector2(0f, 0f); // 이미지 좌하단 기준 픽셀 좌표
         rt.pivot     = new Vector2(0.5f, 0.5f);
         rt.sizeDelta = new Vector2(px, px);
@@ -399,7 +439,6 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
             DirectionRect = directionRect,
             RotateWithTarget = markerSettings.RotateWithTarget,
             FollowsCurrentSectorTransition = followsTransition,
-            RenderOnTop = renderOnTop,
         };
         _markers.Add(marker);
         return marker;
@@ -424,7 +463,6 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         if (_image == null) return;
 
         Sector active = SectorManager.Instance != null ? SectorManager.Instance.CurrentSector : null;
-        _routeCounts.Clear();
 
         for (int i = 0; i < _markers.Count; i++)
         {
@@ -432,6 +470,20 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
             if (marker.Source == null)
             {
                 if (marker.Rect != null) marker.Rect.gameObject.SetActive(false);
+                continue;
+            }
+
+            // GateArriving(실체화 대쉬 진입): 실체 위치(섹터 밖) 대신 대쉬 진행도로 도착게이트→도착점을 보간한다.
+            // 백그라운드 글라이드 끝(도착게이트)과 연속되고 실체 대쉬와 진행도가 동기화된다(확대 무관).
+            if (marker.Source is Elite_State arriving && arriving.Presence == ElitePresenceState.GateArriving)
+            {
+                if (TryGateArrivalGlidePx(arriving, out Vector2 ap, out float arot))
+                    ShowMarker(marker, ap, arot, instant: true);
+                else
+                {
+                    marker.Rect.gameObject.SetActive(false);
+                    marker.Placed = false;
+                }
                 continue;
             }
 
@@ -443,10 +495,17 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
                 continue;
             }
 
-            // 이동 중 → 경로 레인 방향 배지.
+            // 게이트/필드 이동 중(플레이어·엘리트 공용): 섹터 간 게이트 라우트 위를 진행도(t)로 글라이드.
+            // 실제 transform 위치는 안 쓰고 게이트 px만 Lerp하므로 2배 확대와 무관하다. 게이트가 없으면 숨긴다
+            // (엘리트·플레이어는 게이트로만 섹터를 이동하므로 정상 흐름에선 거의 발생하지 않는다).
             if (TryResolveTransition(marker, out Sector from, out Sector to, out float t))
             {
-                AccumulateRoute(from, to, marker.Source.Faction);
+                if (from != to && TryGateGlidePx(from, to, t, out Vector2 glidePx, out float glideRot))
+                {
+                    ShowMarker(marker, glidePx, glideRot, instant: true);
+                    continue;
+                }
+
                 marker.Rect.gameObject.SetActive(false);
                 marker.Placed = false;
                 continue;
@@ -459,165 +518,160 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
 
         RenderStrategicLinks();
         RenderBadges();
-        RenderRouteIndicators();
-        BringTopMarkersToFront();
     }
 
-    // 같은 링크에 속한 점령지 사이의 게이트만 진영색으로 강조하고, 링크 허브에 전체 힘을 표시한다.
+    // 링크 허브(영향력 큰 점령지)에 capital과 동일한 고정 아이콘 마커를 얹는다. 점령 강조선은 게이트 라우트 색이 대체한다.
     private void RenderStrategicLinks()
     {
         SectorBattleManager battle = SectorBattleManager.Instance;
-        int usedLines = 0;
-        int usedFrames = 0;
+        int used = 0;
 
         if (battle != null)
         {
+            foreach (KeyValuePair<Sector, SectorBattleState> kv in battle.States)
+            {
+                SectorBattleState state = kv.Value;
+                if (!state.IsLinkHub || state.LinkInfluence < 2) continue;
+
+                int idx = IndexOfSector(state.Sector);
+                if (idx < 0) continue;
+                SetHubMarker(GetHubMarker(used++), idx);
+            }
+        }
+
+        for (int i = used; i < _hubMarkerPool.Count; i++)
+            _hubMarkerPool[i].gameObject.SetActive(false);
+    }
+
+    // ── 게이트 라우트 ───────────────────────────────────────────────────────────
+    // 각 엣지마다 양쪽 섹터에서 서로를 향하는 게이트의 실제 월드 위치를 찾아, 방 위 UI 라인으로 잇는다(대각선 포함).
+    // 앵커 중심 직선과 달리 "중간을 채우지" 않고 진짜 게이트~게이트 구간만 그리며, 색은 점령 진영으로 칠한다.
+    private void RenderGateRoutes()
+    {
+        int used = 0;
+        if (_model != null && _image != null)
+        {
+            SectorBattleManager battle = SectorBattleManager.Instance;
             for (int i = 0; i < _model.Edges.Count; i++)
             {
                 MinimapModel.Edge edge = _model.Edges[i];
                 if (edge.A < 0 || edge.B < 0 || edge.A >= _model.Nodes.Count || edge.B >= _model.Nodes.Count)
                     continue;
-                if (!battle.TryGetState(_model.Nodes[edge.A].Sector, out SectorBattleState a)
-                    || !battle.TryGetState(_model.Nodes[edge.B].Sector, out SectorBattleState b))
+
+                MinimapModel.Node na = _model.Nodes[edge.A];
+                MinimapModel.Node nb = _model.Nodes[edge.B];
+                if (!TryGetGateWorld(na.Sector, nb.Sector, out Vector3 wa)
+                    || !TryGetGateWorld(nb.Sector, na.Sector, out Vector3 wb))
                     continue;
-                if (a.LinkId <= 0 || a.LinkId != b.LinkId || a.Control != b.Control)
-                    continue;
 
-                Vector2 from = CellToImageLocal(AnchorCenterCell(_model.Nodes[edge.A]));
-                Vector2 to = CellToImageLocal(AnchorCenterCell(_model.Nodes[edge.B]));
-                Color color = a.Control == SectorControl.Ally ? linkAllyColor : linkEnemyColor;
-                SetLinkLine(GetLinkLine(usedLines++), from, to, color);
+                Vector2 pa = WorldToSectorMarkerPx(wa, na);
+                Vector2 pb = WorldToSectorMarkerPx(wb, nb);
+                Color color = ResolveGateRouteColor(na.Sector, nb.Sector, battle);
+                SetGateRouteLine(GetGateRouteLine(used++), pa, pb, color);
             }
-
-            if (hubFrameSprite != null)
-            {
-                foreach (KeyValuePair<Sector, SectorBattleState> kv in battle.States)
-                {
-                    SectorBattleState state = kv.Value;
-                    if (!state.IsLinkHub || state.LinkInfluence < 2) continue;
-
-                    int idx = IndexOfSector(state.Sector);
-                    if (idx < 0) continue;
-                    SetHubFrame(GetHubFrame(usedFrames++), idx);
-                }
-            }
-
         }
 
-        for (int i = usedLines; i < _linkLinePool.Count; i++)
-            _linkLinePool[i].Rect.gameObject.SetActive(false);
-        for (int i = usedFrames; i < _hubFramePool.Count; i++)
-            _hubFramePool[i].gameObject.SetActive(false);
+        for (int i = used; i < _gateRoutePool.Count; i++)
+            _gateRoutePool[i].Rect.gameObject.SetActive(false);
     }
 
-    private LinkLine GetLinkLine(int index)
+    // 게이트 라우트 색: 양쪽 섹터가 같은 진영 점령이면 그 진영색, 그 외(혼합·미점령)는 중립색.
+    private Color ResolveGateRouteColor(Sector a, Sector b, SectorBattleManager battle)
     {
-        while (_linkLinePool.Count <= index)
+        if (battle != null
+            && battle.TryGetState(a, out SectorBattleState sa)
+            && battle.TryGetState(b, out SectorBattleState sb)
+            && sa.Control == sb.Control)
         {
-            var go = new GameObject("StrategicLink", typeof(RectTransform));
+            if (sa.Control == SectorControl.Ally)  return gateRouteAllyColor;
+            if (sa.Control == SectorControl.Enemy) return gateRouteEnemyColor;
+        }
+        return gateRouteColor;
+    }
+
+    // from 섹터의 게이트 중 to 섹터로 연결된 게이트의 월드 위치.
+    private static bool TryGetGateWorld(Sector from, Sector to, out Vector3 world)
+    {
+        world = default;
+        if (from == null || to == null) return false;
+
+        SectorGate[] gates = from.Gates;
+        if (gates == null) return false;
+
+        for (int i = 0; i < gates.Length; i++)
+        {
+            SectorGate gate = gates[i];
+            if (gate != null && gate.ConnectedGate != null && gate.ConnectedGate.Sector == to)
+            {
+                world = gate.transform.position;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private LinkLine GetGateRouteLine(int index)
+    {
+        while (_gateRoutePool.Count <= index)
+        {
+            var go = new GameObject("GateRoute", typeof(RectTransform));
             var rt = go.GetComponent<RectTransform>();
-            rt.SetParent(_image.rectTransform, false);
+            rt.SetParent(_gateRouteLayer, false);
             rt.anchorMin = rt.anchorMax = new Vector2(0f, 0f);
             rt.pivot = new Vector2(0.5f, 0.5f);
 
             var img = go.AddComponent<Image>();
             img.raycastTarget = false;
-            _linkLinePool.Add(new LinkLine { Rect = rt, Image = img });
+            _gateRoutePool.Add(new LinkLine { Rect = rt, Image = img });
         }
-        return _linkLinePool[index];
+        return _gateRoutePool[index];
     }
 
-    private void SetLinkLine(LinkLine line, Vector2 from, Vector2 to, Color color)
+    // 게이트 라우트 라인 갱신. GateRouteLayer 소속이라 방 위에 그려진다(레이어 z순서로 보장, reorder 불필요).
+    private void SetGateRouteLine(LinkLine line, Vector2 from, Vector2 to, Color color)
     {
         Vector2 delta = to - from;
         line.Rect.gameObject.SetActive(true);
         line.Rect.anchoredPosition = (from + to) * 0.5f;
-        line.Rect.sizeDelta = new Vector2(delta.magnitude, Mathf.Max(1f, linkLineWidthPx));
+        line.Rect.sizeDelta = new Vector2(delta.magnitude, Mathf.Max(1f, gateRouteWidthPx));
         line.Rect.localEulerAngles = new Vector3(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
-        line.Rect.SetAsFirstSibling();
         line.Image.color = color;
     }
 
-    private Image GetHubFrame(int index)
+    private Image GetHubMarker(int index)
     {
-        while (_hubFramePool.Count <= index)
+        while (_hubMarkerPool.Count <= index)
         {
-            var go = new GameObject("LinkHubFrame", typeof(RectTransform));
+            var go = new GameObject("LinkHubMarker", typeof(RectTransform));
             var rt = go.GetComponent<RectTransform>();
-            rt.SetParent(_image.rectTransform, false);
+            rt.SetParent(_overlayLayer, false);
             rt.anchorMin = rt.anchorMax = new Vector2(0f, 0f);
             rt.pivot = new Vector2(0.5f, 0.5f);
 
             var image = go.AddComponent<Image>();
-            image.sprite = hubFrameSprite;
             image.raycastTarget = false;
-            _hubFramePool.Add(image);
+            _hubMarkerPool.Add(image);
         }
-        return _hubFramePool[index];
+        return _hubMarkerPool[index];
     }
 
-    private void SetHubFrame(Image frame, int nodeIndex)
+    // 허브 섹터 중심(앵커)에 고정 크기 아이콘 마커를 얹는다(capital 마커와 동일 방식, sprite 비우면 색 마커).
+    private void SetHubMarker(Image marker, int nodeIndex)
     {
-        Image room = FindRoomImage(nodeIndex);
-        if (room == null)
-        {
-            frame.gameObject.SetActive(false);
-            return;
-        }
+        MinimapModel.Node node = _model.Nodes[nodeIndex];
+        float px = Mathf.Clamp(
+            hubMarker.WorldSize * MarkerWorldToImagePx(),
+            hubMarker.MinScreenPx,
+            hubMarker.MaxScreenPx);
 
-        RectTransform roomRect = room.rectTransform;
-        RectTransform rt = frame.rectTransform;
-        frame.gameObject.SetActive(true);
-        frame.sprite = hubFrameSprite;
-        frame.color = Color.white;
-        ResolveVisibleRoomRect(room, out Vector2 visibleCenterOffset, out Vector2 visibleSize);
-        rt.anchoredPosition = roomRect.anchoredPosition + RotateUiOffset(visibleCenterOffset, roomRect.localEulerAngles.z);
-        float frameSize = Mathf.Max(visibleSize.x, visibleSize.y);
-        rt.sizeDelta = Vector2.one * frameSize;
+        RectTransform rt = marker.rectTransform;
+        marker.gameObject.SetActive(true);
+        marker.sprite = hubMarker.Sprite;
+        marker.preserveAspect = hubMarker.Sprite != null;
+        marker.color = hubMarker.Color;
+        rt.sizeDelta = new Vector2(px, px);
+        rt.anchoredPosition = CellToImageLocal(AnchorCenterCell(node));
         rt.localEulerAngles = Vector3.zero;
-        rt.SetAsLastSibling();
-    }
-
-    // 방 스프라이트의 투명 여백을 제외한 tight mesh 영역을 UI rect 좌표로 환산한다.
-    private static void ResolveVisibleRoomRect(Image room, out Vector2 centerOffset, out Vector2 size)
-    {
-        RectTransform rt = room.rectTransform;
-        Sprite sprite = room.sprite;
-        if (sprite == null || sprite.vertices == null || sprite.vertices.Length == 0)
-        {
-            centerOffset = Vector2.zero;
-            size = rt.sizeDelta;
-            return;
-        }
-
-        Vector2 min = sprite.vertices[0];
-        Vector2 max = min;
-        for (int i = 1; i < sprite.vertices.Length; i++)
-        {
-            min = Vector2.Min(min, sprite.vertices[i]);
-            max = Vector2.Max(max, sprite.vertices[i]);
-        }
-
-        Vector2 fullSpriteSize = sprite.rect.size / Mathf.Max(0.0001f, sprite.pixelsPerUnit);
-        Vector2 tightSize = max - min;
-        Vector2 tightCenter = (min + max) * 0.5f;
-        Vector2 scale = new Vector2(
-            rt.sizeDelta.x / Mathf.Max(0.0001f, fullSpriteSize.x),
-            rt.sizeDelta.y / Mathf.Max(0.0001f, fullSpriteSize.y));
-
-        centerOffset = Vector2.Scale(tightCenter, scale);
-        size = Vector2.Scale(tightSize, scale);
-    }
-
-    private static Vector2 RotateUiOffset(Vector2 offset, float degrees)
-        => Quaternion.Euler(0f, 0f, degrees) * offset;
-
-    private Image FindRoomImage(int nodeIndex)
-    {
-        for (int i = 0; i < _rooms.Count; i++)
-            if (_rooms[i].index == nodeIndex)
-                return _rooms[i].image;
-        return null;
     }
 
     private static bool ShouldHideEliteMarker(IMinimapTracked source, Sector active)
@@ -629,23 +683,13 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
                || (active != null && elite.CurrentSector == active && elite.Embodiment == null);
     }
 
-    private void BringTopMarkersToFront()
-    {
-        for (int i = 0; i < _markers.Count; i++)
-        {
-            Marker marker = _markers[i];
-            if (!marker.RenderOnTop || marker.Rect == null || !marker.Rect.gameObject.activeSelf)
-                continue;
-
-            marker.Rect.SetAsLastSibling();
-        }
-    }
-
-    private void ShowMarker(Marker marker, Vector2 target, float rotation)
+    // instant=true면 smoothing 없이 target을 바로 찍는다. 글라이드는 progress로 매 프레임 연속이라
+    // smoothing이 lag(뒤처짐)만 만드므로 즉시 반영해야 보이는 속도와 실제 진행이 일치한다.
+    private void ShowMarker(Marker marker, Vector2 target, float rotation, bool instant = false)
     {
         marker.Rect.gameObject.SetActive(true);
 
-        if (!marker.Placed)
+        if (instant || !marker.Placed)
         {
             marker.Rect.anchoredPosition = target;
             marker.Placed = true;
@@ -676,7 +720,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         {
             from = _model.Nodes[_transitionFromIndex].Sector;
             to   = _model.Nodes[_transitionToIndex].Sector;
-            t    = 0f;
+            t    = SectorManager.Instance != null ? SectorManager.Instance.GateTransitionProgress : 0f;
             return true;
         }
 
@@ -687,152 +731,57 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         return false;
     }
 
-    private bool AccumulateRoute(Sector from, Sector to, NavFaction faction)
+    // 게이트 전환 중 마커가 글라이드할 미니맵 px와 진행 방향(플레이어·엘리트 공용).
+    // from→to 섹터를 잇는 양쪽 게이트의 월드 위치를 각 섹터 노드 기준으로 투영해 t로 Lerp한다(실제 위치 미사용).
+    private bool TryGateGlidePx(Sector from, Sector to, float t, out Vector2 px, out float rotation)
     {
+        px = default;
+        rotation = 0f;
+        if (from == null || to == null) return false;
+
         int fi = IndexOfSector(from);
         int ti = IndexOfSector(to);
-        if (fi < 0 || ti < 0 || fi == ti) return false;
+        if (fi < 0 || ti < 0) return false;
 
-        long key = DirectedRouteKey(fi, ti);
-        _routeCounts.TryGetValue(key, out RouteCounts counts);
-        if (faction == NavFaction.Ally) counts.Ally++;
-        else counts.Enemy++;
-        _routeCounts[key] = counts;
+        // from→to, to→from 양쪽에서 서로를 향하는 게이트(=게이트 라우트와 동일한 두 끝점).
+        if (!TryGetGateWorld(from, to, out Vector3 wa) || !TryGetGateWorld(to, from, out Vector3 wb))
+            return false;
+
+        Vector2 a = WorldToSectorMarkerPx(wa, _model.Nodes[fi]);
+        Vector2 b = WorldToSectorMarkerPx(wb, _model.Nodes[ti]);
+        px = Vector2.Lerp(a, b, Mathf.Clamp01(t));
+        rotation = DirectionToUiRotation(b - a); // 진행 방향(px 공간, up 기준)으로 마커가 향하게.
         return true;
     }
 
-    private void RenderRouteIndicators()
+    // GateArriving(실체화 대쉬) 마커 위치: "글라이드가 끊긴 위치(a) → 도착점(b)"을 대쉬 진행도로 보간.
+    // a = Lerp(출발 게이트, 도착 게이트, 전환 시점 진행도) → GateApproach 글라이드와 같은 라인·위치라 점프 없이 연속.
+    //   (도착 후 실체화면 전환 진행도=1이라 a=도착 게이트, 종전과 동일.)
+    // b = 도착점(도착 섹터 안)이라 현재 섹터 마커처럼 확대 일관. 섹터 밖 실제 위치는 안 쓴다.
+    private bool TryGateArrivalGlidePx(Elite_State elite, out Vector2 px, out float rotation)
     {
-        int used = 0;
-        foreach (KeyValuePair<long, RouteCounts> kv in _routeCounts)
-        {
-            int from = RouteFrom(kv.Key);
-            int to = RouteTo(kv.Key);
-            if (from < 0 || to < 0 || from >= _model.Nodes.Count || to >= _model.Nodes.Count) continue;
+        px = default;
+        rotation = 0f;
 
-            Vector2 a = CellToImageLocal(AnchorCenterCell(_model.Nodes[from]));
-            Vector2 b = CellToImageLocal(AnchorCenterCell(_model.Nodes[to]));
-            Vector2 dir = b - a;
-            if (dir.sqrMagnitude <= 0.0001f) continue;
-            dir.Normalize();
+        Sector to   = elite.CurrentSector;            // 도착 섹터(현재)
+        Sector from = elite.GateArrivalOriginSector;  // 출발 섹터
+        if (to == null || from == null) return false;
 
-            Vector2 lane = RouteLaneNormal(dir);
-            Vector2 center = (a + b) * 0.5f + lane * routeLaneOffsetPx;
-            Vector2 badgeBase = lane * routeBadgeOffsetPx;
+        int ti = IndexOfSector(to);
+        int fi = IndexOfSector(from);
+        if (ti < 0 || fi < 0) return false;
+        if (!TryGetGateWorld(to, from, out Vector3 arrivalGateWorld)) return false; // 도착 섹터의 게이트
+        if (!TryGetGateWorld(from, to, out Vector3 departGateWorld)) return false;  // 출발 섹터의 게이트
 
-            RouteIndicator indicator = GetRouteIndicator(used++);
-            indicator.Root.gameObject.SetActive(true);
-            indicator.Root.anchoredPosition = center;
-            indicator.ArrowRect.localEulerAngles = new Vector3(0f, 0f, DirectionToUiRotation(dir));
-
-            bool hasAlly = kv.Value.Ally > 0;
-            bool hasEnemy = kv.Value.Enemy > 0;
-            float spread = hasAlly && hasEnemy ? routeBadgeSpacingPx * 0.5f : 0f;
-            bool verticalRoute = Mathf.Abs(dir.y) > Mathf.Abs(dir.x);
-            SetRouteBadge(indicator.AllyBadge, hasAlly, kv.Value.Ally, badgeAllyColor, badgeBase - dir * spread, verticalRoute);
-            SetRouteBadge(indicator.EnemyBadge, hasEnemy, kv.Value.Enemy, badgeEnemyColor, badgeBase + dir * spread, verticalRoute);
-        }
-
-        for (int i = used; i < _routePool.Count; i++)
-            _routePool[i].Root.gameObject.SetActive(false);
-    }
-
-    private RouteIndicator GetRouteIndicator(int index)
-    {
-        while (_routePool.Count <= index)
-        {
-            var rootGo = new GameObject("RouteIndicator", typeof(RectTransform));
-            var root = rootGo.GetComponent<RectTransform>();
-            root.SetParent(_image.rectTransform, false);
-            root.anchorMin = root.anchorMax = new Vector2(0f, 0f);
-            root.pivot = new Vector2(0.5f, 0.5f);
-            root.sizeDelta = new Vector2(72f, 52f);
-
-            var indicator = new RouteIndicator
-            {
-                Root = root,
-                Arrow = CreateRouteArrow(root),
-                AllyBadge = CreateRouteText(root, "AllyBadge", routeBadgeFontSize, badgeAllyColor, new Vector2(24f, 20f)),
-                EnemyBadge = CreateRouteText(root, "EnemyBadge", routeBadgeFontSize, badgeEnemyColor, new Vector2(24f, 20f)),
-            };
-            indicator.ArrowRect = indicator.Arrow.rectTransform;
-            _routePool.Add(indicator);
-        }
-
-        return _routePool[index];
-    }
-
-    private Graphic CreateRouteArrow(RectTransform parent)
-    {
-        var go = new GameObject("Arrow", typeof(RectTransform));
-        var rt = go.GetComponent<RectTransform>();
-        rt.SetParent(parent, false);
-        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = routeArrowSize;
-
-        if (routeArrowSprite != null)
-        {
-            var img = go.AddComponent<Image>();
-            img.sprite = routeArrowSprite;
-            img.preserveAspect = true;
-            img.color = routeArrowColor;
-            img.raycastTarget = false;
-            return img;
-        }
-
-        var txt = go.AddComponent<Text>();
-        txt.font = BadgeFont();
-        txt.fontSize = Mathf.RoundToInt(routeArrowSize.y);
-        txt.fontStyle = FontStyle.Bold;
-        txt.alignment = TextAnchor.MiddleCenter;
-        txt.horizontalOverflow = HorizontalWrapMode.Overflow;
-        txt.verticalOverflow = VerticalWrapMode.Overflow;
-        txt.text = "^";
-        txt.color = routeArrowColor;
-        txt.raycastTarget = false;
-        return txt;
-    }
-
-    private Text CreateRouteText(RectTransform parent, string name, int fontSize, Color color, Vector2 size)
-    {
-        var go = new GameObject(name, typeof(RectTransform));
-        var rt = go.GetComponent<RectTransform>();
-        rt.SetParent(parent, false);
-        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = size;
-
-        var txt = go.AddComponent<Text>();
-        txt.font = BadgeFont();
-        txt.fontSize = fontSize;
-        txt.fontStyle = FontStyle.Bold;
-        txt.alignment = TextAnchor.MiddleCenter;
-        txt.horizontalOverflow = HorizontalWrapMode.Overflow;
-        txt.verticalOverflow = VerticalWrapMode.Overflow;
-        txt.lineSpacing = 0.55f;
-        txt.color = color;
-        txt.raycastTarget = false;
-        return txt;
-    }
-
-    private void SetRouteBadge(Text badge, bool visible, int count, Color color, Vector2 pos, bool vertical)
-    {
-        badge.gameObject.SetActive(visible);
-        if (!visible) return;
-
-        badge.text = RouteBadgeText(count, vertical);
-        badge.fontSize = BadgeFontSize(count, routeBadgeFontSize);
-        badge.color = color;
-        badge.rectTransform.anchoredPosition = pos;
-    }
-
-    private static Vector2 RouteLaneNormal(Vector2 dir)
-    {
-        if (Mathf.Abs(dir.x) >= Mathf.Abs(dir.y))
-            return dir.x >= 0f ? Vector2.down : Vector2.up;
-
-        return dir.y >= 0f ? Vector2.right : Vector2.left;
+        MinimapModel.Node toNode = _model.Nodes[ti];
+        Vector2 departGatePx  = WorldToSectorMarkerPx(departGateWorld, _model.Nodes[fi]);
+        Vector2 arrivalGatePx = WorldToSectorMarkerPx(arrivalGateWorld, toNode);
+        // 글라이드가 끊긴 위치(GateApproach 글라이드와 동일 라인의 전환 시점 지점)에서 시작 → 도착 게이트로 점프 방지.
+        Vector2 a = Vector2.Lerp(departGatePx, arrivalGatePx, Mathf.Clamp01(elite.GateArrivalStartTravelProgress));
+        Vector2 b = WorldToSectorMarkerPx(elite.GateArrivalEndPosition, toNode); // 도착점(섹터 안)
+        px = Vector2.Lerp(a, b, Mathf.Clamp01(elite.GateArrivalProgress));
+        rotation = DirectionToUiRotation(b - a);
+        return true;
     }
 
     // 섹터마다 잡몹 병력(진영별 숫자 배지, 좌=아군/우=적)과 점령 게이지%(중심 아래)를 그린다.
@@ -897,7 +846,7 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         {
             var go = new GameObject("Badge", typeof(RectTransform));
             var rt = go.GetComponent<RectTransform>();
-            rt.SetParent(_image.rectTransform, false);
+            rt.SetParent(_overlayLayer, false);
             rt.anchorMin = rt.anchorMax = new Vector2(0f, 0f); // 이미지 좌하단 기준 픽셀 좌표
             rt.pivot     = new Vector2(0.5f, 0.5f);
             rt.sizeDelta = new Vector2(28f, 22f);
@@ -917,20 +866,6 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
 
     private static string BadgeText(int count)
         => count <= 1 ? "•" : count.ToString();
-
-    private static string RouteBadgeText(int count, bool vertical)
-    {
-        if (count <= 0) return string.Empty;
-        if (!vertical) return new string('•', count);
-
-        var text = new System.Text.StringBuilder(count * 2 - 1);
-        for (int i = 0; i < count; i++)
-        {
-            if (i > 0) text.Append('\n');
-            text.Append('•');
-        }
-        return text.ToString();
-    }
 
     private static int BadgeFontSize(int count, int baseSize)
         => count <= 1 ? Mathf.RoundToInt(baseSize * 0.9f) : baseSize;
@@ -1007,11 +942,9 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         _currentIndex = index;
         if (previousIndex >= 0 && index >= 0 && HasEdge(previousIndex, index))
         {
-            _transitionEdgeKey   = EdgeKey(previousIndex, index);
             _transitionFromIndex = previousIndex;
             _transitionToIndex   = index;
         }
-        _dirty = true;
     }
 
     private void SyncTransitionState()
@@ -1022,11 +955,9 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         _wasTransitioning = isTransitioning;
         if (!isTransitioning)
         {
-            _transitionEdgeKey   = null;
             _transitionFromIndex = -1;
             _transitionToIndex   = -1;
         }
-        _dirty = true;
     }
 
     private bool HasEdge(int a, int b)
@@ -1082,6 +1013,29 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
             rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 1f);
             rt.anchoredPosition = new Vector2(-StandaloneScreenMargin.x, -StandaloneScreenMargin.y);
         }
+    }
+
+    // _image 위에 z순서 고정 레이어를 깐다. 생성 순서가 곧 렌더 순서(아래→위)라 sibling reorder가 불필요해진다.
+    private void BuildLayers()
+    {
+        _roomLayer      = CreateLayer("RoomLayer");
+        _gateRouteLayer = CreateLayer("GateRouteLayer");
+        _overlayLayer   = CreateLayer("OverlayLayer");
+        _topLayer       = CreateLayer("TopLayer");
+    }
+
+    // _image 영역을 그대로 덮는 빈 컨테이너(stretch+offset0). 자식 좌표계가 _image와 동일해 좌표 로직 변경 불필요.
+    private RectTransform CreateLayer(string name)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        var rt = go.GetComponent<RectTransform>();
+        rt.SetParent(_image.rectTransform, false);
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        rt.pivot     = new Vector2(0.5f, 0.5f);
+        return rt;
     }
 
     private void BuildTexture()
@@ -1156,6 +1110,14 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
             (pivot.y * 2f - 1f) * padding);
         _frameRoot.sizeDelta = frameSize;
 
+        // 프레임 스프라이트가 있으면 9-slice 한 장으로 영역에 맞춰 늘린다(코너 보존). 없으면 코너 선분 폴백.
+        if (outerFrameSprite != null)
+        {
+            BuildOuterFrameSprite();
+            _frameRoot.SetAsLastSibling();
+            return;
+        }
+
         float thickness = Mathf.Max(1f, outerFrameThicknessPx);
         float cornerLength = Mathf.Clamp(
             outerFrameCornerLengthPx,
@@ -1193,19 +1155,30 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         _outerFrameSegments.Add(image);
     }
 
+    // 9-slice 프레임 한 장을 _frameRoot 전체에 깐다. 코너는 border 크기 그대로 유지되고 변만 늘어난다.
+    private void BuildOuterFrameSprite()
+    {
+        var go = new GameObject("FrameImage", typeof(RectTransform));
+        var rt = go.GetComponent<RectTransform>();
+        rt.SetParent(_frameRoot, false);
+        rt.anchorMin = Vector2.zero;   // _frameRoot 영역을 꽉 채움(영역에 맞춰 늘어남).
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+
+        var image = go.AddComponent<Image>();
+        image.sprite        = outerFrameSprite;
+        image.type          = Image.Type.Sliced; // 9-slice: 코너 보존, 변만 늘어남.
+        image.fillCenter    = outerFrameFillCenter; // 보통 false라야 가운데로 맵이 비친다.
+        image.color         = outerFrameColor;
+        image.raycastTarget = false;
+        _outerFrameSegments.Add(image);
+    }
+
+    // 배경 단색 텍스처. 통로는 UI 게이트 라우트가 그리므로 여기선 배경판만 칠한다.
     private void DrawStaticMap()
     {
         FillAll(backgroundColor);
-
-        foreach (MinimapModel.Edge edge in _model.Edges)
-        {
-            long edgeKey = EdgeKey(edge.A, edge.B);
-            Color color = IsGateTransitioning() && _transitionEdgeKey.HasValue && _transitionEdgeKey.Value == edgeKey
-                ? TransitionColor
-                : corridorColor;
-            DrawCorridor(_model.Nodes[edge.A].AnchorCell, _model.Nodes[edge.B].AnchorCell, color);
-        }
-
         _texture.SetPixels32(_buffer);
         _texture.Apply(false);
     }
@@ -1218,39 +1191,8 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         return FallbackRoomColor;
     }
 
-    // 1칸 이웃끼리만 연결되므로 통로는 항상 축 정렬(수평/수직) 직사각형이다.
-    private void DrawCorridor(Vector2Int cellA, Vector2Int cellB, Color color)
-    {
-        Vector2 a    = CellCenterPx(cellA);
-        Vector2 b    = CellCenterPx(cellB);
-        float   half = corridorThickness * 0.5f;
-
-        FillRect(Mathf.Min(a.x, b.x) - half, Mathf.Min(a.y, b.y) - half,
-                 Mathf.Max(a.x, b.x) + half, Mathf.Max(a.y, b.y) + half, color);
-    }
-
-    private static long EdgeKey(int a, int b)
-    {
-        int min = Mathf.Min(a, b);
-        int max = Mathf.Max(a, b);
-        return ((long)min << 32) | (uint)max;
-    }
-
-    private static long DirectedRouteKey(int from, int to)
-        => ((long)from << 32) | (uint)to;
-
-    private static int RouteFrom(long key)
-        => (int)(key >> 32);
-
-    private static int RouteTo(long key)
-        => (int)(key & 0xffffffff);
-
     private static bool IsGateTransitioning()
         => SectorManager.Instance != null && SectorManager.Instance.IsTransitioning;
-
-    // 셀 → 텍스처 픽셀(블록 중앙). +y(북)이 위로 가도록 텍스처 y 그대로 사용.
-    private Vector2 CellCenterPx(Vector2Int cell)
-        => (new Vector2(cell.x + 0.5f, cell.y + 0.5f) - _mapMinCell) * TexturePixelsPerCell;
 
     private static Vector2 AnchorCenterCell(MinimapModel.Node node)
         => new Vector2(node.AnchorCell.x + 0.5f, node.AnchorCell.y + 0.5f);
@@ -1259,22 +1201,6 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
     {
         Color32 c = color;
         for (int i = 0; i < _buffer.Length; i++) _buffer[i] = c;
-    }
-
-    private void FillRect(float x0, float y0, float x1, float y1, Color color)
-    {
-        int xMin = Mathf.Clamp(Mathf.RoundToInt(x0), 0, _texWidth);
-        int yMin = Mathf.Clamp(Mathf.RoundToInt(y0), 0, _texHeight);
-        int xMax = Mathf.Clamp(Mathf.RoundToInt(x1), 0, _texWidth);
-        int yMax = Mathf.Clamp(Mathf.RoundToInt(y1), 0, _texHeight);
-
-        Color32 c = color;
-        for (int y = yMin; y < yMax; y++)
-        {
-            int row = y * _texWidth;
-            for (int x = xMin; x < xMax; x++)
-                _buffer[row + x] = c;
-        }
     }
 
     private void OnDestroy()
@@ -1293,23 +1219,20 @@ public sealed class Hud_GameScene_Minimap : MonoBehaviour
         _buffer = null;
         _rootRect = null;
         _frameRoot = null;
+        _roomLayer = _gateRouteLayer = _overlayLayer = _topLayer = null;
         _cellSize = 0f;
         _renderScale = 0f;
         _worldToImagePx = 0f;
-        _transitionEdgeKey = null;
         _transitionFromIndex = -1;
         _transitionToIndex = -1;
         _rooms.Clear();
         _markers.Clear();
         _badgePool.Clear();   // 배지 GameObject는 MapImage 자식이라 아래에서 함께 파괴된다.
-        _routeCounts.Clear();
-        _routePool.Clear();   // 이동 표시 GameObject도 MapImage 자식이라 아래에서 함께 파괴된다.
-        _linkLinePool.Clear();
-        _hubFramePool.Clear();
+        _gateRoutePool.Clear();
+        _hubMarkerPool.Clear();
         _outerFrameSegments.Clear();
         _currentIndex = -1;
         _wasTransitioning = false;
-        _dirty = false;
 
         if (_texture != null)
         {

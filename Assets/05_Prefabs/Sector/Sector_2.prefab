@@ -913,7 +913,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Sector
   displayName: SectorNode
   capacity: 400
-  minimapSprite: {fileID: 21300000, guid: 4196f3990aea8e240b7314bad47c1e00, type: 3}
+  minimapSprite: {fileID: 21300000, guid: da4a5ed7575480948a556ca78f26a347, type: 3}
+  minimapFrameSprite: {fileID: 21300000, guid: 5102f867de739b642916db9385f57b0d, type: 3}
   minimapFootprint: []
 --- !u!1 &2681287823375999409
 GameObject:

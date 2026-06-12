@@ -79,12 +79,20 @@ public sealed class Elite_State : IMinimapTracked
     public Vector3 GateEntryStart { get; set; }
     public Sector GateArrivalOriginSector { get; private set; }
 
-    // 게이트 이동 진행도(0~1). 미니맵 마커가 통로(엣지)를 따라 글라이드하는 데 쓴다.
-    public float FieldTravelProgress
-        => _fieldTravelDuration > 0f ? Mathf.Clamp01(_fieldTravelElapsed / _fieldTravelDuration) : 0f;
+    // 실체화 대쉬 진입(GateArriving)의 진행도와 도착점. 미니맵은 실체 위치(섹터 밖) 대신 이 스칼라 진행도로
+    // "글라이드가 끊긴 위치 → 도착점(도착 섹터 안)"을 보간한다. 섹터 밖 실제 위치를 안 써서 2배 확대와 무관하다.
+    public float GateArrivalProgress { get; set; }
+    public Vector3 GateArrivalEndPosition { get; set; }
 
-    public float GateApproachProgress
-        => _gateApproachDuration > 0f ? Mathf.Clamp01(_gateApproachElapsed / _gateApproachDuration) : 0f;
+    // GateArriving으로 전환된 순간의 SectorTravelProgress. 미니맵 글라이드 시작점을 도착 게이트가 아니라
+    // "글라이드가 멈춘 그 위치"로 잡아 GateApproach 글라이드와 연속시킨다(게이트 통과 시점 실체화 시 점프 방지).
+    // 도착 후 실체화되는 기존 경로는 1(=도착 게이트)이라 종전과 동일하게 동작한다.
+    public float GateArrivalStartTravelProgress { get; set; }
+
+    // 게이트 접근 + 통과 후 이동을 하나의 연속 진행도(0~1)로 합친다. 미니맵 마커가 통로를 따라 글라이드하는 데 쓴다.
+    // 두 구간은 같은 speed로 움직이므로 전체 시간(=거리) 대비 경과로 계산해야 글라이드 속도가 균일하다.
+    public float SectorTravelProgress
+        => _journeyTotalDuration > 0f ? Mathf.Clamp01(_journeyElapsed / _journeyTotalDuration) : 0f;
 
     public float Health { get; set; }
     public bool IsAlive => Health > 0f;
@@ -114,7 +122,8 @@ public sealed class Elite_State : IMinimapTracked
                             : 1f;
     }
 
-    public void BeginFieldTravel(Sector destination, Vector3 endPosition, float duration)
+    // startJourney=false면 게이트 접근 직후 이어붙이는 호출이라 여정 타이머(글라이드 진행도)를 리셋하지 않는다.
+    public void BeginFieldTravel(Sector destination, Vector3 endPosition, float duration, bool startJourney = true)
     {
         if (destination == null || destination == CurrentSector)
             return;
@@ -125,6 +134,12 @@ public sealed class Elite_State : IMinimapTracked
         _fieldTravelEndPosition = endPosition;
         _fieldTravelDuration = Mathf.Max(0.01f, duration);
         _fieldTravelElapsed = 0f;
+
+        if (startJourney)
+        {
+            _journeyElapsed = 0f;
+            _journeyTotalDuration = _fieldTravelDuration; // 접근 없이 바로 이동: 여정=이동 구간만.
+        }
 
         Vector3 forward = endPosition - WorldPosition;
         forward.y = 0f;
@@ -151,6 +166,10 @@ public sealed class Elite_State : IMinimapTracked
         _pendingFieldTravelEndPosition = travelEndPosition;
         _pendingFieldTravelDuration = Mathf.Max(0.01f, travelDuration);
 
+        // 여정 = 접근 + 이동 전체 시간. 글라이드 진행도를 이 합으로 나눠 속도를 균일하게.
+        _journeyElapsed = 0f;
+        _journeyTotalDuration = _gateApproachDuration + _pendingFieldTravelDuration;
+
         Vector3 forward = gatePosition - WorldPosition;
         forward.y = 0f;
         if (forward.sqrMagnitude > 0.0001f)
@@ -163,6 +182,7 @@ public sealed class Elite_State : IMinimapTracked
             return false;
 
         _gateApproachElapsed += Mathf.Max(0f, deltaTime);
+        _journeyElapsed += Mathf.Max(0f, deltaTime);
         float t = Mathf.Clamp01(_gateApproachElapsed / _gateApproachDuration);
         WorldPosition = Vector3.Lerp(_gateApproachStartPosition, _gateApproachEndPosition, t);
 
@@ -177,7 +197,8 @@ public sealed class Elite_State : IMinimapTracked
         _gateApproachElapsed = 0f;
         _gateApproachDuration = 0f;
         WorldPosition = _gateApproachEndPosition;
-        BeginFieldTravel(destination, travelEndPosition, travelDuration);
+        // startJourney=false: 여정 타이머(_journeyElapsed/Total)를 리셋하지 않고 이어서 이동 구간으로 넘어간다.
+        BeginFieldTravel(destination, travelEndPosition, travelDuration, startJourney: false);
         return true;
     }
 
@@ -187,6 +208,7 @@ public sealed class Elite_State : IMinimapTracked
             return false;
 
         _fieldTravelElapsed += Mathf.Max(0f, deltaTime);
+        _journeyElapsed += Mathf.Max(0f, deltaTime);
         float t = Mathf.Clamp01(_fieldTravelElapsed / _fieldTravelDuration);
         WorldPosition = Vector3.Lerp(_fieldTravelStartPosition, _fieldTravelEndPosition, t);
 
@@ -208,6 +230,8 @@ public sealed class Elite_State : IMinimapTracked
         _gateApproachDuration = 0f;
         _fieldTravelElapsed = 0f;
         _fieldTravelDuration = 0f;
+        _journeyElapsed = 0f;
+        _journeyTotalDuration = 0f;
         Presence = Embodiment != null ? ElitePresenceState.Embodied : ElitePresenceState.Background;
     }
 
@@ -248,6 +272,8 @@ public sealed class Elite_State : IMinimapTracked
     {
         GateArrivalOriginSector = from;
         GateEntryStart = gateEntryStart;
+        GateArrivalProgress = 0f; // EmbodyAsync(도착점 세팅) 전이라도 0이면 마커가 시작점에 머문다.
+        GateArrivalStartTravelProgress = SectorTravelProgress; // 전환 시점 글라이드 위치(도착 경로면 1=도착 게이트).
         Presence = ElitePresenceState.GateArriving;
     }
 
@@ -269,6 +295,10 @@ public sealed class Elite_State : IMinimapTracked
     private float _fieldTravelElapsed;
     private float _fieldTravelDuration;
 
+    // 접근+이동을 아우르는 여정 타이머. SectorTravelProgress(미니맵 글라이드 진행도)가 이 둘로 균일 속도를 만든다.
+    private float _journeyElapsed;
+    private float _journeyTotalDuration;
+
     // IMinimapTracked: 미니맵은 CurrentSector 노드로 직접 투영해 방 모양 안에 마커를 그린다.
     Sector IMinimapTracked.Sector => CurrentSector;
     Vector3 IMinimapTracked.WorldPosition => WorldPosition;
@@ -282,21 +312,21 @@ public sealed class Elite_State : IMinimapTracked
         if (to != null)
             return true;
 
-        if (Presence == ElitePresenceState.GateArriving && GateArrivalOriginSector != null)
+        // GateArriving(실체화 대쉬 진입 연출)은 글라이드 transition을 만들지 않는다. 실체가 게이트→도착점으로
+        // 직접 대쉬하고 WorldPosition이 그걸 미러하므로, 일반 마커가 실체 위치를 따라가게 둔다(ShouldHideEliteMarker에서도 제외).
+        // 도착 섹터 노드 투영 시 출발 게이트는 가장자리(도착 게이트)로 clamp돼 백그라운드 글라이드 끝과 연속된다.
+
+        // 게이트 접근 + 통과 후 이동은 같은 출발→목표 라우트라 하나의 연속 진행도로 합쳐 한 번만 글라이드.
+        Sector destination = GateApproachDestinationSector != null
+            ? GateApproachDestinationSector
+            : FieldDestinationSector;
+        if (destination != null)
         {
-            from = GateArrivalOriginSector;
-            to = CurrentSector;
-            t = 0f;
-            return to != null;
+            to = destination;
+            t  = SectorTravelProgress;
+            return true;
         }
 
-        to = GateApproachDestinationSector;
-        t = GateApproachProgress;
-        if (to != null)
-            return true;
-
-        to = FieldDestinationSector;
-        t = FieldTravelProgress;
-        return to != null;
+        return false;
     }
 }

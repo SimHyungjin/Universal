@@ -29,6 +29,9 @@ public sealed class Elite_Manager : IDisposable
     public static Elite_Manager Instance { get; private set; }
     public IReadOnlyList<Elite_State> Elites => _elites;
 
+    // 본진 결전에서 소집 진영(적) 엘리트가 전멸한 순간 1회 발화 = 게임 승리.
+    public event Action SiegeWon;
+
     public Elite_Manager(
         SectorManager sectorManager = null,
         MinimapModel map = null,
@@ -155,6 +158,7 @@ public sealed class Elite_Manager : IDisposable
         {
             _siegeWon = true;
             Debug.Log("[CapitalSiege] 결전 승리 — 본진 적 엘리트 전멸");
+            SiegeWon?.Invoke();
         }
         _worldSimulator.ClearRally();
     }
@@ -284,6 +288,13 @@ public sealed class Elite_Manager : IDisposable
         // 게이트 진입이면 반대편(출발 섹터) 게이트에서 스폰해 도착 지점까지 대쉬한다(반대 섹터에서 오는 느낌).
         bool dashIn = state.Presence == ElitePresenceState.GateArriving;
 
+        // 스폰(await) 전에 미니맵 글라이드용 도착점/진행도를 미리 세팅한다. 대기 동안엔 진행도 0이라 도착 게이트에 머문다.
+        if (dashIn)
+        {
+            state.GateArrivalEndPosition = arrival;
+            state.GateArrivalProgress = 0f;
+        }
+
         Vector3 spawnPosition = dashIn ? state.GateEntryStart : arrival;
         Vector3 facing = dashIn ? (arrival - state.GateEntryStart) : state.Forward;
         facing.y = 0f;
@@ -411,6 +422,7 @@ public sealed class Elite_Manager : IDisposable
         action?.PrepareSectorGateTransition();
         if (action != null) action.enabled = false; // 직접 transform 이동(게이트 통과). 중력/CC가 안 싸우게.
 
+        // GateArrivalEndPosition/Progress 초기값은 EmbodyAsync(스폰 전)에서 세팅됨. 여기선 대쉬 진행도만 갱신한다.
         try
         {
             tr.rotation = Quaternion.LookRotation(dir, Vector3.up);
@@ -422,6 +434,7 @@ public sealed class Elite_Manager : IDisposable
                 if (go == null) return;
                 elapsed += Time.unscaledDeltaTime;
                 float t = Mathf.Clamp01(elapsed / duration);
+                if (state != null) state.GateArrivalProgress = t; // 미니맵 마커가 도착게이트→도착점을 이 진행도로 보간.
                 float eased = t * t * (3f - 2f * t);
                 float arc = Mathf.Sin(t * Mathf.PI) * GateEntryArcHeight;
                 tr.position = Vector3.Lerp(start, destination, eased) + Vector3.up * arc;
@@ -429,6 +442,7 @@ public sealed class Elite_Manager : IDisposable
             }
 
             if (go == null) return;
+            if (state != null) state.GateArrivalProgress = 1f;
             tr.position = destination;
             vfx?.PlayDashEnd(dir);
             action?.CompleteSectorGateTransition();
@@ -671,8 +685,11 @@ public sealed class Elite_Manager : IDisposable
         if (state.FieldDestinationSector != observedSector)
             return false;
 
+        // CancelFieldTravel이 journey(SectorTravelProgress)를 리셋하므로, 전환 시점 글라이드 위치를 먼저 캡처한다.
+        float progressAtTransition = state.SectorTravelProgress;
         state.CancelFieldTravel();
         BeginObservedGateArrivalAfterRelease(state, observedSector);
+        state.GateArrivalStartTravelProgress = progressAtTransition; // BeginGateArrival의 기본값(리셋 후 0)을 전환 시점 값으로 덮어씀.
         return true;
     }
 

@@ -13,5 +13,7 @@ MonoBehaviour:
   m_Name: SO_Sector_Catalog
   m_EditorClassIdentifier: Assembly-CSharp::SO_Sector_Catalog
   entries:
+  - prefab: {fileID: 6838738872741890347, guid: 0f612fb1a782c904b8cd52d014160c87, type: 3}
+    weight: 2
   - prefab: {fileID: 6838738872741890347, guid: 8ec0109159e9a224a98f7593e83efb1c, type: 3}
     weight: 0

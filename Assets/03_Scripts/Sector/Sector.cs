@@ -50,6 +50,9 @@ public class Sector : MonoBehaviour
     [Header("Minimap")]
     [Tooltip("미니맵에 그릴 이 섹터의 방 이미지(회전 전 기준). 비우면 사각형 폴백으로 그림.")]
     [SerializeField] private Sprite minimapSprite;
+    [Tooltip("미니맵 방 위에 얹을 프레임(테두리) 이미지. 점령 게이지/상태 색은 이 프레임에만 칠해지고 " +
+             "내부(minimapSprite)는 원색을 유지한다. 비우면 기존처럼 방 이미지 전체에 색을 입힌다.")]
+    [SerializeField] private Sprite minimapFrameSprite;
     [Tooltip("미니맵에서 이 섹터가 차지하는 로컬 셀 목록(회전 전 기준). 비우면 (0,0) 1칸. " +
              "L자 등은 앵커 셀을 (0,0)으로 두고 나머지를 오프셋으로 추가.")]
     [SerializeField] private Vector2Int[] minimapFootprint;
@@ -82,6 +85,9 @@ public class Sector : MonoBehaviour
 
     /// <summary>미니맵에 그릴 방 이미지(회전 전 기준). 없으면 렌더러가 사각형으로 폴백.</summary>
     public Sprite MinimapSprite => minimapSprite;
+
+    /// <summary>미니맵 방 위에 얹을 프레임(테두리) 이미지. 상태 색은 이 프레임에만 칠해진다. 없으면 방 이미지 전체를 칠한다.</summary>
+    public Sprite MinimapFrameSprite => minimapFrameSprite;
 
     /// <summary>회전 전 기준의 로컬 footprint 셀. 미설정이면 1칸 정사각형.</summary>
     public IReadOnlyList<Vector2Int> MinimapFootprint

@@ -16,6 +16,8 @@ public sealed class MinimapModel
         public Vector2Int[] Cells;        // 회전 적용된 절대 그리드 셀들(footprint)
         public bool         IsStart;      // 시작 섹터 여부
         public Sprite       Sprite;       // 방 이미지(없으면 사각형 폴백)
+        public Sprite       FrameSprite;  // 방 위에 얹을 프레임(테두리). 상태 색은 이 프레임에만 칠해진다. 없으면 방 전체를 칠함
+
         public int          RotationSteps; // 90° 회전 스텝(0~3). 스프라이트 회전용
         public Vector2      WorldSize;    // nav 바닥 월드 크기(회전 전 x,z). 0이면 셀 기본 박스 폴백
         public Vector2      LocalCenter;  // nav 바닥 중심의 섹터 원점 대비 오프셋(회전 전 x,z)
