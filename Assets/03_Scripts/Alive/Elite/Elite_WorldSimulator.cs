@@ -51,8 +51,14 @@ public sealed class Elite_WorldSimulator
     public NavFaction RallyFaction => _rallyFaction;
     public void SetRally(Sector capital, NavFaction faction) { _rallySector = capital; _rallyFaction = faction; }
     public void ClearRally() => _rallySector = null;
+    // 보스는 소집 대상이 아니다 — 이미 본진에 상주하므로 소집 직행 로직을 타지 않고 제자리를 지킨다.
     private bool IsRallied(Elite_State state)
-        => _rallySector != null && state != null && state.Faction == _rallyFaction;
+        => _rallySector != null && state != null && state.Faction == _rallyFaction
+           && !IsBoss(state);
+
+    // 본진(적 코어). 디펜더 분배에서 허브 여부와 무관하게 항상 자기 진영 방어 대상에 포함한다(직행 방지 벽).
+    private Sector _capitalSector;
+    public void SetCapital(Sector capital) => _capitalSector = capital;
 
     private readonly SO_SectorBattle_Settings _settings;
 
@@ -247,7 +253,8 @@ public sealed class Elite_WorldSimulator
         // 적대 대상이 전혀 없으면 기존 랜덤 배회 폴백.
         if (target == null)
         {
-            if (GetBattleRole(state) == BattleRole.Defender)
+            // Defender/보스는 거점(허브/본진)이 없을 때 랜덤 배회하지 않고 제자리를 지킨다.
+            if (GetBattleRole(state) == BattleRole.Defender || IsBoss(state))
                 return null;
             if (UnityEngine.Random.value > 0.35f)
                 return null;
@@ -283,6 +290,11 @@ public sealed class Elite_WorldSimulator
     // 적 엘리트가 없을 때 섹터 내를 도는 배회 반경(SO 주입, 없으면 기본값).
     private Sector ChooseRoleTarget(Elite_State state, Sector playerSector, IReadOnlyList<Elite_State> elites)
     {
+        // 보스는 전술 역할(상성)과 직교하는 축 — 역할이 무엇이든 본진 코어 상주가 최우선.
+        // 늘 본진으로 복귀해 지키고, 도착 후엔 제자리를 떠나지 않는다(시작부터 본진 스폰).
+        if (IsBoss(state))
+            return _capitalSector;
+
         switch (GetBattleRole(state))
         {
             case BattleRole.Defender:
@@ -306,45 +318,19 @@ public sealed class Elite_WorldSimulator
 
             case BattleRole.Vanguard:
             default:
-                return ChooseVanguardMainHubTarget(state)
+                return ChooseVanguardFrontTarget(state)
                        ?? ChooseNearestHostileTarget(state, playerSector, elites);
         }
     }
 
-    // 뱅가드는 상대의 가장 큰 링크 허브를 메인 목표로 삼고, 경로상의 섹터를 뚫으며 전진한다.
-    private Sector ChooseVanguardMainHubTarget(Elite_State state)
-    {
-        Sector best = null;
-        int bestInfluence = -1;
-        int bestHops = int.MaxValue;
-        float bestWorldDistance = float.MaxValue;
-        int bestLinkId = int.MaxValue;
-
-        for (int i = 0; i < _knownSectors.Count; i++)
-        {
-            Sector sector = _knownSectors[i];
-            if (!TryGetBattleState(sector, out SectorBattleState battle)
-                || !IsHostileLinkHub(battle, state.Faction))
-                continue;
-
-            int hops = GetHopDistance(state.CurrentSector, sector);
-            float worldDistance = (state.WorldPosition - sector.transform.position).sqrMagnitude;
-            if (battle.LinkInfluence > bestInfluence
-                || (battle.LinkInfluence == bestInfluence && hops < bestHops)
-                || (battle.LinkInfluence == bestInfluence && hops == bestHops && worldDistance < bestWorldDistance)
-                || (battle.LinkInfluence == bestInfluence && hops == bestHops
-                    && Mathf.Approximately(worldDistance, bestWorldDistance) && battle.LinkId < bestLinkId))
-            {
-                best = sector;
-                bestInfluence = battle.LinkInfluence;
-                bestHops = hops;
-                bestWorldDistance = worldDistance;
-                bestLinkId = battle.LinkId;
-            }
-        }
-
-        return best;
-    }
+    // 뱅가드는 자기 위치에서 가장 가까운 적대 진영 점령 섹터로 전진해 전선을 민다(게이트 BFS 최근접).
+    // 거대 허브 글로벌 argmax(전원이 같은 한 허브로 수렴 → 같이 모이고 같이 떠나던 문제)를 폐기 —
+    // 뱅가드마다 자기 앞 전선을 밀게 해 자연 분산시킨다(초기 분산 배치가 담당 전선으로 유지됨).
+    // 적 점령 섹터가 하나도 없으면(다 밀어냈으면) null → 적 장수 추적/배회 폴백으로 넘어간다.
+    private Sector ChooseVanguardFrontTarget(Elite_State state)
+        => FindNearestSectorWithinHops(
+            state.CurrentSector, state.WorldPosition, int.MaxValue,
+            s => IsHostileControlledSector(s, state.Faction));
 
     private Sector ChooseNearestHostileTarget(
         Elite_State state, Sector playerSector, IReadOnlyList<Elite_State> elites)
@@ -359,8 +345,10 @@ public sealed class Elite_WorldSimulator
 
     private void UpdateIdleRoamMotion(Elite_State state, float dt)
     {
-        Vector3 center = state.CurrentSector != null ? state.CurrentSector.transform.position : state.WorldPosition;
+        Vector3 center = GetRoamCenter(state);
         Vector3 target = GetRoamTarget(state, center, CombatRoamRadius * 0.7f, 0.28f, 0.65f);
+        if (TryResolveNavSafePosition(state.CurrentSector, target, GetAgentRadius(state), out Vector3 safeTarget))
+            target = safeTarget;
         MoveTowardTarget(state, target, GetFieldMoveSpeed(state) * IdleRoamSpeedScale * dt, 0f);
         ConstrainStateToSectorNav(state);
     }
@@ -368,7 +356,7 @@ public sealed class Elite_WorldSimulator
     private void UpdateCombatMotion(Elite_State state, IReadOnlyList<Elite_State> elites, float dt)
     {
         Elite_State foe = FindHostileEliteInSector(state, state.CurrentSector, elites);
-        Vector3 center = state.CurrentSector != null ? state.CurrentSector.transform.position : state.WorldPosition;
+        Vector3 center = GetRoamCenter(state);
 
         if (foe != null)
         {
@@ -378,6 +366,8 @@ public sealed class Elite_WorldSimulator
 
         // 적 엘리트가 있으면 그쪽으로 맞붙고, 없으면(잡몹뿐) 섹터 안을 천천히 배회한다(중심 고정 탈피, 엘리트별 위상).
         Vector3 anchor = GetRoamTarget(state, center, CombatRoamRadius, 0.38f, 0.8f);
+        if (TryResolveNavSafePosition(state.CurrentSector, anchor, GetAgentRadius(state), out Vector3 safeAnchor))
+            anchor = safeAnchor;
 
         Vector3 to = anchor - state.WorldPosition;
         to.y = 0f;
@@ -457,6 +447,57 @@ public sealed class Elite_WorldSimulator
         float x = Mathf.Cos(phase) * radius;
         float z = Mathf.Sin(secondary) * radius * yScale;
         return center + new Vector3(x, 0f, z);
+    }
+
+    // 배회 중심 = 현재 섹터 안의 실제 nav-walkable 점(엘리트별로 한 번 샘플해 보관). 섹터가 바뀌면 재샘플한다.
+    // 섹터 기하 중심(transform.position)이 구멍 위면 배회가 구멍을 향해 밀려 끼이므로, 진짜 맵(nav) 위 점을 쓴다.
+    private static Vector3 GetRoamCenter(Elite_State state)
+    {
+        Sector sector = state != null ? state.CurrentSector : null;
+        if (sector == null)
+            return state != null ? state.WorldPosition : Vector3.zero;
+
+        if (state.RoamAnchorSector != sector)
+        {
+            float agentRadius = GetAgentRadius(state);
+            if (TrySampleSectorNavPoint(sector, agentRadius, out Vector3 sampled))
+                state.RoamAnchor = sampled;
+            else if (TryResolveNavSafePosition(sector, sector.transform.position, agentRadius, out Vector3 safeCenter))
+                state.RoamAnchor = safeCenter; // 샘플 실패(영역 데이터 없음 등) → 섹터 중심을 nav로 투영 폴백.
+            else
+                state.RoamAnchor = sector.transform.position;
+            state.RoamAnchorSector = sector;
+        }
+
+        return state.RoamAnchor;
+    }
+
+    // 섹터 nav 영역에서 walkable 점 하나를 무작위로 뽑는다(잡몹 스폰 NavRuntimeBootstrap와 동일 유틸).
+    // 배경 섹터도 MapNavRegion 저작 데이터는 항상 있으므로 NavBlob 로드 여부와 무관하게 동작한다.
+    private static bool TrySampleSectorNavPoint(Sector sector, float agentRadius, out Vector3 worldPoint)
+    {
+        worldPoint = default;
+        MapNavigationAuthoring map = sector != null ? sector.NavAuthoring : null;
+        if (map == null)
+            return false;
+
+        IReadOnlyList<MapNavRegion> regions = map.Regions;
+        if (regions == null || regions.Count == 0)
+            return false;
+
+        float clearance = Mathf.Max(0f, agentRadius);
+        const int attemptsPerRegion = 12;
+        for (int i = 0; i < regions.Count; i++)
+        {
+            MapNavRegion region = regions[UnityEngine.Random.Range(0, regions.Count)];
+            if (region != null && MapNavSampleUtility.TrySampleClearPoint(region, clearance, attemptsPerRegion, out Vector2 local))
+            {
+                worldPoint = map.ToWorld(region, local);
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void MoveTowardTarget(Elite_State state, Vector3 target, float maxDistance, float stopDistance)
@@ -602,9 +643,13 @@ public sealed class Elite_WorldSimulator
 
     private static BattleRole GetBattleRole(Elite_State state)
     {
-        SO_Character_Data character = state != null && state.Data != null ? state.Data.Character : null;
+        SO_Character_Data character = state != null ? state.Character : null;
         return character != null ? character.BattleRole : BattleRole.Vanguard;
     }
+
+    // 결전 보스 여부(전술 역할과 직교) — 본진 상주·소집 제외·시작 본진 스폰만 이 축으로 갈린다.
+    private static bool IsBoss(Elite_State state)
+        => state != null && state.IsBoss;
 
     // 현재 섹터에서 교전(섹터 내 전투 연출)에 들어갈지. Duelist는 "엘리트만 전투" — 잡몹/플레이어와는
     // 맞붙지 않고 추격·도망한다. 단, 적 엘리트가 전멸하면 마지막 수단으로 플레이어와 교전한다.
@@ -701,6 +746,14 @@ public sealed class Elite_WorldSimulator
                 && IsOwnLinkHub(battle, state.Faction))
                 _defenderHubs.Add(battle);
         }
+
+        // 본진은 링크 허브가 아니어도 항상 자기 진영 디펜더 분배 대상에 포함한다(본진 직행 방지 벽).
+        // 소유 기준은 OwnerFaction(원래 코어 주인) — 일부 갉아먹혀 Control이 흔들려도 디펜더는 본진에 붙는다.
+        if (_capitalSector != null
+            && TryGetBattleState(_capitalSector, out SectorBattleState capitalBattle)
+            && capitalBattle.OwnerFaction == state.Faction
+            && !_defenderHubs.Contains(capitalBattle))
+            _defenderHubs.Add(capitalBattle);
 
         if (_defenderHubs.Count == 0)
             return null;
@@ -809,12 +862,10 @@ public sealed class Elite_WorldSimulator
                ? battle.Control == SectorControl.Ally
                : battle.Control == SectorControl.Enemy);
 
-    private static bool IsHostileLinkHub(SectorBattleState battle, NavFaction faction)
-        => battle != null
-           && battle.IsLinkHub
-           && (faction == NavFaction.Ally
-               ? battle.Control == SectorControl.Enemy
-               : battle.Control == SectorControl.Ally);
+    // 적대 진영이 점령(완전 장악)한 섹터인지. 뱅가드 전선 전진의 목표 판정.
+    private static bool IsHostileControlledSector(Sector sector, NavFaction faction)
+        => TryGetBattleState(sector, out SectorBattleState battle)
+           && battle.Control == (faction == NavFaction.Ally ? SectorControl.Enemy : SectorControl.Ally);
 
     private static int GetHopDistance(Sector origin, Sector target)
     {
@@ -1177,19 +1228,19 @@ public sealed class Elite_WorldSimulator
 
     private static float GetFieldMoveSpeed(Elite_State state)
     {
-        SO_Elite_Brain brain = state?.Data != null ? state.Data.Brain : null;
+        SO_Elite_Brain brain = state?.Character != null ? state.Character.AiBrain : null;
         return brain != null ? Mathf.Max(0.01f, brain.FieldMoveSpeed) : 35f;
     }
 
     private static float GetAgentRadius(Elite_State state)
     {
-        SO_Elite_Brain brain = state?.Data != null ? state.Data.Brain : null;
+        SO_Elite_Brain brain = state?.Character != null ? state.Character.AiBrain : null;
         return brain != null ? Mathf.Max(0f, brain.AgentRadius) : 0.35f;
     }
 
     private static float GetThinkInterval(Elite_State state)
     {
-        SO_Elite_Brain brain = state?.Data != null ? state.Data.Brain : null;
+        SO_Elite_Brain brain = state?.Character != null ? state.Character.AiBrain : null;
         return brain != null ? Mathf.Max(0.1f, brain.FieldThinkInterval) : 5f;
     }
 }

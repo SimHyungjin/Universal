@@ -24,25 +24,10 @@ public sealed class Elite_Embodiment : MonoBehaviour
         if (_vitals == null)
             return;
 
-        // 전투 스탯은 캐릭터(SO_Character_Data)에서 온다. 진영/시작체력은 Elite_State 기준.
-        SO_Character_Stats stats = State.Data != null && State.Data.Character != null
-            ? State.Data.Character.StatsData
-            : null;
-        SO_Character_BreakFeel breakFeel = State.Data != null && State.Data.Character != null
-            ? State.Data.Character.BreakFeel
-            : null;
-        _vitals.Configure(
-            stats != null ? stats.MaxHealth : _vitals.MaxHealth,
-            stats != null ? stats.Defense : 0f,
-            stats != null ? stats.GaugeMax : _vitals.GaugeMax,
-            State.Faction,
-            State.Health,
-            stats != null ? stats.BodyRadius : 0.5f,
-            stats != null ? stats.BreakMax : 0f,
-            breakFeel != null ? breakFeel.RecoveryDelay : 1.5f,
-            breakFeel != null ? breakFeel.RecoveryPerSecond : 60f,
-            breakFeel != null ? breakFeel.BrokenDuration : 1.5f,
-            breakFeel != null ? breakFeel.RecoveryRatioOnBrokenEnd : 1f);
+        // 진영/시작체력(Elite_State 기준)과 스탯을 ActionHandler 경유로 주입한다(플레이어 빙의와 동일 통로).
+        // 스탯/브레이크 값은 EmbodyAsync가 먼저 호출한 SetCharacterData(State.Character)에서 온다.
+        Character_ActionHandler actionHandler = GetComponent<Character_ActionHandler>();
+        actionHandler?.ConfigureVitals(State.Faction, State.Health);
 
         _vitals.OnHealthChanged += HandleHealthChanged;
 

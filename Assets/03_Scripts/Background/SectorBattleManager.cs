@@ -275,7 +275,7 @@ public sealed class SectorBattleManager : IDisposable
     // 배경 섹터: 전력 우세 진영이 열세 진영을 시간당 조금씩 잠식한다(제로섬, 전력차 비례·상한).
     private float ResolveBaseElitePower(Elite_State elite)
     {
-        SO_Character_Data character = elite != null && elite.Data != null ? elite.Data.Character : null;
+        SO_Character_Data character = elite != null ? elite.Character : null;
         return SectorPowerFormula.Calculate(character);
     }
 
@@ -873,10 +873,10 @@ public sealed class SectorBattleManager : IDisposable
 
         if (active == 0) return;
 
-        Debug.Log(sb.ToString());
-        Debug.Log($"[SectorBattle/Dist] n={active} front={front} maxLink={maxLink} " +
-                  $"| net[{netMin:0.0}..{netMax:0.0}] |net|avg{absNetSum / active:0.00} |net|max{absNetMax:0.0} " +
-                  $"| pDiff[{pdMin:0}..{pdMax:0}] |pd|avg{absPdSum / active:0} |pd|max{absPdMax:0} " +
-                  $"| frontPd avg{(front > 0 ? frontAbsPdSum / front : 0f):0} max{frontAbsPdMax:0}");
+        // Debug.Log(sb.ToString());
+        // Debug.Log($"[SectorBattle/Dist] n={active} front={front} maxLink={maxLink} " +
+        //           $"| net[{netMin:0.0}..{netMax:0.0}] |net|avg{absNetSum / active:0.00} |net|max{absNetMax:0.0} " +
+        //           $"| pDiff[{pdMin:0}..{pdMax:0}] |pd|avg{absPdSum / active:0} |pd|max{absPdMax:0} " +
+        //           $"| frontPd avg{(front > 0 ? frontAbsPdSum / front : 0f):0} max{frontAbsPdMax:0}");
     }
 }

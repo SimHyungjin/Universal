@@ -54,13 +54,14 @@ public sealed class Elite_Manager : IDisposable
     }
 
     public Elite_State Register(
-        SO_Elite_Data data,
+        SO_Character_Data character,
         Sector sector,
         Vector3 worldPosition,
         Vector3 forward,
-        NavFaction faction)
+        NavFaction faction,
+        bool isBoss = false)
     {
-        var state = new Elite_State(data, sector, worldPosition, forward, faction);
+        var state = new Elite_State(character, sector, worldPosition, forward, faction, isBoss);
         _elites.Add(state);
         AddMinimapMarker(state);
         RefreshEmbodiments();
@@ -121,7 +122,11 @@ public sealed class Elite_Manager : IDisposable
 
     // 본진(적 코어) 결전 제어. 플레이어가 본진에 들어가면 살아있는 본진 소유 진영 엘리트를 전원 소집한다.
     // 본진을 떠나면 소집 해제(재진입 시 재개). 게이트 잠금·패배·결과 화면은 이후 슬라이스.
-    public void SetCapital(Sector capital) => _capitalSector = capital;
+    public void SetCapital(Sector capital)
+    {
+        _capitalSector = capital;
+        _worldSimulator.SetCapital(capital); // 디펜더 분배가 본진을 항상 방어 대상에 포함하도록 전달.
+    }
 
     private void UpdateCapitalSiege(Sector sector)
     {
@@ -174,32 +179,40 @@ public sealed class Elite_Manager : IDisposable
         for (int i = 0; i < roster.Length; i++)
         {
             EliteSpawnEntry entry = roster[i];
-            if (entry.Data == null || entry.Count <= 0) continue;
+            if (entry.Character == null || entry.Count <= 0) continue;
+
+            // 보스는 영역 분산(라운드로빈)에서 빼고 처음부터 본진에 직접 스폰한다 → 본진 상주 시작.
+            // 본진(EnemyHome)은 적 전용이므로 적 진영 보스만 해당(아군 로스터의 오배치 방지).
+            bool spawnAtCapital = entry.IsBoss
+                                  && faction == NavFaction.Enemy
+                                  && _capitalSector != null;
 
             for (int j = 0; j < entry.Count; j++)
             {
-                Sector sector = sectors[spawnIndex % sectors.Count];
-                Vector3 position = ResolveSectorSpawnPosition(sector, entry.Data, spawnIndex, totalCount);
+                Sector sector = spawnAtCapital
+                    ? _capitalSector
+                    : sectors[spawnIndex % sectors.Count];
+                Vector3 position = ResolveSectorSpawnPosition(sector, entry.Character, spawnIndex, totalCount);
                 Vector3 forward = sector.transform.forward.sqrMagnitude > 0.0001f
                     ? sector.transform.forward
                     : Vector3.forward;
-                Elite_State state = Register(entry.Data, sector, position, forward, faction);
+                Elite_State state = Register(entry.Character, sector, position, forward, faction, entry.IsBoss);
                 state.FieldThinkTimer = ResolveInitialThinkDelay(spawnIndex, totalCount);
                 spawnIndex++;
             }
         }
     }
 
-    private static Vector3 ResolveSectorSpawnPosition(Sector sector, SO_Elite_Data data, int index, int count)
+    private static Vector3 ResolveSectorSpawnPosition(Sector sector, SO_Character_Data character, int index, int count)
     {
         Vector3 center = sector != null ? sector.transform.position : Vector3.zero;
         if (count <= 1)
-            return ResolveNavSafePosition(sector, center, ResolveAgentRadius(data));
+            return ResolveNavSafePosition(sector, center, ResolveAgentRadius(character));
 
         float angle = index * 137.50776f * Mathf.Deg2Rad;
         float radius = Mathf.Min(5.5f, 1.6f + Mathf.Sqrt(index) * 0.75f);
         Vector3 offset = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radius;
-        return ResolveNavSafePosition(sector, center + offset, ResolveAgentRadius(data));
+        return ResolveNavSafePosition(sector, center + offset, ResolveAgentRadius(character));
     }
 
     private static int CountSpawnEntries(EliteSpawnEntry[] entries)
@@ -211,7 +224,7 @@ public sealed class Elite_Manager : IDisposable
         for (int i = 0; i < entries.Length; i++)
         {
             EliteSpawnEntry entry = entries[i];
-            if (entry.Data != null && entry.Count > 0)
+            if (entry.Character != null && entry.Count > 0)
                 count += entry.Count;
         }
 
@@ -271,7 +284,7 @@ public sealed class Elite_Manager : IDisposable
 
     private static async UniTask EmbodyAsync(Elite_State state, CancellationToken token)
     {
-        if (state?.Data == null) return;
+        if (state?.Character == null) return;
 
         // 장수는 CharacterController+중력으로 수직 처리하므로 스폰 y가 지면이 아니면 떨어진다.
         // 섹터 중앙 좌표를 현재 섹터 nav 그래프의 지면 높이로 스냅해 그라운드 상태로 스폰한다.
@@ -282,7 +295,7 @@ public sealed class Elite_Manager : IDisposable
                 state.CurrentSector,
                 fieldDepartureDestination,
                 state)
-            : ResolveNavSafePosition(state.CurrentSector, state.WorldPosition, ResolveAgentRadius(state.Data));
+            : ResolveNavSafePosition(state.CurrentSector, state.WorldPosition, ResolveAgentRadius(state.Character));
         state.WorldPosition = arrival;
 
         // 게이트 진입이면 반대편(출발 섹터) 게이트에서 스폰해 도착 지점까지 대쉬한다(반대 섹터에서 오는 느낌).
@@ -301,7 +314,7 @@ public sealed class Elite_Manager : IDisposable
         if (facing.sqrMagnitude < 0.0001f) facing = state.Forward;
 
         GameObject go = await CharacterSpawner.SpawnPrefabAsync(
-            state.Data,
+            state.Character,
             new SpawnRequest(spawnPosition, facing, state.CurrentSector),
             token);
 
@@ -330,7 +343,7 @@ public sealed class Elite_Manager : IDisposable
         }
 
         Character_ActionHandler actionHandler = go.GetComponent<Character_ActionHandler>();
-        actionHandler?.SetCharacterData(state.Data != null ? state.Data.Character : null, clearEquippedLoadout: true);
+        actionHandler?.SetCharacterData(state.Character, clearEquippedLoadout: true);
 
         Elite_Embodiment embodiment = go.GetComponent<Elite_Embodiment>();
         if (embodiment == null)
@@ -506,7 +519,7 @@ public sealed class Elite_Manager : IDisposable
         }
 
         Vector3 doorway = Elite_WorldSimulator.ResolveGateExitArrival(state.CurrentSector, destination, state);
-        doorway = ResolveNavSafePosition(destination, doorway, ResolveAgentRadius(state.Data));
+        doorway = ResolveNavSafePosition(destination, doorway, ResolveAgentRadius(state.Character));
 
         Transform tr = go.transform;
         Character_ActionHandler action = go.GetComponent<Character_ActionHandler>();
@@ -605,9 +618,9 @@ public sealed class Elite_Manager : IDisposable
         return resolved;
     }
 
-    private static float ResolveAgentRadius(SO_Elite_Data data)
+    private static float ResolveAgentRadius(SO_Character_Data character)
     {
-        SO_Elite_Brain brain = data != null ? data.Brain : null;
+        SO_Elite_Brain brain = character != null ? character.AiBrain : null;
         return brain != null ? Mathf.Max(0f, brain.AgentRadius) : 0.35f;
     }
 
@@ -669,7 +682,7 @@ public sealed class Elite_Manager : IDisposable
         Vector3 arrival = Elite_WorldSimulator.ResolveGateExitArrival(from, destination, state);
 
         state.CurrentSector = destination;
-        state.WorldPosition = ResolveNavSafePosition(destination, arrival, ResolveAgentRadius(state.Data));
+        state.WorldPosition = ResolveNavSafePosition(destination, arrival, ResolveAgentRadius(state.Character));
         state.BeginGateArrival(from, entryStart);
         state.FieldThinkTimer = ResolveGateArrivalThinkDelay(state);
     }
@@ -703,7 +716,7 @@ public sealed class Elite_Manager : IDisposable
         ReleaseEmbodiment(state); // 몸체 파괴(+PendingExitSector 정리) → 비실체 복귀.
 
         state.CurrentSector = destination;
-        state.WorldPosition = ResolveNavSafePosition(destination, arrival, ResolveAgentRadius(state.Data));
+        state.WorldPosition = ResolveNavSafePosition(destination, arrival, ResolveAgentRadius(state.Character));
 
         Vector3 toCenter = destination.transform.position - state.WorldPosition;
         toCenter.y = 0f;
@@ -717,7 +730,7 @@ public sealed class Elite_Manager : IDisposable
 
     private static float ResolveGateArrivalThinkDelay(Elite_State state)
     {
-        SO_Elite_Brain brain = state != null && state.Data != null ? state.Data.Brain : null;
+        SO_Elite_Brain brain = state != null && state.Character != null ? state.Character.AiBrain : null;
         float cap = brain != null ? Mathf.Max(0.1f, brain.FieldThinkInterval) : GateArrivalThinkDelayMax;
         float seed = ((state != null ? state.Id : 0) + 1) * 17.271f + Time.time * 0.61f;
         float jitter = Mathf.Repeat(Mathf.Sin(seed) * 24634.6345f, 1f);
@@ -728,9 +741,9 @@ public sealed class Elite_Manager : IDisposable
     {
         if (_minimap == null || state == null || _markers.ContainsKey(state)) return;
 
-        SO_Elite_Data data = state.Data;
+        SO_Character_Data character = state.Character;
         Hud_GameScene_Minimap.Marker marker =
-            _minimap.AddEliteMarker(state, data != null ? data.MarkerSprite : null);
+            _minimap.AddEliteMarker(state, character != null ? character.MarkerSprite : null);
         if (marker != null)
             _markers.Add(state, marker);
     }

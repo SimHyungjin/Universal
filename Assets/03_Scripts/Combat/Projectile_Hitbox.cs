@@ -114,15 +114,21 @@ public sealed class Projectile_Hitbox : LoopMonoBehaviour, IPoolable
             Expire();
     }
 
-    // 명중 시 공격자 의존 효과(흡혈·게이지)와 전역 효과(히트스톱·히트 카메라컷인)를 근접과 동일하게 적용.
+    // 명중 시 공격자 의존 효과(흡혈·게이지)는 누구나 적용. 플레이어 시점 juice(컷인·카메라 셰이크·전역 히트스톱)는
+    // 로컬 플레이어가 쏜 것일 때만(적/아군 AI 발사체는 SFX/VFX만 — 화면 흔들기·시간 정지 없음).
     private void ApplyOnHitEffects()
     {
         CombatOnHit.ApplyAttackerGains(_data, _finalDamage, _owner.Handler, _owner.GaugeGainPerDamage);
+
+        if (!PlayerController.IsLocalPlayer(_owner.Handler))
+            return;
+
         if (!_hitCuePlayed)
         {
             _hitCuePlayed = true;
             CombatOnHit.PlayHitCameraCue(_data);
         }
+        CombatFeedback.PlayHitCameraShake(_data);
         CombatOnHit.TriggerHitstop(_data.HitEffects.hitstop, destroyCancellationToken).Forget();
     }
 

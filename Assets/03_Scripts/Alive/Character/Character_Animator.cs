@@ -27,6 +27,11 @@ public class Character_Animator : LoopMonoBehaviour
     private Character_CommandSource _commandSource;
     private readonly ActorAnimationPlayback _animation = new();
 
+    // 공격 windup(예고) 구간에서 애니 재생속도를 늦추기 위한 배율. SyncSpeed가 매 프레임 speed를
+    // 덮어쓰므로 그 직후에 곱한다. 1=정상, <1=느림. Character_AttackController가 windup 동안만 설정.
+    private float _attackSpeedScale = 1f;
+    public void SetAttackSpeedScale(float scale) => _attackSpeedScale = Mathf.Clamp(scale, 0.01f, 1f);
+
     private void Awake()
     {
         animator ??= GetComponentInChildren<Animator>(true);
@@ -115,6 +120,8 @@ public class Character_Animator : LoopMonoBehaviour
         if (animator == null) return;
 
         _animation.SyncSpeed(animationTimeDomain);
+        if (_attackSpeedScale != 1f)
+            animator.speed *= _attackSpeedScale;
         if (_isAttacking || _suppressLocomotion)
         {
             // 전신 동작(공격/대시/피격/사망)이 애니를 점유 중. 공중/착지 추적도 리셋.

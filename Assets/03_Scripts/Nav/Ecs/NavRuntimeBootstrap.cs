@@ -812,7 +812,7 @@ namespace MapNav.Ecs
             if (_playerTransform != null)
                 return _playerTransform;
 
-            Player_Actor player = FindAnyObjectByType<Player_Actor>();
+            Character_PlayerControl player = FindAnyObjectByType<Character_PlayerControl>();
             _playerTransform = player != null ? player.transform : null;
             return _playerTransform;
         }

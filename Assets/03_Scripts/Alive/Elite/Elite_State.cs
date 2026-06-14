@@ -12,7 +12,7 @@ public enum ElitePresenceState
 
 // 장수 한 마리의 런타임 인스턴스 상태이자 "진실의 원천".
 // 섹터 활성 여부와 무관하게 백그라운드에 영속하며, 플레이어가 CurrentSector에 있을 때만
-// SO_Elite_Data.VisualPrefab으로 실체화(embody)된다. 미니맵은 이 레코드를 읽어 마커를 그린다.
+// Character.Prefab으로 실체화(embody)된다. 미니맵은 이 레코드를 읽어 마커를 그린다.
 public sealed class Elite_State : IMinimapTracked
 {
     private static int _nextId;
@@ -21,7 +21,12 @@ public sealed class Elite_State : IMinimapTracked
     // (낮은 Id는 멈춰 기다리고 높은 Id가 쫓아가 만남 → 포탈 와리가리 방지).
     public int Id { get; } = _nextId++;
 
-    public SO_Elite_Data Data { get; }
+    // 이 장수가 누구인가(캐릭터). 프리팹·스탯·로드아웃·AI 브레인(AiBrain)·마커가 여기서 온다.
+    public SO_Character_Data Character { get; }
+
+    // 보스 운용 여부(본진 상주·소집 제외). 캐릭터 본질이 아니라 배치 시 정해지는 런타임 역할이라 인스턴스에 둔다.
+    public bool IsBoss { get; }
+
     public Sector HomeSector { get; }
     public ElitePresenceState Presence { get; private set; } = ElitePresenceState.Background;
     public bool IsInTransit => Presence == ElitePresenceState.Moving
@@ -39,6 +44,12 @@ public sealed class Elite_State : IMinimapTracked
     // 비실체일 땐 Elite_WorldSimulator(필드 이동)가 갱신한다.
     public Vector3 WorldPosition { get; set; }
     public Vector3 Forward { get; set; } = Vector3.forward;
+
+    // 배경 배회 앵커: 현재 섹터 안에서 실제 nav-walkable로 샘플한 배회 중심. 섹터가 바뀌면 무효화하고 재샘플한다.
+    // 배회를 섹터 기하 중심(구멍 위일 수 있음) 대신 이 점 주위로 돌려 "맵 기준" 배회를 만든다 → 구멍 위 실체화·끼임 방지.
+    public Vector3 RoamAnchor { get; set; }
+    public Sector RoamAnchorSector { get; set; }
+
     public Sector GateApproachDestinationSector { get; private set; }
     public Sector FieldDestinationSector { get; private set; }
     public bool IsApproachingGate => GateApproachDestinationSector != null;
@@ -109,16 +120,17 @@ public sealed class Elite_State : IMinimapTracked
 
     // 매크로 의도(목표 섹터/순찰 경로 등)는 ④ BackgroundSimulator + Brain 단계에서 추가된다.
 
-    public Elite_State(SO_Elite_Data data, Sector sector, Vector3 worldPosition, Vector3 forward, NavFaction faction)
+    public Elite_State(SO_Character_Data character, Sector sector, Vector3 worldPosition, Vector3 forward, NavFaction faction, bool isBoss = false)
     {
-        Data          = data;
+        Character     = character;
+        IsBoss        = isBoss;
         HomeSector    = sector;
         CurrentSector = sector;
         WorldPosition = worldPosition;
         Forward       = forward.sqrMagnitude > 0.0001f ? forward.normalized : Vector3.forward;
         Faction       = faction;
-        Health        = data != null && data.Character != null && data.Character.StatsData != null
-                            ? data.Character.StatsData.MaxHealth
+        Health        = character != null && character.StatsData != null
+                            ? character.StatsData.MaxHealth
                             : 1f;
     }
 

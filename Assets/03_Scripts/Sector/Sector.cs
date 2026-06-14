@@ -30,13 +30,16 @@ public struct NavAgentSpawnEntry
 [Serializable]
 public struct EliteSpawnEntry
 {
-    [SerializeField] private SO_Elite_Data data;
+    [SerializeField] private SO_Character_Data character;
     [SerializeField] private NavFaction faction;
     [SerializeField] private int count;
+    [Tooltip("이 배치 슬롯을 보스로 시작(본진 상주·소집 제외). 보스는 캐릭터 본질이 아니라 배치/시나리오 역할이라 여기서 정한다.")]
+    [SerializeField] private bool isBoss;
 
-    public SO_Elite_Data Data => data;
+    public SO_Character_Data Character => character;
     public NavFaction Faction => faction;
     public int Count => Mathf.Max(0, count);
+    public bool IsBoss => isBoss;
 }
 
 public class Sector : MonoBehaviour

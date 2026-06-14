@@ -14,7 +14,7 @@ using UnityEngine;
 public sealed class Elite_Brain : LoopMonoBehaviour
 {
     private Elite_State _state;
-    private SO_Elite_Data _data;
+    private SO_Character_Data _character;
     private SO_Elite_Brain _brain;
     private Character_ActionHandler _actionHandler;
     private Character_AttackController _attackController;
@@ -42,8 +42,8 @@ public sealed class Elite_Brain : LoopMonoBehaviour
     public void Bind(Elite_State state)
     {
         _state = state;
-        _data = state != null ? state.Data : null;
-        _brain = _data != null ? _data.Brain : null;
+        _character = state != null ? state.Character : null;
+        _brain = _character != null ? _character.AiBrain : null;
 
         _actionHandler = GetComponent<Character_ActionHandler>();
         _attackController = GetComponent<Character_AttackController>();
@@ -56,7 +56,7 @@ public sealed class Elite_Brain : LoopMonoBehaviour
 
         // 공격력은 장수 전용 스탯으로 오버라이드(SetPlayerStats 이후에 호출돼야 적용).
         // 전투 스탯(공격력/이동속도)은 캐릭터에서, AI/nav 파라미터(반경/정지거리)는 Elite Stats에서.
-        SO_Character_Stats charStats = _data != null && _data.Character != null ? _data.Character.StatsData : null;
+        SO_Character_Stats charStats = _character != null ? _character.StatsData : null;
         if (_attackController != null && charStats != null)
             _attackController.SetAttackPower(charStats.AttackPower);
 
@@ -676,7 +676,7 @@ public sealed class Elite_Brain : LoopMonoBehaviour
         if (_player != null && _player.isActiveAndEnabled)
             return _player;
 
-        Player_Actor player = FindAnyObjectByType<Player_Actor>();
+        Character_PlayerControl player = FindAnyObjectByType<Character_PlayerControl>();
         _player = player != null ? player.GetComponent<Character_ActionHandler>() : null;
         _playerVitals = player != null ? player.GetComponent<Character_Vitals>() : null;
         return _player;
@@ -696,8 +696,8 @@ public sealed class Elite_Brain : LoopMonoBehaviour
 
     private SO_Attack_Data GetBasicAttackData()
     {
-        SO_Character_Loadout loadout = _data != null && _data.Character != null
-            ? _data.Character.DefaultLoadout
+        SO_Character_Loadout loadout = _character != null
+            ? _character.DefaultLoadout
             : null;
         SO_Attack_ComboData combo = loadout != null ? loadout.EquippedAttackCombo : null;
         SO_Attack_Data[] attacks = combo != null ? combo.Attacks : null;

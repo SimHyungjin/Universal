@@ -60,7 +60,7 @@ public class SectorGate : MonoBehaviour
         if (manager == null) return;
         if (manager.IsTransitioning) return;
         if (Time.time < _pairCooldownUntil || Time.time < _targetGate._pairCooldownUntil) return;
-        Player_Actor player = ResolvePlayer(other);
+        Character_PlayerControl player = ResolvePlayer(other);
         if (player == null) return;
         if (!player.TryGetComponent(out Character_ActionHandler actionHandler) || !actionHandler.CanEnterSectorGate) return;
 
@@ -68,17 +68,17 @@ public class SectorGate : MonoBehaviour
         manager.Enter(_targetGate);
     }
 
-    private static Player_Actor ResolvePlayer(Collider other)
+    private static Character_PlayerControl ResolvePlayer(Collider other)
     {
         if (other == null)
             return null;
 
         if (other.attachedRigidbody != null
-            && other.attachedRigidbody.TryGetComponent(out Player_Actor rigidbodyPlayer))
+            && other.attachedRigidbody.TryGetComponent(out Character_PlayerControl rigidbodyPlayer))
         {
             return rigidbodyPlayer;
         }
 
-        return other.GetComponentInParent<Player_Actor>();
+        return other.GetComponentInParent<Character_PlayerControl>();
     }
 }

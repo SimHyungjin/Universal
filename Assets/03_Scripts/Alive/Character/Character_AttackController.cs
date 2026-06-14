@@ -13,6 +13,7 @@ public partial class Character_AttackController : LoopMonoBehaviour
     [SerializeField] private Color attackGizmoColor = new Color(1f, 0.2f, 0.2f, 0.35f);
 
 
+    public bool IsTelegraphing => _windupActive;
     public bool IsAttacking => _attackTimer > 0f;
     public bool IsInCombo   => _attackTimer > 0f || _comboTimer > 0f;
     public bool IsComboWindowOpen => _attackTimer <= 0f && _comboTimer > 0f;
@@ -70,6 +71,15 @@ public partial class Character_AttackController : LoopMonoBehaviour
     private Character_CommandSource _commandSource;
     private bool _drivesCameraFollowAlignment;
 
+    // 공격 범위 예고(telegraph). 적 시전 시 공격의 windup(0~timing) 구간을 leadTime까지 늘려
+    // 그동안 바닥 데칼을 띄운다. 별도 페이즈가 아니라 진짜 공격이라 슈퍼아머가 유지된다. [[project_attack_telegraph]].
+    private Character_AttackTelegraph _telegraph;
+    private float _windupStretch = 1f;   // >1이면 windup을 그만큼 늘려 재생(애니+타이머)
+    private bool  _windupActive;          // windup(느린 예비동작) 진행 중 — 조준 잠금/데칼 표시 구간
+    private float _pendingTelegraphLeadTime; // 다음 StartAttackData에서 적용할 windup 목표 길이
+    private Color _pendingTelegraphColor = Color.red;
+    private bool  _deferLungeUntilHitbox; // 돌진을 windup 후(hitbox 발동 시점)로 미룸
+
     private void Awake()
     {
         _playerAnimator = GetComponent<Character_Animator>();
@@ -81,8 +91,13 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _actionHandler = GetComponent<Character_ActionHandler>();
         _ecsBridge = GetComponent<Character_EcsBridge>();
         _commandSource = GetComponent<Character_CommandSource>();
-        _drivesCameraFollowAlignment = GetComponent<Player_Actor>() != null;
+        _telegraph = GetComponent<Character_AttackTelegraph>();
+        if (_telegraph == null)
+            _telegraph = gameObject.AddComponent<Character_AttackTelegraph>();
     }
+
+    // 카메라 추종 정렬을 이 캐릭터가 구동하는가. 플레이어 빙의 시에만 true(PlayerController.Possess가 주입), AI는 false.
+    public void SetDrivesCameraFollowAlignment(bool value) => _drivesCameraFollowAlignment = value;
 
     public void SetCommandSource(Character_CommandSource commandSource)
     {
@@ -169,6 +184,16 @@ public partial class Character_AttackController : LoopMonoBehaviour
             CancelAttack();
 
         _skillCooldowns[slot] = skill.Cooldown;
+
+        // 예고: 적(비 로컬플레이어 = 빙의 안 된 AI)이 시전할 때만 첫타 windup을 leadTime까지 늘려 예고 데칼을 띄운다.
+        // 플레이어(빙의체)는 즉발(손맛 유지). juice 게이트(IsLocalPlayer)의 반대 방향. StartAttackData가 소비.
+        AttackTelegraphData tg = skill.Telegraph;
+        if (tg.enabled && tg.leadTime > 0f && !PlayerController.IsLocalPlayer(_actionHandler))
+        {
+            _pendingTelegraphLeadTime = tg.leadTime;
+            _pendingTelegraphColor = tg.color;
+        }
+
         _skillSequence = sequence;
         _skillData = skill;
         _skillSequenceIndex = 0;
@@ -203,7 +228,7 @@ public partial class Character_AttackController : LoopMonoBehaviour
         if (_actionHandler != null && _actionHandler.IsSectorGateTransitioning)
         {
             PollAndDiscardSkillInput();
-            if (IsAttacking || IsInCombo || _skillSequence != null)
+            if (IsAttacking || IsInCombo || _skillSequence != null || IsTelegraphing)
                 CancelAttack();
             return;
         }
@@ -212,10 +237,12 @@ public partial class Character_AttackController : LoopMonoBehaviour
 
         if (_attackTimer > 0f)
         {
+            // windup(예고) 구간이면 느린 dt를 받아 hitbox가 leadTime 시점에 발동하도록 늘린다.
+            float dt = TickWindup(gdt);
             if (!_slamDescending)
-                _attackTimer -= gdt;
+                _attackTimer -= dt;
 
-            TickAttackHitbox(_currentData, gdt);
+            TickAttackHitbox(_currentData, dt);
 
             if (_attackTimer <= 0f) OnAttackEnd();
             return;
@@ -347,6 +374,11 @@ public partial class Character_AttackController : LoopMonoBehaviour
 
     private void PlayReleaseEffects(AttackReleaseEffectData release)
     {
+        // 공격 릴리즈(스윙) 시점의 플레이어 시점 juice(카메라 셰이크·슬로모)는 로컬 플레이어 공격에만.
+        // 적/아군 AI가 휘두를 때 화면을 흔들거나 시간을 멈추지 않는다.
+        if (!PlayerController.IsLocalPlayer(_actionHandler))
+            return;
+
         ShakeOnAttackRelease(release);
         if (release.slowMo.enabled)
             TriggerSlowMo(release.slowMo).Forget();
@@ -368,9 +400,11 @@ public partial class Character_AttackController : LoopMonoBehaviour
             ConsumeSkill(i);
     }
 
-    private static void PlayAttackCameraCue(SO_Attack_Data attack, AttackCueTrigger trigger)
+    // 카메라 컷인은 플레이어 시점 효과 — 로컬 플레이어 공격에만(Release/End/Hit 모든 트리거 공통 게이트).
+    // 적/아군 AI가 휘두를 때(Release)·끝낼 때(End)·맞출 때(Hit) 카메라가 움직이지 않는다.
+    private void PlayAttackCameraCue(SO_Attack_Data attack, AttackCueTrigger trigger)
     {
-        if (attack == null) return;
+        if (attack == null || !PlayerController.IsLocalPlayer(_actionHandler)) return;
 
         AttackCameraCueData cue = attack.CameraCue;
         if (!cue.enabled || cue.trigger != trigger) return;
@@ -414,28 +448,136 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _actionHandler?.InterruptJumpArcForAttack();
         InitExtraHitState(_currentData);
         _playerAnimator?.PlayAttack(_currentData.Animation);
+        SetupWindup(_currentData);
         if (_currentData.Lunge.moveType == AttackMoveType.Slam)
             _slamDescending = true;
-        _moveController?.StartLunge(transform.forward, _currentData.Lunge);
+        // windup(예고)으로 미룬 경우 돌진/대시 VFX는 hitbox 발동 시점(EndWindup)에 시작한다.
+        if (!_deferLungeUntilHitbox)
+            _moveController?.StartLunge(transform.forward, _currentData.Lunge);
         if (_currentData.Jump.enabled)
         {
             _moveController?.Jump(_currentData.Jump.height);
         }
-        if (ShouldPlayDashVfx(_currentData.Lunge))
+        if (!_deferLungeUntilHitbox && ShouldPlayDashVfx(_currentData.Lunge))
         {
             _vfx?.PlayDashStart(transform.forward);
             _attackMoveVfxPlaying = true;
         }
 
+        // 스윙 연출(트레일·SFX·cast VFX)은 실제 휘두름에 맞춰야 한다. windup(예고)이 있으면
+        // 느린 예비동작 중에 먼저 나오지 않도록 hitbox 발동(EndWindup) 시점으로 미룬다.
+        if (!_windupActive)
+            PlayCastAndSwingFeedback(castImmediate: false);
+    }
+
+    // cast VFX·스윙 트레일·스윙 SFX를 재생한다. windup 뒤에 부를 때(castImmediate)는 이미 hitbox 시점이므로
+    // cast VFX의 timing 지연을 0으로 둬 휘두름과 동시에 나오게 한다.
+    private void PlayCastAndSwingFeedback(bool castImmediate)
+    {
         AttackFeedbackData fb = _currentData.Feedback;
         StopCastVfx();
         if (!string.IsNullOrEmpty(fb.castVfxAddress))
         {
-            SpawnCastVfxAsync(fb.castVfxAddress, fb.castVfxOffset, fb.castVfxEuler, fb.castVfxSpace, fb.castVfxScale, _currentData.Duration, fb.castVfxTiming).Forget();
+            float castTiming = castImmediate ? 0f : fb.castVfxTiming;
+            SpawnCastVfxAsync(fb.castVfxAddress, fb.castVfxOffset, fb.castVfxEuler, fb.castVfxSpace, fb.castVfxScale, _currentData.Duration, castTiming).Forget();
         }
         _vfx?.PlaySwingTrails(fb.swingTrailIds);
         App.PlaySfx(fb.swingSfx, transform.position);
+    }
 
+    // 예약된 예고 leadTime이 있으면 첫타 windup(0~timing)을 그만큼 늘리도록 설정한다.
+    // 애니 재생속도를 낮추고 바닥 데칼을 띄우며, 돌진은 hitbox 발동까지 미룬다.
+    private void SetupWindup(SO_Attack_Data attack)
+    {
+        _windupActive = false;
+        _windupStretch = 1f;
+        _deferLungeUntilHitbox = false;
+        _playerAnimator?.SetAttackSpeedScale(1f);
+
+        float leadTime = _pendingTelegraphLeadTime;
+        _pendingTelegraphLeadTime = 0f;
+        if (leadTime <= 0f) return;
+
+        float windup = attack.Duration * attack.Hitbox.timing;
+        if (windup <= 0.01f) return; // 즉발(timing≈0) 공격은 늘릴 windup이 없다
+
+        // leadTime은 "최소 예고 시간". windup이 이미 그보다 길면 늘리지 않고(stretch=1) 원래 windup 동안 예고만 띄운다.
+        _windupStretch = Mathf.Max(1f, leadTime / windup);
+        _windupActive = true;
+        if (_windupStretch > 1f)
+            _playerAnimator?.SetAttackSpeedScale(1f / _windupStretch);
+        _deferLungeUntilHitbox = HasMeaningfulLunge(attack.Lunge);
+
+        _telegraph ??= GetComponent<Character_AttackTelegraph>();
+        _telegraph?.Show(attack, _pendingTelegraphColor, leadTime);
+    }
+
+    // 돌진/대시처럼 시전자를 이동시키는 lunge인가(Slam은 별도 강하 로직이라 제외).
+    private static bool HasMeaningfulLunge(AttackLungeData lunge)
+        => lunge.moveType != AttackMoveType.None
+           && lunge.moveType != AttackMoveType.Slam
+           && lunge.distance > 0.01f;
+
+    // windup 구간이면 dt를 stretch만큼 늦추고 데칼 진행도를 갱신한다.
+    // hitbox 발동 시점(timing 도달)에 정상 속도로 복귀하고 미뤘던 돌진을 시작한다.
+    private float TickWindup(float gdt)
+    {
+        if (!_windupActive) return gdt;
+
+        float startElapsed = _currentData.Duration * _currentData.Hitbox.timing;
+        float elapsed = _currentData.Duration - Mathf.Max(0f, _attackTimer);
+        if (elapsed < startElapsed)
+        {
+            float progress = startElapsed > 0.0001f ? Mathf.Clamp01(elapsed / startElapsed) : 1f;
+            _telegraph?.Tick(progress);
+            // 늘릴 때만 느린 dt, 이미 충분히 길면(stretch=1) 정상 속도로 진행하되 예고는 그대로 표시.
+            return _windupStretch > 1f ? gdt / _windupStretch : gdt;
+        }
+
+        EndWindup();
+        return gdt;
+    }
+
+    // windup 종료: 정상 속도 복귀 + 데칼 끄기 + 미뤘던 돌진/대시 VFX 시작.
+    private void EndWindup()
+    {
+        if (!_windupActive) return;
+        _windupActive = false;
+        _windupStretch = 1f;
+        _playerAnimator?.SetAttackSpeedScale(1f);
+        _telegraph?.Hide();
+
+        if (_deferLungeUntilHitbox)
+        {
+            _deferLungeUntilHitbox = false;
+            // 제자리 예비 후 "확 돌진": 잔여 공격 시간에 맞춰 lunge를 압축하고, speedCurve의 뒤쪽 몰림을 무시(선형)해
+            // hitbox와 동시에 즉시 돌진하도록 한다. 안 그러면 lunge가 공격이 끝난 뒤에야 이동한다.
+            AttackLungeData lunge = _currentData.Lunge;
+            if (_attackTimer > 0.05f && lunge.duration > _attackTimer)
+                lunge.duration = _attackTimer;
+            lunge.speedCurve = null;
+            _moveController?.StartLunge(transform.forward, lunge);
+            if (ShouldPlayDashVfx(lunge))
+            {
+                _vfx?.PlayDashStart(transform.forward);
+                _attackMoveVfxPlaying = true;
+            }
+        }
+
+        // windup 동안 미뤘던 스윙 연출(트레일·SFX·cast VFX)을 실제 휘두름 시점에 시작한다.
+        PlayCastAndSwingFeedback(castImmediate: true);
+    }
+
+    // windup 도중 공격이 취소될 때 정리(속도·데칼·미룬 돌진 상태 원복).
+    private void CancelWindup()
+    {
+        _pendingTelegraphLeadTime = 0f;
+        if (!_windupActive && _windupStretch <= 1f && !_deferLungeUntilHitbox) return;
+        _windupActive = false;
+        _windupStretch = 1f;
+        _deferLungeUntilHitbox = false;
+        _playerAnimator?.SetAttackSpeedScale(1f);
+        _telegraph?.Hide();
     }
 
     private void OnAttackEnd()
@@ -449,8 +591,10 @@ public partial class Character_AttackController : LoopMonoBehaviour
         StopReleaseEffects();
         if (_currentData != null)
         {
-            // Release 트리거 큐가 남아 있으면 취소 (cancelOnTickMiss 등 조기 종료 시 큐가 계속 재생되는 문제 방지)
-            if (_currentData.CameraCue.enabled && _currentData.CameraCue.trigger == AttackCueTrigger.Release)
+            // Release 트리거 큐가 남아 있으면 취소 (cancelOnTickMiss 등 조기 종료 시 큐가 계속 재생되는 문제 방지).
+            // 컷인은 로컬 플레이어만 재생하므로 취소도 플레이어만 — 적 공격 종료가 플레이어의 활성 컷인을 끊지 않게.
+            if (PlayerController.IsLocalPlayer(_actionHandler)
+                && _currentData.CameraCue.enabled && _currentData.CameraCue.trigger == AttackCueTrigger.Release)
                 Game.CancelCameraCutIn();
             PlayAttackCameraCue(_currentData, AttackCueTrigger.End);
             _vfx?.StopSwingTrails(_currentData.Feedback.swingTrailIds);
@@ -534,6 +678,10 @@ public partial class Character_AttackController : LoopMonoBehaviour
                 _extraNextHitboxElapsed[i] = 0f;
             }
         _attackHitRegistry.Clear();
+        _windupActive = false;
+        _windupStretch = 1f;
+        _deferLungeUntilHitbox = false;
+        _playerAnimator?.SetAttackSpeedScale(1f);
         StopAttackMoveVfx(false);
         _vfx?.StopAllSwingTrails();
         _playerAnimator?.ReleaseLocomotion();
@@ -542,6 +690,7 @@ public partial class Character_AttackController : LoopMonoBehaviour
     public void CancelAttack()
     {
         _attackTimer = 0f;
+        CancelWindup();
         _moveController?.StopLunge();
         _slamDescending = false;
         _playerAnimator?.ExitAttack();
@@ -549,7 +698,8 @@ public partial class Character_AttackController : LoopMonoBehaviour
         StopReleaseEffects();
         if (_currentData != null)
         {
-            if (_currentData.CameraCue.enabled)
+            // 컷인은 로컬 플레이어만 재생/취소(적 공격 취소가 플레이어의 활성 컷인을 끊지 않게).
+            if (PlayerController.IsLocalPlayer(_actionHandler) && _currentData.CameraCue.enabled)
                 Game.CancelCameraCutIn();
             _vfx?.StopSwingTrails(_currentData.Feedback.swingTrailIds);
         }
@@ -682,14 +832,20 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _skillSequenceAnyHit |= didHit;
         if (!didHit) return false;
 
-        if (!_hitCameraCuePlayed)
-        {
-            _hitCameraCuePlayed = true;
-            PlayAttackCameraCue(data, AttackCueTrigger.Hit);
-        }
-
         CombatOnHit.ApplyAttackerGains(data, finalDamage, _actionHandler, _playerStats != null ? _playerStats.GaugeGainPerDamage : 0f);
-        CombatOnHit.TriggerHitstop(data.HitEffects.hitstop, destroyCancellationToken).Forget();
+
+        // 플레이어 시점 juice(컷인·카메라 셰이크·전역 히트스톱)는 로컬 플레이어가 때렸을 때만.
+        // 적/아군 AI 공격은 SFX/VFX만(이미터에서) 나오고 화면을 흔들거나 시간을 멈추지 않는다.
+        if (PlayerController.IsLocalPlayer(_actionHandler))
+        {
+            if (!_hitCameraCuePlayed)
+            {
+                _hitCameraCuePlayed = true;
+                PlayAttackCameraCue(data, AttackCueTrigger.Hit);
+            }
+            CombatFeedback.PlayHitCameraShake(data);
+            CombatOnHit.TriggerHitstop(data.HitEffects.hitstop, destroyCancellationToken).Forget();
+        }
         return true;
     }
 
@@ -715,12 +871,6 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _skillSequenceAnyHit |= didHit;
         if (!didHit) return false;
 
-        if (!_hitCameraCuePlayed)
-        {
-            _hitCameraCuePlayed = true;
-            PlayAttackCameraCue(data, AttackCueTrigger.Hit);
-        }
-
         CombatOnHit.ApplyAttackerGains(data, finalDamage, _actionHandler, _playerStats != null ? _playerStats.GaugeGainPerDamage : 0f);
 
         if (data.Lunge.stopOnHit)
@@ -729,12 +879,25 @@ public partial class Character_AttackController : LoopMonoBehaviour
             StopAttackMoveVfx(true);
         }
 
-        CombatOnHit.TriggerHitstop(data.HitEffects.hitstop, destroyCancellationToken).Forget();
+        // 플레이어 시점 juice는 로컬 플레이어가 때렸을 때만(적/아군 AI 공격은 SFX/VFX만).
+        if (PlayerController.IsLocalPlayer(_actionHandler))
+        {
+            if (!_hitCameraCuePlayed)
+            {
+                _hitCameraCuePlayed = true;
+                PlayAttackCameraCue(data, AttackCueTrigger.Hit);
+            }
+            CombatFeedback.PlayHitCameraShake(data);
+            CombatOnHit.TriggerHitstop(data.HitEffects.hitstop, destroyCancellationToken).Forget();
+        }
         return true;
     }
 
     public void UpdateLookDirection(Vector3 worldInput)
     {
+        // windup(예고) 중엔 조준 방향을 잠근다. 시작 시 확정한 방향을 입력이 덮어쓰지 못하게 해
+        // 예고 데칼이 가리킨 방향과 실제 공격(돌진 포함) 방향을 일치시킨다.
+        if (_windupActive) return;
         _pendingLookDirection = worldInput;
     }
 

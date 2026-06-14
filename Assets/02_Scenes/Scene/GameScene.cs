@@ -11,6 +11,7 @@ public class GameScene : SceneBase
     private const string DefaultPlayerDataKey = "SO_Player_Data";
     private Elite_Manager _eliteManager;
     private SectorBattleManager _sectorBattleManager;
+    private PlayerController _playerController;
     private Character_Vitals _playerVitals;
     private bool _gameEnded; // 승패 확정 1회 가드(사망·전멸·승리 중 먼저 온 것).
 
@@ -25,7 +26,7 @@ public class GameScene : SceneBase
         var catalog = await App.LoadAssetAsync<SO_Sector_Catalog>("SO_Sector_Catalog", token: token);
         
         var generator = new SectorGenerator(
-            sectorCount: 20,
+            sectorCount: 2,
             gridSize: new Vector2Int(8, 6),
             cellSize: 200f,
             extraConnectionCount: 2,
@@ -67,8 +68,12 @@ public class GameScene : SceneBase
         _eliteManager = new Elite_Manager(
             sectorManager, generator.Map, _sectorBattleManager, battleSettings);
 
+        // 본진 결전: 플레이어가 적 본진(침식 앵커)에 진입하면 살아있는 적 엘리트가 전원 소집된다.
+        // SeedStartRoster보다 먼저 호출 — 보스(Boss 역할)를 시작부터 본진에 직접 스폰하려면 capital이 확정돼 있어야 한다.
+        _eliteManager.SetCapital(erosion.EnemyHome);
+
         // 시작 엘리트를 각 진영 영역 전체에 분산 배치(본진 1곳 집중 대신) → 시작부터 영역을 지키는 상태.
-        // 이후 매크로 AI가 역할대로 정렬한다(Defender=허브, Vanguard=전선 강습 등).
+        // 이후 매크로 AI가 역할대로 정렬한다(Defender=허브, Vanguard=전선 강습 등). 보스만 본진에 고정 스폰.
         if (startSettings != null)
         {
             List<Sector> allySectors = CollectErosionSectors(erosion, NavFaction.Ally);
@@ -76,9 +81,6 @@ public class GameScene : SceneBase
             _eliteManager.SeedStartRoster(startSettings.allyElites, allySectors, NavFaction.Ally);
             _eliteManager.SeedStartRoster(startSettings.enemyElites, enemySectors, NavFaction.Enemy);
         }
-
-        // 본진 결전: 플레이어가 적 본진(침식 앵커)에 진입하면 살아있는 적 엘리트가 전원 소집된다.
-        _eliteManager.SetCapital(erosion.EnemyHome);
 
         // 승리: 본진 결전에서 소집된 적 엘리트 전멸.
         _eliteManager.SiegeWon += OnSiegeWon;
@@ -97,12 +99,15 @@ public class GameScene : SceneBase
         GameObject playerGo = await CharacterSpawner.SpawnPrefabAsync(
             playerData, new SpawnRequest(spawnPosition, Vector3.forward, generator.StartSector), token);
 
-        Player_Actor player = playerGo != null ? playerGo.GetComponent<Player_Actor>() : null;
-        if (player == null)
+        if (playerGo == null)
         {
             Debug.LogError("[GameScene] 플레이어 소환에 실패했습니다.");
             return;
         }
+
+        // '플레이어' = 자율(AI 기본) 캐릭터에 입력·카메라·HUD·진영(Ally)을 꽂는 빙의(possession).
+        _playerController = new PlayerController();
+        _playerController.Possess(playerGo, playerData);
 
         // 패배 조건 ①: 플레이어 사망.
         _playerVitals = playerGo.GetComponent<Character_Vitals>();
@@ -112,8 +117,8 @@ public class GameScene : SceneBase
         Hud_GameScene hud = await App.ShowHud<Hud_GameScene>(token: token);
         if (hud != null)
         {
-            hud.Bind(player.GetComponent<Character_ActionHandler>());
-            hud.BindMinimap(generator.Map, player.transform, playerData);
+            hud.Bind(playerGo.GetComponent<Character_ActionHandler>());
+            hud.BindMinimap(generator.Map, playerGo.transform, playerData);
             hud.BindEliteManager(_eliteManager);
             hud.BindCapital(erosion.EnemyHome); // 결전 목표(본진) 미니맵 마커.
         }
@@ -124,6 +129,10 @@ public class GameScene : SceneBase
         if (_playerVitals != null)
             _playerVitals.OnDied -= OnPlayerDied;
         _playerVitals = null;
+
+        // 빙의 해제: 입력 맵·카메라 추종 정리(구 Player_Actor.OnDisable 역할).
+        _playerController?.Release();
+        _playerController = null;
 
         if (_sectorBattleManager != null)
         {

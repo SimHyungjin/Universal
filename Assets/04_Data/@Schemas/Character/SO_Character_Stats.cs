@@ -1,7 +1,7 @@
 using UnityEngine;
 
 // 모든 캐릭터(플레이어/장수)가 공유하는 전투 스탯. 바이탈/전투/이동/게이지.
-// AI·필드 같은 비전투 파라미터는 여기 두지 않는다(엘리트는 SO_Elite_Data가 따로 갖는다).
+// AI·필드 같은 비전투 파라미터는 여기 두지 않는다(SO_Character_Data.AiBrain = SO_Elite_Brain이 따로 갖는다).
 [CreateAssetMenu(fileName = "SO_Character_Stats", menuName = "Game/Character/Character Stats")]
 public sealed class SO_Character_Stats : ScriptableObject
 {

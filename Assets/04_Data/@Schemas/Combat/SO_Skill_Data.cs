@@ -18,6 +18,19 @@ public struct UltimateOverlayData
     [Min(0f)] public float fadeOutDuration;
 }
 
+// 공격 범위 예고(telegraph). 스킬 시퀀스 시작 앞에 leadTime만큼 예고 페이즈를 prepend한다.
+// leadTime 동안 시퀀스(hitbox)는 시작하지 않으므로, 즉발 공격들로 짜인 시퀀스여도 피할 시간이 생긴다.
+// 예고 범위는 attackSequence[0]의 Shape/Hitbox를 그대로 쓴다(첫타 모양만). 시전자는 예고 중 입력이 잠긴다.
+[Serializable]
+public struct AttackTelegraphData
+{
+    public bool enabled;
+    [Min(0f), Tooltip("예고 표시 시간(초). 이 시간만큼 시퀀스 시작이 지연되고 시전자는 제자리에 고정된다.")]
+    public float leadTime;
+    [Tooltip("바닥 예고 데칼 색. leadTime이 끝나갈수록 진해지며 깜빡인다.")]
+    public Color color;
+}
+
 [Serializable]
 public struct SkillCutInData
 {
@@ -55,6 +68,14 @@ public sealed class SO_Skill_Data : ScriptableObject
     [Header("Ultimate Overlay")]
     [SerializeField] private UltimateOverlayData overlay;
 
+    [Header("Telegraph")]
+    [SerializeField] private AttackTelegraphData telegraph = new()
+    {
+        enabled = false,
+        leadTime = 0.8f,
+        color = new Color(1f, 0.2f, 0.2f, 1f)
+    };
+
     [Header("Attack")]
     [SerializeField] private SO_Attack_Data[] attackSequence;
     [Tooltip("true면 각 타가 명중하지 않아도 다음 타로 진행한다(발사체/장판 등 비동기로 맞는 스킬용). false(기본)=명중해야 진행.")]
@@ -73,6 +94,7 @@ public sealed class SO_Skill_Data : ScriptableObject
     public float ResourceCost => resourceCost;
     public float InvincibleDuration => invincibleDuration;
     public UltimateOverlayData Overlay => overlay;
+    public AttackTelegraphData Telegraph => telegraph;
     public SO_Attack_Data[] AttackSequence => attackSequence;
     public bool AdvanceWithoutHit => advanceWithoutHit;
     public float SectorPowerBonus => sectorPowerBonus;

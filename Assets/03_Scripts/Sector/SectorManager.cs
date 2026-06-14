@@ -102,7 +102,7 @@ public class SectorManager : MonoBehaviour
 
     private async UniTask DashPlayerTo(Vector3 destination, CancellationToken ct)
     {
-        Player_Actor player = FindAnyObjectByType<Player_Actor>();
+        Character_PlayerControl player = FindAnyObjectByType<Character_PlayerControl>();
         if (player == null) return;
 
         Transform playerTransform = player.transform;

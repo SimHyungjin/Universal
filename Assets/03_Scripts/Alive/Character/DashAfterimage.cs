@@ -34,9 +34,9 @@ public sealed class DashAfterimage : MonoBehaviour, IPoolable
             part.Transform.gameObject.SetActive(active);
             if (!active) continue;
 
-            source.BakeMesh(part.Mesh);
+            source.BakeMesh(part.Mesh, true);
             part.Transform.SetPositionAndRotation(source.transform.position, source.transform.rotation);
-            part.Transform.localScale = source.transform.lossyScale;
+            part.Transform.localScale = Vector3.one;
             part.Renderer.sharedMaterials = BuildMaterialArray(material, source.sharedMaterials.Length);
             part.Renderer.enabled = true;
         }

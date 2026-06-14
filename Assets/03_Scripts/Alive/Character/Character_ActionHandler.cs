@@ -170,17 +170,17 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
             _vitals = gameObject.AddComponent<Character_Vitals>();
         if (_breakOutline == null)
             _breakOutline = gameObject.AddComponent<Character_BreakOutlineController>();
-        _commandSource = ResolveCommandSource();
+        // 기본 커맨드 소스 = 프리팹에 구워진 자율 소스(Elite_AICommandSource). 플레이어 빙의는
+        // PlayerController가 SetCommandSource로 플레이어 입력을 덮어쓴다(automode면 다시 AI 소스로 환원).
+        _commandSource = GetComponent<Character_CommandSource>();
 
         ApplyCharacterData(_characterData);
         _attackController.SetCommandSource(_commandSource);
         _animator.SetCommandSource(_commandSource);
 
-        // 플레이어는 Ally. 엘리트(장수)는 진영·스탯을 Elite_Embodiment.Bind가 Elite_State 기준으로 주입하므로
-        // 여기서 Configure하지 않는다. 여기서 잠정 Enemy로 Configure하면 Bind 전 한 프레임 동안
-        // Character_EcsBridge가 Enemy로 발행해 아군 엘리트가 입장 순간 아군 잡몹의 적으로 오인된다.
-        // Configure 전까지는 Vitals.FactionResolved=false → Bridge가 HasValue=0으로 타겟 후보에서 제외한다.
-        ApplyVitalsDataIfOwnedByActionHandler();
+        // 진영/스탯(Vitals)은 주입자가 ConfigureVitals로 넣는다: 플레이어=PlayerController.Possess(Ally),
+        // 엘리트=Elite_Embodiment.Bind(Elite_State 기준). 그 전까지 Vitals.FactionResolved=false →
+        // Character_EcsBridge가 "진영 미확정"으로 보고 잡몹 타겟·타격 후보에서 제외한다(입장 첫 프레임 오인 방지).
         _vitals.OnDied += EnterDead;
     }
 
@@ -201,7 +201,6 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         if (clearEquippedLoadout)
             _equippedLoadout = null;
         ApplyCharacterData(_characterData);
-        ApplyVitalsDataIfOwnedByActionHandler();
     }
 
     public void SetEquippedLoadout(SO_Character_Loadout loadout)
@@ -229,17 +228,20 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         ApplyActiveLoadout();
     }
 
-    private void ApplyVitalsDataIfOwnedByActionHandler()
+    // 진영·스탯을 Vitals에 주입한다(진영 주입 = FactionResolved 게이트 해제). 호출자가 진영을 정한다:
+    // 플레이어=PlayerController.Possess(Ally), 엘리트=Elite_Embodiment.Bind(Elite_State.Faction, 직전 체력).
+    // 스탯/브레이크 값은 SetCharacterData로 적용된 자기 데이터(statsData/breakFeel)에서 온다.
+    public void ConfigureVitals(NavFaction faction, float? startHealth = null)
     {
-        if (_vitals == null || TryGetComponent(out Elite_Embodiment _))
+        if (_vitals == null)
             return;
 
-        NavFaction faction = TryGetComponent(out Player_Actor _) ? NavFaction.Ally : NavFaction.Enemy;
         _vitals.Configure(
             statsData != null ? statsData.MaxHealth : 100f,
             statsData != null ? statsData.Defense : 0f,
             statsData != null ? statsData.GaugeMax : 100f,
             faction,
+            startHealth,
             bodyRadius: statsData != null ? statsData.BodyRadius : 0.5f,
             breakMax: statsData != null ? statsData.BreakMax : 0f,
             breakRecoveryDelay: BreakRecoveryDelay,
@@ -405,9 +407,11 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         float resolvedDamage = alreadyBroken ? damage * BrokenDamageTakenMultiplier : damage;
         ApplyDamage(resolvedDamage);
         if (_state == Character_ActionState.Dead) return;
-        bool broken = _vitals != null && _vitals.ApplyBreakDamage(resolvedDamage + Mathf.Max(0f, superArmorBreak));
+        // 브레이크 게이지는 체력 데미지와 독립 — 오직 공격의 superArmorBreak(SO_Attack_Data.superArmor.breakPower)만큼만 깎인다.
+        bool broken = _vitals != null && _vitals.ApplyBreakDamage(Mathf.Max(0f, superArmorBreak));
         AddGauge(statsData != null ? statsData.GaugeGainOnReceive : 0f);
-        TriggerHitstop(hitstop);
+        // 전역 히트스톱(슬로모)은 "로컬 플레이어가 때렸을 때"만 — 공격자측(CombatOnHit, IsLocalPlayer 게이트)이 담당한다.
+        // 피격자측에서 걸면 적이 플레이어/유닛을 때릴 때도 시간이 멈추므로(ECS 잡몹 공격 포함) 여기선 걸지 않는다.
 
         // 브레이크 "터진 순간" 1회 연출은 아래 반응 라우팅보다 먼저, 여기서 발사한다.
         // (공중 저글링 중 브레이크는 juggle 유지 분기에서 일찍 return하므로 그 뒤에 두면 큐가 누락된다.)
@@ -455,7 +459,12 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
 
         // 강한 넉백/튕김이 직후 들어오는 약한 후속타(메인 repeat 등)에 즉시 지워지지 않게 한다.
         // (Taunt 끝 extra force:30 → 직후 메인 force:10이 덮어쓰는 문제 방지)
-        float forcedSpeed = Mathf.Max(0f, knockback.force);
+        // 음수 force = "당김": 방향을 공격자 쪽(radial 반전)으로 뒤집고 크기는 절댓값으로 쓴다.
+        // 캐릭터 넉백은 방향+양수 스칼라 모델이라 음수를 부호로 못 싣는다(ECS는 dir*force라 음수 그대로 안쪽).
+        // 절댓값을 쓰므로 아래 "강한 넉백 보존"(magnitude 비교)·감쇠도 그대로 일관된다.
+        if (knockback.force < 0f)
+            direction = -direction;
+        float forcedSpeed = Mathf.Abs(knockback.force);
         if (!alreadyBroken && IsHitReactionState(_state) && forcedSpeed < _forcedSpeed)
             forcedSpeed = _forcedSpeed;
 
@@ -484,7 +493,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
             return;
         }
 
-        bool hasKnockback = knockback.force > 0f;
+        bool hasKnockback = Mathf.Abs(knockback.force) > 0f; // 음수(당김)도 넉백 상태로 — forced 속도가 TickKnockback에서 소비돼야 당겨진다.
         SetState(hasKnockback ? Character_ActionState.Knockback : Character_ActionState.Hitstun);
         PlayHitReaction(hasKnockback ? HitReactionKind.HeavyHit : HitReactionKind.LightHit);
     }
@@ -786,16 +795,6 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
             _jumpBufferTimer = JumpBufferTime;
     }
 
-    private Character_CommandSource ResolveCommandSource()
-    {
-        if (TryGetComponent(out Player_Actor _))
-        {
-            Player_InputCommandSource playerSource = GetComponent<Player_InputCommandSource>();
-            return playerSource != null ? playerSource : gameObject.AddComponent<Player_InputCommandSource>();
-        }
-
-        return GetComponent<Character_CommandSource>();
-    }
 
     private Vector3 GetMoveWorld()
         => _commandSource != null ? _commandSource.MoveWorld : Vector3.zero;

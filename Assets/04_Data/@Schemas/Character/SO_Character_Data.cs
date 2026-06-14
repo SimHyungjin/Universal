@@ -22,6 +22,11 @@ public sealed class SO_Character_Data : ScriptableObject, IPrefabCharacterArchet
     [SerializeField] private SO_Character_Stats statsData;
     [SerializeField] private SO_Character_Loadout defaultLoadout;
 
+    [Header("AI")]
+    [Tooltip("이 캐릭터가 AI로 굴 때(엘리트 또는 automode)의 행동·nav·필드 이동 파라미터. " +
+             "플레이어 빙의 중엔 Elite_Brain이 꺼져 무시된다. 캐릭터 정체성의 일부(느린 골렘 vs 공격적 듀얼리스트).")]
+    [SerializeField] private SO_Elite_Brain aiBrain;
+
     [Header("Common")]
     [SerializeField] private SO_Actor_AnimationData animationData;
     [SerializeField] private SO_Character_LocomotionFeel locomotionFeel;
@@ -41,6 +46,7 @@ public sealed class SO_Character_Data : ScriptableObject, IPrefabCharacterArchet
     public BattleRole BattleRole => battleRole;
 
     public AssetReferenceGameObject Prefab => prefab;
+    public SO_Elite_Brain AiBrain => aiBrain;
     public SO_Character_Stats StatsData => statsData;
     public SO_Character_Loadout DefaultLoadout => defaultLoadout;
     public SO_Actor_AnimationData AnimationData => animationData;
