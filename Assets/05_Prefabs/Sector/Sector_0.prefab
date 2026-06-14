@@ -588,20 +588,20 @@ MonoBehaviour:
     Cost: 1
     Shapes:
     - Points:
-      - {x: 4, y: -28}
-      - {x: 4, y: 28}
-      - {x: 24, y: 28}
-      - {x: 24, y: -28}
+      - {x: 5, y: -27}
+      - {x: 5, y: 27}
+      - {x: 23, y: 27}
+      - {x: 23, y: -27}
     - Points:
-      - {x: -28, y: -28}
-      - {x: -28, y: -16}
-      - {x: 4, y: -16}
-      - {x: 4, y: -28}
+      - {x: -27, y: -27}
+      - {x: -27, y: -17}
+      - {x: 5, y: -17}
+      - {x: 5, y: -27}
     - Points:
-      - {x: -16, y: 8}
-      - {x: -16, y: 28}
-      - {x: 4, y: 28}
-      - {x: 4, y: 8}
+      - {x: -15, y: 9}
+      - {x: -15, y: 27}
+      - {x: 5, y: 27}
+      - {x: 5, y: 9}
     Obstacles: []
   transitions: []
   ObstacleLayerMask:
@@ -946,7 +946,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 1, y: 20, z: 22}
+  m_Size: {x: 1, y: 40, z: 22}
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!1 &3063287434248460444
 GameObject:
@@ -1225,7 +1225,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 56, y: 20, z: 1}
+  m_Size: {x: 56, y: 40, z: 1}
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!1 &4285001047059607733
 GameObject:
@@ -1391,7 +1391,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 33, y: 20, z: 1}
+  m_Size: {x: 33, y: 40, z: 1}
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!1 &4749634237920248275
 GameObject:
@@ -1610,7 +1610,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 1, y: 20, z: 24}
+  m_Size: {x: 1, y: 40, z: 24}
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!1 &5392825252199019408
 GameObject:
@@ -1776,7 +1776,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 21, y: 20, z: 1}
+  m_Size: {x: 21, y: 40, z: 1}
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!1 &6299984951734368040
 GameObject:
@@ -1829,7 +1829,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 1, y: 20, z: 16}
+  m_Size: {x: 1, y: 40, z: 16}
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!1 &7046976544368764998
 GameObject:
@@ -1882,7 +1882,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 1, y: 20, z: 60}
+  m_Size: {x: 1, y: 40, z: 60}
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!1 &7097772978840705269
 GameObject:
@@ -1969,7 +1969,7 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 44, y: 20, z: 1}
+  m_Size: {x: 44, y: 40, z: 1}
   m_Center: {x: 0, y: 0, z: 0}
 --- !u!1 &8580396335187627169
 GameObject:

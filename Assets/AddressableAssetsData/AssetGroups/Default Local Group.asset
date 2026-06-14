@@ -20,11 +20,6 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 0c034b3579ac8d949a31a04046c57e9b
-    m_Address: Effole 1
-    m_ReadOnly: 0
-    m_SerializedLabels: []
-    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 0fd41faf8901e154cb92fd6c6c278198
     m_Address: Assets/05_Prefabs/Alive/Elite/Effole.prefab
     m_ReadOnly: 0

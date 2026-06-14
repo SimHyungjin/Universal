@@ -16,17 +16,13 @@ MonoBehaviour:
   defaultSectorCapacity: 0
   allyComposition: {fileID: 11400000, guid: 15bd8dcc0a08a6941b1b658e3a15e256, type: 2}
   enemyComposition: {fileID: 11400000, guid: 6f0c783088fbbc6429f9982a51e8d9a2, type: 2}
-  allyElites:
-  - data: {fileID: 11400000, guid: 7a83c6f55c29b594a8d5295f8f2b5a32, type: 2}
-    faction: 0
-    count: 0
-  - data: {fileID: 11400000, guid: 29e687713edebcb4d913864108e688c8, type: 2}
-    faction: 0
-    count: 0
-  - data: {fileID: 11400000, guid: ae74759be11f78c429438fef5fba6b38, type: 2}
-    faction: 0
-    count: 0
+  allyElites: []
   enemyElites:
-  - data: {fileID: 11400000, guid: 77d65b0c0a3915d46bd7cc54faf3a609, type: 2}
+  - character: {fileID: 11400000, guid: bd2eee321f7bf32488a72c5cc92d1a1b, type: 2}
     faction: 1
-    count: 10
+    count: 1
+    isBoss: 0
+  - character: {fileID: 11400000, guid: 6cb8d6db13e4b6e46b2996bd3a55fb29, type: 2}
+    faction: 1
+    count: 0
+    isBoss: 1

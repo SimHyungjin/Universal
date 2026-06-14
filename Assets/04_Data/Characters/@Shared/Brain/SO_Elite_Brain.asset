@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fdf07260dac560e4d9d298d5cd23b011, type: 3}
+  m_Name: SO_Elite_Brain
+  m_EditorClassIdentifier: Assembly-CSharp::SO_Elite_Stats
+  agentRadius: 1
+  stopDistance: 0.08
+  aggroRange: 18
+  attackRangePadding: 0
+  attackCooldown: 1.2
+  targetRefreshInterval: 0.2
+  preferredRangeRatio: 1.15
+  closeRangeRatio: 0.45
+  skillThinkInterval: 0.35
+  comboPressInterval: 0.14
+  strafeInterval: 1.2
+  lowHealthAggressionThreshold: 0.55
+  criticalHealthAggressionThreshold: 0.25
+  fieldMoveSpeed: 35
+  fieldThinkInterval: 5
