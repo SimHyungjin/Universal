@@ -1,0 +1,35 @@
+320	480	Frank_Rogue_Equip_Idle
+		
+		<Combination>
+500	736	Frank_Rogue_Combination_01_All
+800	1000	Frank_Rogue_Combination_02_All
+1100	1358	Frank_Rogue_Combination_03_All
+1460	1705	Frank_Rogue_Combination_04_All
+1860	2095	Frank_Rogue_Combination_05_All
+2200	2405	Frank_Rogue_Combination_06_All
+		
+		
+		<Combination Split>
+2700	2770	Frank_Rogue_Combination_01_1
+2800	2881	Frank_Rogue_Combination_01_2
+2900	3043	Frank_Rogue_Combination_01_3
+		
+3160	3250	Frank_Rogue_Combination_02_1
+3270	3363	Frank_Rogue_Combination_02_2
+3390	3474	Frank_Rogue_Combination_02_3
+		
+3600	3673	Frank_Rogue_Combination_03_1
+3700	3780	Frank_Rogue_Combination_03_2
+3800	3885	Frank_Rogue_Combination_03_3
+3900	4016	Frank_Rogue_Combination_03_4
+		
+4120	4218	Frank_Rogue_Combination_04_1
+4260	4336	Frank_Rogue_Combination_04_2
+4380	4514	Frank_Rogue_Combination_04_3
+		
+4620	4747	Frank_Rogue_Combination_05_1
+4800	4949	Frank_Rogue_Combination_05_2
+		
+5060	5143	Frank_Rogue_Combination_06_1
+5170	5262	Frank_Rogue_Combination_06_2
+5290	5396	Frank_Rogue_Combination_06_3

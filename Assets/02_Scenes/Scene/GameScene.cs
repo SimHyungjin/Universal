@@ -95,7 +95,7 @@ public class GameScene : SceneBase
 
         // 데이터 기반 소환: 선택된 캐릭터 SO를 받아 그 프리팹(SO.Prefab) 참조를 실체화한다.
         // TODO: 캐릭터 선택 UI가 생기면 그 결과로 키/SO를 교체. 당장은 기본 캐릭터를 로드.
-        var playerData = await App.LoadAssetAsync<SO_Character_Data>(DefaultPlayerDataKey, token: token);
+        var playerData = await App.LoadAssetAsync<SO_Character_Data>("SO_Character_Data_Dual", token: token);
         GameObject playerGo = await CharacterSpawner.SpawnPrefabAsync(
             playerData, new SpawnRequest(spawnPosition, Vector3.forward, generator.StartSector), token);
 
