@@ -1,7 +1,7 @@
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 
-// SO_Attack_Data.Projectile 설정으로 스폰되는 직선 발사체. 매 게임 프레임 전방으로 이동하며
+// AttackProjectileDelivery(delivery 이벤트) 설정으로 스폰되는 직선 발사체. 매 게임 프레임 전방으로 이동하며
 // 자기 위치에서 AttackHitEmitter로 잡몹(ECS)·장수(GameObject)를 동시에 판정한다.
 // 데미지/넉백/launch/진영은 공격자가 스폰 시 주입한 값을 그대로 쓴다(근접과 동일 SO 출처).
 [DisallowMultipleComponent]
@@ -27,6 +27,14 @@ public sealed class Projectile_Hitbox : LoopMonoBehaviour, IPoolable
     private bool _spawnFieldOnImpact;
     private AttackHitboxData _hitbox;
     private AttackShapeData _shape;
+    private AttackHitInfo _hitInfo;
+    private HitType _hitType;
+    private AttackHitResultData _hitResult;
+    private AttackFieldDelivery _impactField;
+    private AttackHitResultData _impactFieldHitResult;
+    private float _impactFieldDuration;
+    private float _impactFieldFinalDamage;
+    private bool _useDeliveryImpactField;
 
     private Vector3 _startPos;
     private float _elapsed;
@@ -39,35 +47,45 @@ public sealed class Projectile_Hitbox : LoopMonoBehaviour, IPoolable
         _particles = GetComponentsInChildren<ParticleSystem>(true);
     }
 
-    public void Launch(SO_Attack_Data data, float finalDamage, in RangedOwner owner, Vector3 direction, bool spawnFieldOnImpact = false)
+    public void Launch(
+        SO_Attack_Data data,
+        in AttackProjectileDelivery delivery,
+        in AttackHitResultData hitResult,
+        float finalDamage,
+        in RangedOwner owner,
+        Vector3 direction,
+        bool spawnFieldOnImpact = false,
+        AttackFieldDelivery impactField = default,
+        AttackHitResultData impactFieldHitResult = default,
+        float impactFieldDuration = 0f,
+        float impactFieldFinalDamage = 0f)
     {
         _data = data;
         _finalDamage = finalDamage;
         _owner = owner;
         _spawnFieldOnImpact = spawnFieldOnImpact;
+        _impactField = impactField;
+        _impactFieldHitResult = impactFieldHitResult;
+        _impactFieldDuration = impactFieldDuration;
+        _impactFieldFinalDamage = impactFieldFinalDamage;
+        _useDeliveryImpactField = spawnFieldOnImpact && !string.IsNullOrEmpty(impactField.prefabAddress);
         _direction = direction.sqrMagnitude > 0.0001f ? direction.normalized : transform.forward;
 
-        AttackProjectileData proj = data.Projectile;
-        _speed = proj.speed;
-        _maxDistanceSq = proj.maxDistance * proj.maxDistance;
-        _lifetime = proj.lifetime;
-        _pierce = proj.pierce;
-
-        // 히트 볼륨은 발사체 자기 위치 중심. offset/yOffset 0으로 두고 SO의 shape·수직 허용범위를 쓴다.
-        _shape = data.Shape;
-        _hitbox = new AttackHitboxData
-        {
-            timing = 0f,
-            offset = 0f,
-            yOffset = 0f,
-            verticalTolerance = data.Hitbox.verticalTolerance
-        };
+        _speed = delivery.speed;
+        _maxDistanceSq = delivery.maxDistance * delivery.maxDistance;
+        _lifetime = delivery.lifetime;
+        _pierce = delivery.pierce;
+        _shape = delivery.shape;
+        _hitbox = delivery.hitbox;
+        _hitInfo = AttackHitInfo.FromHitResult(hitResult);
+        _hitType = hitResult.hitType;
+        _hitResult = hitResult;
 
         _startPos = transform.position;
         _elapsed = 0f;
         _hitCuePlayed = false;
         _registry.Clear();
-        ClearVfx(); // 텔레포트 직후(위치는 컨트롤러가 이미 설정) 이전 위치 잔상 제거
+        ClearVfx();
         _active = true;
     }
 
@@ -95,8 +113,11 @@ public sealed class Projectile_Hitbox : LoopMonoBehaviour, IPoolable
         // registry를 유지하므로 관통 시에도 같은 적을 1회만 타격한다.
         bool hit = _emitter.Emit(
             transform.position, _direction, _hitbox, _shape,
-            AttackHitInfo.FromMain(_data), _data.HitType, _finalDamage,
-            _owner.Faction, _owner.Entity, _registry, scope: 1, hitSameTargetOnce: true, _data);
+            _hitInfo, _hitType, _finalDamage,
+            _owner.Faction, _owner.Entity, _registry, scope: 1, hitSameTargetOnce: true, _data,
+            useFeedbackOverride: true,
+            hitSfxOverride: _hitResult.hitSfx,
+            hitVfxOverride: _hitResult.hitVfxAddress);
 
         if (hit)
             ApplyOnHitEffects();
@@ -118,7 +139,7 @@ public sealed class Projectile_Hitbox : LoopMonoBehaviour, IPoolable
     // 로컬 플레이어가 쏜 것일 때만(적/아군 AI 발사체는 SFX/VFX만 — 화면 흔들기·시간 정지 없음).
     private void ApplyOnHitEffects()
     {
-        CombatOnHit.ApplyAttackerGains(_data, _finalDamage, _owner.Handler, _owner.GaugeGainPerDamage);
+        CombatOnHit.ApplyAttackerGains(_hitResult.lifeSteal, _finalDamage, _owner.Handler, _owner.GaugeGainPerDamage);
 
         if (!PlayerController.IsLocalPlayer(_owner.Handler))
             return;
@@ -126,10 +147,12 @@ public sealed class Projectile_Hitbox : LoopMonoBehaviour, IPoolable
         if (!_hitCuePlayed)
         {
             _hitCuePlayed = true;
-            CombatOnHit.PlayHitCameraCue(_data);
+            if (_hitResult.cameraCue.enabled)
+                CombatOnHit.PlayCameraCue(_hitResult.cameraCue, _data.TotalDuration);
         }
-        CombatFeedback.PlayHitCameraShake(_data);
-        CombatOnHit.TriggerHitstop(_data.HitEffects.hitstop, destroyCancellationToken).Forget();
+        if (_hitResult.cameraShake.enabled)
+            App.ShakeCamera(_hitResult.cameraShake.amplitude, _hitResult.cameraShake.duration, _hitResult.cameraShake.frequency);
+        CombatOnHit.TriggerHitstop(_hitResult.hitstop, destroyCancellationToken).Forget();
     }
 
     private void Expire()
@@ -138,20 +161,19 @@ public sealed class Projectile_Hitbox : LoopMonoBehaviour, IPoolable
         _active = false;
 
         // 투척 폭발: 도착/적중 위치에 SO의 장판을 생성. 값은 인자로 캡처해 despawn 후에도 안전하게 스폰한다.
-        if (_spawnFieldOnImpact && _data.Field.enabled && !string.IsNullOrEmpty(_data.Field.prefabAddress))
-            SpawnImpactFieldAsync(_data, _finalDamage, _owner, transform.position, _direction).Forget();
+        if (_spawnFieldOnImpact && _useDeliveryImpactField)
+            SpawnImpactFieldAsync(_data, _impactField, _impactFieldHitResult, _impactFieldDuration, _impactFieldFinalDamage, _owner, transform.position, _direction).Forget();
 
         App.Despawn(gameObject);
     }
 
     private static async UniTaskVoid SpawnImpactFieldAsync(
-        SO_Attack_Data data, float finalDamage, RangedOwner owner, Vector3 position, Vector3 forward)
+        SO_Attack_Data data, AttackFieldDelivery delivery, AttackHitResultData hitResult, float duration, float finalDamage, RangedOwner owner, Vector3 position, Vector3 forward)
     {
-        Field_Hitbox field = await App.SpawnAsync<Field_Hitbox>(data.Field.prefabAddress);
+        Field_Hitbox field = await App.SpawnAsync<Field_Hitbox>(delivery.prefabAddress);
         if (field == null) return;
         field.transform.position = position;
-        // 임팩트 장판은 고정 위치(추종 없음).
-        field.Activate(data, finalDamage, owner, forward, null);
+        field.Activate(data, delivery, hitResult, duration, finalDamage, owner, forward, null);
     }
 
     public void OnSpawn() { }
@@ -159,6 +181,7 @@ public sealed class Projectile_Hitbox : LoopMonoBehaviour, IPoolable
     public void OnDespawn()
     {
         _active = false;
+        _useDeliveryImpactField = false;
         _registry.Clear();
         ClearVfx(); // 회수 시에도 비워 다음 재사용 때 잔상이 남지 않게 한다
     }

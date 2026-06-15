@@ -32,12 +32,17 @@ public sealed class AttackHitEmitter
         in AttackHitInfo hit, HitType hitType, float finalDamage,
         NavFaction attackerFaction, Entity attackerEntity,
         AttackHitRegistry registry, int scope, bool hitSameTargetOnce,
-        SO_Attack_Data feedbackData)
+        SO_Attack_Data feedbackData,
+        bool useFeedbackOverride = false,
+        SfxType hitSfxOverride = SfxType.None,
+        string hitVfxOverride = null)
     {
         bool didHit = EmitToHitTargets(origin, forward, hitbox, shape, hit, finalDamage,
-            attackerFaction, registry, scope, hitSameTargetOnce, feedbackData);
+            attackerFaction, registry, scope, hitSameTargetOnce, feedbackData,
+            useFeedbackOverride, hitSfxOverride, hitVfxOverride);
         didHit |= EmitToEcs(origin, forward, hitbox, shape, hit, hitType, finalDamage,
-            attackerFaction, attackerEntity, registry, scope, hitSameTargetOnce, feedbackData);
+            attackerFaction, attackerEntity, registry, scope, hitSameTargetOnce, feedbackData,
+            useFeedbackOverride, hitSfxOverride, hitVfxOverride);
         return didHit;
     }
 
@@ -48,7 +53,10 @@ public sealed class AttackHitEmitter
         in AttackHitInfo hit, float finalDamage,
         NavFaction attackerFaction,
         AttackHitRegistry registry, int scope, bool hitSameTargetOnce,
-        SO_Attack_Data feedbackData)
+        SO_Attack_Data feedbackData,
+        bool useFeedbackOverride,
+        SfxType hitSfxOverride,
+        string hitVfxOverride)
     {
         Vector3 center = AttackShapeUtility.GetQueryCenter(origin, forward, hitbox, shape);
         float queryRadius = AttackShapeUtility.GetQueryRadius(hitbox, shape);
@@ -71,7 +79,7 @@ public sealed class AttackHitEmitter
                 continue;
 
             target.ReceiveHit(origin, forward, hit, finalDamage);
-            SpawnHitFeedback(feedbackData, targetPoint);
+            SpawnHitFeedback(feedbackData, targetPoint, useFeedbackOverride, hitSfxOverride, hitVfxOverride);
             didHit = true;
         }
 
@@ -89,7 +97,10 @@ public sealed class AttackHitEmitter
         in AttackHitInfo hit, HitType hitType, float finalDamage,
         NavFaction attackerFaction, Entity attackerEntity,
         AttackHitRegistry registry, int scope, bool hitSameTargetOnce,
-        SO_Attack_Data feedbackData)
+        SO_Attack_Data feedbackData,
+        bool useFeedbackOverride,
+        SfxType hitSfxOverride,
+        string hitVfxOverride)
     {
         if (!EnsureHitQuery()) return false;
 
@@ -207,7 +218,7 @@ public sealed class AttackHitEmitter
                 _em.SetComponentData(entities[i], health);
             }
 
-            SpawnHitFeedback(feedbackData, unitPos);
+            SpawnHitFeedback(feedbackData, unitPos, useFeedbackOverride, hitSfxOverride, hitVfxOverride);
             ApplyForcedAggro(entities[i], attackerEntity);
             didHit = true;
         }
@@ -302,11 +313,16 @@ public sealed class AttackHitEmitter
         return true;
     }
 
-    private static void SpawnHitFeedback(SO_Attack_Data data, Vector3 position)
+    private static void SpawnHitFeedback(
+        SO_Attack_Data data,
+        Vector3 position,
+        bool useFeedbackOverride = false,
+        SfxType hitSfxOverride = SfxType.None,
+        string hitVfxOverride = null)
     {
         position.y += HitVfxHeightOffset;
         // 발사체/장판은 호출 측 destroyCancellationToken이 없으므로 풀 토큰(Scene)에 묶이는 None을 쓴다.
-        CombatFeedback.PlayHitFeedback(data, position, default);
+        CombatFeedback.PlayHitFeedback(hitSfxOverride, hitVfxOverride, position, default);
     }
 
     public void Dispose()

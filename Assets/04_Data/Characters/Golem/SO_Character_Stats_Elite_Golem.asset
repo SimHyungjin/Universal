@@ -15,10 +15,10 @@ MonoBehaviour:
   maxHealth: 5000
   attackPower: 20
   defense: 0
-  breakMax: 300
+  breakMax: 3000
   moveSpeed: 3
   bodyRadius: 2
   gaugeMax: 100
   gaugeGainPerDamage: 0.5
   gaugeGainOnReceive: 15
-  baseSectorPower: 500
+  baseSectorPower: 0

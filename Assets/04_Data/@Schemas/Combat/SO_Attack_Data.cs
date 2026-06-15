@@ -14,15 +14,6 @@ public enum HitType
     Pierce = 3
 }
 
-public enum AttackMoveType
-{
-    Lunge     = 0,
-    Dash      = 1,
-    RushTrack = 2,
-    None      = 3,
-    Slam      = 4  // 공중에서 지면으로 급강하. distance = 하강 속도(m/s), 착지 순간 hitbox 발동.
-}
-
 public enum AttackShape
 {
     Sphere = 0,
@@ -43,7 +34,7 @@ public enum AttackCueTrigger
     End = 2
 }
 
-// 장판(AttackFieldData)이 스폰되는 위치 기준.
+// 장판(AttackFieldDelivery)이 스폰되는 위치 기준.
 public enum FieldOrigin
 {
     // attacker 전방으로 forwardOffset만큼 떨어진 고정 지점. (followAttacker로 추종 가능)
@@ -60,6 +51,57 @@ public enum CastVfxSpace
     Actor = 1
 }
 
+public enum AttackAnimationTimingMode
+{
+    PlayAtNormalSpeed = 0,
+    ScaleToAttackDuration = 1,
+    UseFixedSpeed = 2
+}
+
+public enum AttackDeliveryType
+{
+    Melee = 0,
+    Projectile = 1,
+    Field = 2
+}
+
+public enum AttackProjectileAimMode
+{
+    Forward = 0,
+    InputDirection = 1,
+    AutoTarget = 2,
+    NearestTarget = 3
+}
+
+public enum AttackHitDeduplication
+{
+    None = 0,
+    OncePerDeliveryEvent = 1,
+    OncePerAttack = 2
+}
+
+public enum AttackMovementType
+{
+    Lunge = 0,
+    // 1, 2 = (구) Dash/RushTrack 제거됨 — 전진 이동은 Lunge(음수=후진)로 통합, 텔레그래프 레인은 repeat+이동으로 판정.
+    SelfJump = 3,
+    Suspend = 4,
+    Slam = 5
+}
+
+public enum AttackFeedbackTrigger
+{
+    Timeline = 0,
+    DeliveryFire = 1 // delivery의 히트박스가 발동하는 순간(명중 여부 무관). 명중 시 연출은 hitResult가 담당.
+}
+
+public enum AttackFeedbackVfxOrigin
+{
+    Actor = 0,
+    WorldAtActor = 1,
+    DeliveryCenter = 2
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 1 — Setup: 공격 발동 전 단계
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,61 +111,35 @@ public struct AttackAnimationData
 {
     public string stateName;
     public float transition;
+    public AttackAnimationTimingMode timingMode;
+    [Min(0f)] public float speed;
+    [Range(0f, 1f)] public float startNormalizedTime;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 2 — Movement: 공격자 자신의 이동
 // ─────────────────────────────────────────────────────────────────────────────
 
+// 수평 전진 이동(lunge). distance를 duration 동안 speedCurve로 보간. 음수 distance=후진.
 [Serializable]
 public struct AttackLungeData
 {
-    public AttackMoveType moveType;
     public float distance;
     public float duration;
     public AnimationCurve speedCurve;
-    public bool stopOnHit;
-    [Tooltip("Slam 전용: 초기 하강 속도 (m/s). distance/duration은 수평 이동에 그대로 사용.")]
-    [Min(0f)] public float slamDescentSpeed;
-}
-
-// attacker가 공격 중 자신을 수직으로 띄우는 데이터 (점프 공격). lunge(수평)과는 독립.
-// 적을 띄우는 launch와도 다른 개념 — 이건 공격자 자신의 점프. 떨어지는 시간은 중력에 의해 자동 결정.
-[Serializable]
-public struct AttackJumpData
-{
-    public bool enabled;
-    [Min(0f)] public float height;
-    public bool suspendAtApex;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 3 — Hit Detection: 히트박스 판정
+// Phase 3 — Hit Detection: 히트박스 판정 (shape/hitbox는 신규 delivery 이벤트가 공유)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// 히트 볼륨의 배치. 크기(verticalTolerance 포함)는 AttackShapeData, 타이밍은 delivery.startTime이 담당.
 [Serializable]
 public struct AttackHitboxData
 {
-    [Range(0f, 1f)]
-    public float timing;
     public float offset;
     [FormerlySerializedAs("height")]
     public float yOffset;
-    [Min(0f)]
-    public float verticalTolerance;
-}
-
-[Serializable]
-public struct AttackRepeatData
-{
-    public bool enabled;
-    [Min(0f)]
-    public float interval;
-    public bool hitSameTargetOnce;
-    [Tooltip("틱 1회 발동 시 적중 0이면 공격 즉시 종료")]
-    public bool cancelOnMiss;
-    [Tooltip("총 발동 횟수 상한(첫 발동 포함). 0=무제한(duration 동안 interval마다). 예: 2 = 딱 2발/2타.")]
-    [Min(0)] public int maxCount;
 }
 
 [Serializable]
@@ -138,28 +154,9 @@ public struct AttackShapeData
     public float length;
     [Min(0f)]
     public float width;
-}
-
-// overrideHitResult = true일 때 AttackExtraHit에서 사용하는 독립 히트 결과.
-// false면 SO_Attack_Data 최상위 damage/hitType/knockback/launch/down을 그대로 사용.
-[Serializable]
-public struct AttackExtraHitResult
-{
-    public float damage;
-    public HitType hitType;
-    public AttackKnockbackData knockback;
-    public AttackLaunchData launch;
-    public AttackDownData down;
-}
-
-// 추가 히트박스. hitbox.timing이 독립적이므로 시차 다단 히트에 사용 가능 (좌우 동시, 발+검, 다른 타이밍 후속타 등).
-[Serializable]
-public struct AttackExtraHit
-{
-    public AttackShapeData shape;
-    public AttackHitboxData hitbox;
-    public AttackRepeatData repeat;
-    public AttackExtraHitResult hitResult;
+    [Tooltip("히트 볼륨의 수직 반높이(±). 평면 footprint 밖 수직 허용 범위.")]
+    [Min(0f)]
+    public float verticalTolerance;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -174,11 +171,15 @@ public struct AttackKnockbackData
     public float friction;
 }
 
+// 전역 게임속도를 timeScale로 duration(실시간)만큼 낮췄다 복원하는 동일 프리미티브.
+// hitstop(짧은 프리즈)과 slowMo(긴 감속)가 같은 데이터를 공유 — 값(짧고 강하게 vs 길고 약하게)만 다르다.
+// 활성 판정은 duration>0로 통일(별도 enabled 없음).
 [Serializable]
-public struct AttackHitstopData
+public struct AttackTimeScaleData
 {
-    public float duration;
-    public float timeScale;
+    [FormerlySerializedAs("worldScale")]
+    [Range(0f, 1f)] public float timeScale;
+    [Min(0f)] public float duration;
 }
 
 [Serializable]
@@ -212,7 +213,6 @@ public struct AttackLifeStealData
 public struct AttackSuperArmorData
 {
     [Min(0f)] public float value;
-    [Min(0f)] public float breakPower;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -226,16 +226,6 @@ public struct AttackCameraShakeData
     [Min(0f)] public float amplitude;
     [Min(0f)] public float duration;
     [Min(0f)] public float frequency;
-}
-
-// 공격 발동 슬로모션. hitstop과 달리 더 긴 시간/덜 강한 전역 감속을 발동 시점에 적용.
-[Serializable]
-public struct AttackSlowMoData
-{
-    public bool enabled;
-    [FormerlySerializedAs("worldScale")]
-    [Range(0f, 1f)] public float timeScale;
-    [Min(0f)] public float duration;
 }
 
 [Serializable]
@@ -253,98 +243,144 @@ public struct AttackCameraCueData
     public float yawVelocity;
 }
 
-[Serializable]
-public struct AttackReleaseEffectData
-{
-    [Range(0f, 1f), Tooltip("공격 진행도 기준 release 효과 실행 시점. 0=시작, 1=공격 종료.")]
-    public float timing;
-    public AttackCameraShakeData shake;
-    public AttackSlowMoData slowMo;
-}
-
-[Serializable]
-public struct AttackHitEffectData
-{
-    public AttackCameraShakeData shake;
-    public AttackHitstopData hitstop;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 6 — Alternative Delivery: 근접 hitbox 외 공격 메커니즘
+// Timeline Schema. Runtime consumes delivery/movement events and combo queue rules.
+// Report validates reserved options that are not implemented yet.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// 발사체. attacker 전방에서 prefab을 스폰해 직선 이동시키며, 접촉 시 SO_Attack_Data의 데미지/넉백을 그대로 사용.
-// 실행은 SkillRunner가 spawner를 호출해 prefab을 띄우는 방식.
 [Serializable]
-public struct AttackProjectileData
+public struct AttackHitRepeat
 {
     public bool enabled;
-    [Tooltip("Addressable projectile prefab 주소")]
+    [Min(0f)] public float interval;
+    [Tooltip("repeat 발동 창(초). startTime부터 이 시간 동안 interval마다 발동. maxCount로 횟수 상한.")]
+    [Min(0f)] public float duration;
+    [Min(0)] public int maxCount;
+}
+
+[Serializable]
+public struct AttackMeleeDelivery
+{
+    public AttackShapeData shape;
+    public AttackHitboxData hitbox;
+    public AttackHitRepeat repeat;
+    // 흐름 정책(melee 전용): 명중 시 이동 정지 / 창 끝까지 무적중 시 공격 조기 종료.
+    public AttackDeliveryFlow flow;
+}
+
+[Serializable]
+public struct AttackProjectileDelivery
+{
     public string prefabAddress;
+    public AttackShapeData shape;
+    public AttackHitboxData hitbox;
+    public Vector3 spawnOffset;
     [Min(0f)] public float speed;
     [Min(0f)] public float maxDistance;
     [Min(0f)] public float lifetime;
-    [Tooltip("attacker forward 방향 기준 스폰 오프셋")]
-    public Vector3 spawnOffset;
-    [Tooltip("true면 적중해도 소멸하지 않고 lifetime/maxDistance까지 관통하며 각 적을 1회 타격한다. false면 첫 적중 시 소멸.")]
     public bool pierce;
-    [Tooltip("한 번에 발사할 발사체 수. 1=단발.")]
     [Min(1)] public int count;
-    [Tooltip("멀티샷 퍼짐 각도(도). count>1일 때 전방 기준 부채꼴로 균등 분산. 0=평행 동일방향, 360 이상=전방위 균등.")]
     [Range(0f, 360f)] public float spreadAngle;
+    public AttackProjectileAimMode aimMode;
 }
 
-// 지속 장판/소환. attacker가 지정 위치에 prefab을 스폰하고 일정 시간 유지. tickInterval마다 데미지 판정.
-// 데미지/넉백은 SO_Attack_Data의 기본값. shape/hitbox도 공유.
 [Serializable]
-public struct AttackFieldData
+public struct AttackFieldDelivery
 {
-    public bool enabled;
-    [Tooltip("Addressable field prefab 주소")]
     public string prefabAddress;
-    [Tooltip("스폰 위치 기준. ForwardOffset=전방 고정거리, AimTarget=조준/최근접 적 위치, ProjectileImpact=발사체 도착 위치")]
+    public AttackShapeData shape;
+    public AttackHitboxData hitbox;
     public FieldOrigin origin;
-    [Min(0f)] public float duration;
+    [Tooltip("장판 지속 시간(초).")]
+    [Min(0f)] public float lifetime;
     [Min(0.01f)] public float tickInterval;
-    [Tooltip("ForwardOffset 모드: 전방 스폰 거리. AimTarget 모드: 타겟 탐색 최대 사거리.")]
     public float forwardOffset;
-    [Tooltip("ForwardOffset 모드에서만 의미. true면 장판이 attacker를 추종한다.")]
     public bool followAttacker;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 7 — Feedback: 시각/음향 피드백
-// ─────────────────────────────────────────────────────────────────────────────
-
 [Serializable]
-public struct AttackFeedbackData
+public struct AttackHitResultData
 {
-    [Header("Cast")]
-    [Tooltip("공격 발동 시 스폰되는 Addressable VFX 주소")]
-    public string castVfxAddress;
-    [Range(0f, 1f)]
-    public float castVfxTiming;
-    [Tooltip("플레이어 위치 기준 로컬 오프셋 (플레이어 forward/right/up 기준)")]
-    public Vector3 castVfxOffset;
-    public Vector3 castVfxEuler;
-    public CastVfxSpace castVfxSpace;
-    public Vector3 castVfxScale;
-
-    [Header("Swing")]
-    [Tooltip("WeaponRoot 자식 TrailRenderer GameObject 이름 목록. 비어 있으면 트레일을 켜지 않음.")]
-    public string[] swingTrailIds;
-    public SfxType swingSfx;
-
-    [Header("Timing")]
-    [Tooltip("히트박스 발동 시점에 스폰되는 Addressable VFX 주소. 적중 여부 무관.")]
-    public string timingVfxAddress;
-    [Tooltip("히트박스 중심 기준 로컬 오프셋 (플레이어 forward/right/up 기준)")]
-    public Vector3 timingVfxOffset;
-
-    [Header("Hit")]
-    [Tooltip("적 피격 시 피격 위치에 스폰되는 Addressable VFX 주소")]
+    public float damage;
+    [Tooltip("슈퍼아머 관통(인터럽트) 임계. 상대 슈퍼아머 value보다 크면 행동을 끊는다.")]
+    [FormerlySerializedAs("breakDamage")]
+    [Min(0f)] public float superArmorBreak;
+    [Tooltip("그로기(break) 게이지 누적량. 게이지 고갈 시 Broken.")]
+    [Min(0f)] public float breakGaugeDamage;
+    public HitType hitType;
+    public AttackKnockbackData knockback;
+    public AttackLaunchData targetLaunch;
+    public AttackDownData landingDown;
+    public AttackLifeStealData lifeSteal;
     public string hitVfxAddress;
     public SfxType hitSfx;
+    public AttackTimeScaleData hitstop;
+    public AttackCameraShakeData cameraShake;
+    public AttackCameraCueData cameraCue;
+}
+
+[Serializable]
+public struct AttackDeliveryFlow
+{
+    public bool endAttackIfNoHitByEventEnd;
+    public bool stopMovementOnHit;
+}
+
+[Serializable]
+public struct AttackDeliveryEvent
+{
+    public string label;
+    public bool enabled;
+    [Min(0f)] public float startTime;
+    public AttackDeliveryType type;
+    public AttackMeleeDelivery melee;
+    public AttackProjectileDelivery projectile;
+    public AttackFieldDelivery field;
+    public AttackHitDeduplication dedupe;
+    public AttackHitResultData hitResult;
+}
+
+[Serializable]
+public struct AttackMovementEvent
+{
+    public string label;
+    public bool enabled;
+    [Min(0f)] public float startTime;
+    [Min(0f)] public float duration;
+    public AttackMovementType type;
+    [Tooltip("Lunge 전진 거리. 음수=후진(백스텝). Slam/SelfJump/Suspend에선 미사용.")]
+    public float distance;
+    [Tooltip("Slam 하강 속도(m/s). Lunge/SelfJump/Suspend에선 미사용.")]
+    [Min(0f)] public float speed;
+    [Min(0f)] public float height;
+    public AnimationCurve curve;
+}
+
+[Serializable]
+public struct AttackFeedbackEvent
+{
+    public string label;
+    public bool enabled;
+    public AttackFeedbackTrigger trigger;
+    [Min(0f)] public float startTime;
+    [Tooltip("스폰한 (Actor 공간) VFX를 이 시각(공격 진행 elapsed)에 디스폰. 0이면 공격 종료까지/VFX 자체 수명 유지.")]
+    [Min(0f)] public float endTime;
+    [Min(-1)] public int deliveryIndex;
+    public bool localPlayerOnly;
+    public bool deferUntilWindupEnd;
+    [Tooltip("이 이벤트 창(startTime~endTime) 동안 모션 잔상을 연속 방출. endTime<=0이면 공격 종료에서 정지. Timeline 트리거 전용.")]
+    public bool motionAfterimages;
+
+    public string vfxAddress;
+    public AttackFeedbackVfxOrigin vfxOrigin;
+    public Vector3 vfxOffset;
+    public Vector3 vfxEuler;
+    public Vector3 vfxScale;
+
+    public SfxType sfx;
+    public AttackCameraShakeData cameraShake;
+    public AttackTimeScaleData slowMo;
+    public AttackCameraCueData cameraCue;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -352,182 +388,276 @@ public struct AttackFeedbackData
 // ─────────────────────────────────────────────────────────────────────────────
 
 [CreateAssetMenu(fileName = "SO_Attack_Data", menuName = "Game/Combat/Attack Data")]
-public sealed class SO_Attack_Data : ScriptableObject, ISerializationCallbackReceiver
+public sealed class SO_Attack_Data : ScriptableObject
 {
-    // ── Phase 1: Setup ───────────────────────────────────────────────────────
+    public const int CurrentSchemaVersion = 2;
+
+    [SerializeField, HideInInspector] private int schemaVersion;
+
+    // ── Setup ────────────────────────────────────────────────────────────────
+    // 공격 식별·스칼라: 애니메이션, 전체 길이, 시전자 poise(슈퍼아머).
     [Header("Setup")]
     [SerializeField] private AttackAnimationData animation = new()
     {
         stateName = "Attack0",
-        transition = 0.05f
+        transition = 0.05f,
+        timingMode = AttackAnimationTimingMode.PlayAtNormalSpeed,
+        speed = 1f
     };
-
-    // ── Phase 2: Movement ────────────────────────────────────────────────────
-    [Header("Movement")]
-    [SerializeField] private AttackLungeData lunge = new()
-    {
-        moveType = AttackMoveType.Lunge,
-        distance = 0.8f,
-        duration = 0.12f
-    };
-    [SerializeField] private AttackJumpData jump = new()
-    {
-        enabled = false,
-        height = 2f
-    };
-
-    // ── Phase 3: Hit Detection ───────────────────────────────────────────────
-    [Header("Hit Detection")]
-    [SerializeField] private float duration = 0.4f;
-    [SerializeField] private AttackShapeData shape = new()
-    {
-        type = AttackShape.Sphere,
-        radius = 1.5f,
-        angle = 90f,
-        length = 3f,
-        width = 2f
-    };
-    [SerializeField] private AttackHitboxData hitbox = new()
-    {
-        timing = 0.4f,
-        offset = 1.0f,
-        yOffset = 0.8f,
-        verticalTolerance = 1.5f
-    };
-    [SerializeField] private AttackRepeatData repeat = new()
-    {
-        interval = 0.05f,
-        hitSameTargetOnce = true
-    };
-    [SerializeField] private AttackExtraHit[] additionalHits;
-
-    // ── Phase 4: Hit Result ──────────────────────────────────────────────────
-    [Header("Hit Result")]
-    [SerializeField] private float damage = 10f;
-    [SerializeField] private HitType hitType = HitType.Slash;
-    [SerializeField] private AttackKnockbackData knockback = new()
-    {
-        force = 6f,
-        friction = 12f
-    };
-    [SerializeField] private AttackLaunchData launch = new()
-    {
-        enabled = false,
-        height = 1.5f
-    };
-    [SerializeField] private AttackDownData down = new()
-    {
-        enabled = false,
-        duration = 0.5f
-    };
-    [SerializeField] private AttackLifeStealData lifeSteal = new()
-    {
-        enabled = false,
-        ratio = 0.1f,
-        maxPerHit = 0f
-    };
+    [SerializeField, Min(0f)] private float totalDuration = 0.4f;
+    // 시전자 자신의 poise(슈퍼아머). delivery 단위가 아니라 공격 전체에 걸리므로 여기 둔다.
     [SerializeField] private AttackSuperArmorData superArmor;
 
-    // ── Alternative Delivery ─────────────────────────────────────────────────
-    [Header("Alternative Delivery")]
-    [SerializeField] private AttackProjectileData projectile = new()
-    {
-        enabled = false,
-        speed = 15f,
-        maxDistance = 12f,
-        lifetime = 1.5f,
-        count = 1
-    };
-    [SerializeField] private AttackFieldData field = new()
-    {
-        enabled = false,
-        duration = 3f,
-        tickInterval = 0.5f,
-        forwardOffset = 2f
-    };
-    [Tooltip("발사체/장판이 enabled여도 근접 메인 hitbox를 함께 발동한다(예: 검 휘두르며 충격파). 기본 false=발사체/장판만 나가고 근접 판정은 스킵.")]
-    [SerializeField] private bool meleeAlongsideDelivery;
+    // ── Timeline ─────────────────────────────────────────────────────────────
+    [Header("Timeline")]
+    [SerializeField] private AttackDeliveryEvent[] deliveryEvents;
+    [SerializeField] private AttackMovementEvent[] movementEvents;
+    [SerializeField] private AttackFeedbackEvent[] feedbackEvents;
 
-    // ── Feedback ─────────────────────────────────────────────────────────────
-    [Header("Feedback")]
-    [SerializeField] private AttackFeedbackData feedback;
-
-    // ── Global Effects ───────────────────────────────────────────────────────
-    [Header("Global Effects")]
-    [SerializeField] private AttackReleaseEffectData releaseEffects;
-    [SerializeField] private AttackHitEffectData hitEffects;
-
-    // ── Camera ───────────────────────────────────────────────────────────────
-    [Header("Camera")]
-    [SerializeField] private AttackCameraCueData cameraCue;
-
-    // 레거시 필드 — ISerializationCallbackReceiver를 통해 feedback으로 1회 이관 후 비워짐
-    [SerializeField, HideInInspector] private string hitVfxAddress;
-    [SerializeField, HideInInspector] private SfxType hitSfx = SfxType.None;
-
-    // ── Properties (필드와 동일한 순서) ─────────────────────────────────────
-    // Setup
+    // ── Properties ───────────────────────────────────────────────────────────
+    public int SchemaVersion => schemaVersion;
     public AttackAnimationData Animation => animation;
-    // Movement
-    public AttackLungeData Lunge => lunge;
-    public AttackJumpData Jump => jump;
-    // Hit Detection
-    public float Duration => duration;
-    public AttackShapeData Shape => shape;
-    public AttackHitboxData Hitbox => hitbox;
-    public AttackRepeatData Repeat => repeat;
-    public AttackExtraHit[] AdditionalHits => additionalHits;
-    // Hit Result
-    public float Damage => damage;
-    public HitType HitType => hitType;
-    public AttackKnockbackData Knockback => knockback;
-    public AttackHitstopData Hitstop => hitEffects.hitstop;
-    public AttackDownData Down => down;
-    public AttackLaunchData Launch => launch;
-    public AttackLifeStealData LifeSteal => lifeSteal;
+    public float TotalDuration => totalDuration;
     public AttackSuperArmorData SuperArmorData => superArmor;
     public float SuperArmor => superArmor.value;
-    public float SuperArmorBreak => superArmor.breakPower;
-    // Alternative Delivery
-    public AttackProjectileData Projectile => projectile;
-    public AttackFieldData Field => field;
-    public bool MeleeAlongsideDelivery => meleeAlongsideDelivery;
-    // Feedback
-    public AttackFeedbackData Feedback => feedback;
-    public string HitVfxAddress => feedback.hitVfxAddress;
-    public SfxType HitSfx => feedback.hitSfx;
-    // Global Effects
-    public AttackReleaseEffectData ReleaseEffects => releaseEffects;
-    public AttackHitEffectData HitEffects => hitEffects;
-    public AttackCameraShakeData CameraShake => hitEffects.shake;
-    public AttackSlowMoData SlowMo => releaseEffects.slowMo;
-    // Camera
-    public AttackCameraCueData CameraCue => cameraCue;
-
-    public void OnBeforeSerialize() { }
-
-    public void OnAfterDeserialize()
-    {
-        // 레거시 top-level 필드에 값이 남아 있으면 feedback 구조체로 이관
-        if (!string.IsNullOrEmpty(hitVfxAddress))
-        {
-            if (string.IsNullOrEmpty(feedback.hitVfxAddress))
-                feedback.hitVfxAddress = hitVfxAddress;
-            hitVfxAddress = null;
-        }
-        if (hitSfx != SfxType.None)
-        {
-            if (feedback.hitSfx == SfxType.None)
-                feedback.hitSfx = hitSfx;
-            hitSfx = SfxType.None;
-        }
-    }
-
+    public AttackDeliveryEvent[] DeliveryEvents => deliveryEvents;
+    public AttackMovementEvent[] MovementEvents => movementEvents;
+    public AttackFeedbackEvent[] FeedbackEvents => feedbackEvents;
+    public bool HasDeliveryEvents => deliveryEvents != null && deliveryEvents.Length > 0;
+    public bool HasMovementEvents => movementEvents != null && movementEvents.Length > 0;
+    public bool HasFeedbackEvents => feedbackEvents != null && feedbackEvents.Length > 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AttackShapeUtility — 히트박스 도형 판정 헬퍼 (NavAttackResolveSystem과 로직 미러)
 // ─────────────────────────────────────────────────────────────────────────────
+
+public static class AttackTimelineUtility
+{
+    public static float GetDuration(SO_Attack_Data attack)
+        => attack != null ? Mathf.Max(0.01f, attack.TotalDuration) : 0f;
+
+    // 컷인 취소 가드용: 이 공격이 지정 트리거의 카메라 큐를 들고 있는지(연출 자체는 feedback/hit 경로가 재생).
+    public static bool HasCameraCue(SO_Attack_Data attack, AttackCueTrigger trigger)
+    {
+        if (attack == null) return false;
+        AttackFeedbackEvent[] events = attack.FeedbackEvents;
+        if (events != null)
+            for (int i = 0; i < events.Length; i++)
+                if (events[i].enabled && events[i].cameraCue.enabled && events[i].cameraCue.trigger == trigger)
+                    return true;
+        if (trigger == AttackCueTrigger.Hit)
+        {
+            AttackDeliveryEvent[] deliveries = attack.DeliveryEvents;
+            if (deliveries != null)
+                for (int i = 0; i < deliveries.Length; i++)
+                    if (deliveries[i].enabled && deliveries[i].hitResult.cameraCue.enabled
+                        && deliveries[i].hitResult.cameraCue.trigger == AttackCueTrigger.Hit)
+                        return true;
+        }
+        return false;
+    }
+
+    public static bool HasAnyCameraCue(SO_Attack_Data attack)
+    {
+        if (attack == null) return false;
+        AttackFeedbackEvent[] events = attack.FeedbackEvents;
+        if (events != null)
+            for (int i = 0; i < events.Length; i++)
+                if (events[i].enabled && events[i].cameraCue.enabled)
+                    return true;
+        AttackDeliveryEvent[] deliveries = attack.DeliveryEvents;
+        if (deliveries != null)
+            for (int i = 0; i < deliveries.Length; i++)
+                if (deliveries[i].enabled && deliveries[i].hitResult.cameraCue.enabled)
+                    return true;
+        return false;
+    }
+
+    public static bool TryGetFirstEnabledDelivery(
+        SO_Attack_Data attack,
+        out AttackDeliveryEvent delivery,
+        out AttackHitboxData hitbox,
+        out AttackShapeData shape)
+    {
+        if (attack != null && attack.HasDeliveryEvents)
+        {
+            AttackDeliveryEvent[] deliveries = attack.DeliveryEvents;
+            int selectedIndex = -1;
+            float selectedStartTime = float.MaxValue;
+            for (int i = 0; i < deliveries.Length; i++)
+            {
+                if (!deliveries[i].enabled || deliveries[i].startTime >= selectedStartTime) continue;
+                selectedIndex = i;
+                selectedStartTime = deliveries[i].startTime;
+            }
+            if (selectedIndex >= 0)
+            {
+                delivery = deliveries[selectedIndex];
+                ResolveDeliveryHitVolume(delivery, out hitbox, out shape);
+                return true;
+            }
+        }
+
+        delivery = default;
+        hitbox = default;
+        shape = default;
+        return false;
+    }
+
+    public static float GetFirstDeliveryStartTime(SO_Attack_Data attack)
+    {
+        if (TryGetFirstEnabledDelivery(attack, out AttackDeliveryEvent delivery, out _, out _))
+            return Mathf.Max(0f, delivery.startTime);
+        return GetDuration(attack);
+    }
+
+    public static bool TryGetPrimaryHitVolume(SO_Attack_Data attack, out AttackHitboxData hitbox, out AttackShapeData shape)
+    {
+        if (attack != null && attack.HasDeliveryEvents)
+        {
+            AttackDeliveryEvent[] deliveries = attack.DeliveryEvents;
+            for (int pass = 0; pass < 3; pass++)
+            {
+                AttackDeliveryType preferred = pass switch
+                {
+                    0 => AttackDeliveryType.Melee,
+                    1 => AttackDeliveryType.Field,
+                    _ => AttackDeliveryType.Projectile
+                };
+                for (int i = 0; i < deliveries.Length; i++)
+                {
+                    AttackDeliveryEvent delivery = deliveries[i];
+                    if (!delivery.enabled || delivery.type != preferred) continue;
+                    ResolveDeliveryHitVolume(delivery, out hitbox, out shape);
+                    return true;
+                }
+            }
+        }
+
+        hitbox = default;
+        shape = default;
+        return false;
+    }
+
+    public static float GetTargetingRange(SO_Attack_Data attack)
+    {
+        if (attack == null) return 0f;
+        float range = 0f;
+        AttackDeliveryEvent[] deliveries = attack.DeliveryEvents;
+        for (int i = 0; i < deliveries.Length; i++)
+        {
+            AttackDeliveryEvent delivery = deliveries[i];
+            if (!delivery.enabled) continue;
+            float deliveryRange = delivery.type switch
+            {
+                AttackDeliveryType.Projectile => ResolveProjectileRange(delivery.projectile),
+                AttackDeliveryType.Field => ResolveFieldRange(delivery.field),
+                _ => delivery.melee.hitbox.offset + AttackShapeUtility.GetPlanarReach(delivery.melee.shape)
+            };
+            range = Mathf.Max(range, deliveryRange);
+        }
+        return range;
+    }
+
+    public static float GetMaxForwardMovementDistance(SO_Attack_Data attack)
+    {
+        if (attack == null) return 0f;
+        float distance = 0f;
+        AttackMovementEvent[] movements = attack.MovementEvents;
+        if (movements == null) return 0f;
+        for (int i = 0; i < movements.Length; i++)
+            if (movements[i].enabled && IsForwardMovement(movements[i].type))
+                distance = Mathf.Max(distance, Mathf.Max(0f, movements[i].distance));
+        return distance;
+    }
+
+    // 다단(repeat) 멜리 delivery가 있는지 — 텔레그래프 레인(휩쓸기 경로) 판정용.
+    public static bool HasRepeatingMeleeDelivery(SO_Attack_Data attack)
+    {
+        if (attack == null) return false;
+        AttackDeliveryEvent[] deliveries = attack.DeliveryEvents;
+        if (deliveries == null) return false;
+        for (int i = 0; i < deliveries.Length; i++)
+            if (deliveries[i].enabled
+                && deliveries[i].type == AttackDeliveryType.Melee
+                && deliveries[i].melee.repeat.enabled)
+                return true;
+        return false;
+    }
+
+    public static bool HasSelfJump(SO_Attack_Data attack)
+    {
+        if (attack == null) return false;
+        AttackMovementEvent[] movements = attack.MovementEvents;
+        if (movements == null) return false;
+        for (int i = 0; i < movements.Length; i++)
+            if (movements[i].enabled && movements[i].type == AttackMovementType.SelfJump)
+                return true;
+        return false;
+    }
+
+    public static bool TryGetFirstProjectile(SO_Attack_Data attack, out AttackProjectileDelivery projectile)
+    {
+        if (attack != null && attack.HasDeliveryEvents)
+        {
+            AttackDeliveryEvent[] deliveries = attack.DeliveryEvents;
+            for (int i = 0; i < deliveries.Length; i++)
+                if (deliveries[i].enabled && deliveries[i].type == AttackDeliveryType.Projectile)
+                {
+                    projectile = deliveries[i].projectile;
+                    return true;
+                }
+        }
+        projectile = default;
+        return false;
+    }
+
+    public static float GetProjectileRange(AttackProjectileDelivery projectile)
+        => ResolveProjectileRange(projectile);
+
+    private static float ResolveProjectileRange(AttackProjectileDelivery projectile)
+    {
+        float maxDistance = Mathf.Max(0f, projectile.maxDistance);
+        float lifetimeDistance = projectile.speed > 0f && projectile.lifetime > 0f
+            ? projectile.speed * projectile.lifetime
+            : 0f;
+        if (maxDistance > 0f && lifetimeDistance > 0f)
+            return Mathf.Min(maxDistance, lifetimeDistance);
+        return Mathf.Max(maxDistance, lifetimeDistance);
+    }
+
+    private static float ResolveFieldRange(AttackFieldDelivery field)
+        => field.origin == FieldOrigin.ProjectileImpact
+            ? 0f
+            : Mathf.Max(0f, field.forwardOffset) + AttackShapeUtility.GetPlanarReach(field.shape);
+
+    private static void ResolveDeliveryHitVolume(
+        AttackDeliveryEvent delivery,
+        out AttackHitboxData hitbox,
+        out AttackShapeData shape)
+    {
+        if (delivery.type == AttackDeliveryType.Projectile)
+        {
+            hitbox = delivery.projectile.hitbox;
+            shape = delivery.projectile.shape;
+            return;
+        }
+        if (delivery.type == AttackDeliveryType.Field)
+        {
+            hitbox = delivery.field.hitbox;
+            if (delivery.field.origin == FieldOrigin.ForwardOffset)
+                hitbox.offset += delivery.field.forwardOffset;
+            shape = delivery.field.shape;
+            return;
+        }
+        hitbox = delivery.melee.hitbox;
+        shape = delivery.melee.shape;
+    }
+
+    private static bool IsForwardMovement(AttackMovementType type)
+        => type == AttackMovementType.Lunge;
+}
 
 public static class AttackShapeUtility
 {
@@ -548,7 +678,7 @@ public static class AttackShapeUtility
     public static float GetQueryRadius(AttackHitboxData hitbox, AttackShapeData shape)
     {
         float planarRadius = GetPlanarQueryRadius(shape);
-        float verticalTolerance = Mathf.Max(0f, hitbox.verticalTolerance);
+        float verticalTolerance = Mathf.Max(0f, shape.verticalTolerance);
         return Mathf.Sqrt(planarRadius * planarRadius + verticalTolerance * verticalTolerance);
     }
 
@@ -594,7 +724,7 @@ public static class AttackShapeUtility
     private static bool ContainsCone(Vector3 attackerPosition, Vector3 forward, Vector3 targetPosition, float targetRadius, AttackHitboxData hitbox, AttackShapeData shape)
     {
         Vector3 origin = attackerPosition + forward * hitbox.offset + Vector3.up * hitbox.yOffset;
-        if (!IsWithinVerticalTolerance(origin, targetPosition, targetRadius, hitbox))
+        if (!IsWithinVerticalTolerance(origin, targetPosition, targetRadius, shape))
             return false;
 
         Vector3 delta = Flatten(targetPosition - origin);
@@ -619,7 +749,7 @@ public static class AttackShapeUtility
         float length = shape.length;
         float width  = shape.width;
         Vector3 center = attackerPosition + forward * (hitbox.offset + length * 0.5f) + Vector3.up * hitbox.yOffset;
-        if (!IsWithinVerticalTolerance(center, targetPosition, targetRadius, hitbox))
+        if (!IsWithinVerticalTolerance(center, targetPosition, targetRadius, shape))
             return false;
 
         Vector3 right = new Vector3(forward.z, 0f, -forward.x);
@@ -638,7 +768,7 @@ public static class AttackShapeUtility
     private static bool ContainsSphere(Vector3 attackerPosition, Vector3 forward, Vector3 targetPosition, float targetRadius, AttackHitboxData hitbox, AttackShapeData shape)
     {
         Vector3 center = attackerPosition + forward * hitbox.offset + Vector3.up * hitbox.yOffset;
-        if (!IsWithinVerticalTolerance(center, targetPosition, targetRadius, hitbox))
+        if (!IsWithinVerticalTolerance(center, targetPosition, targetRadius, shape))
             return false;
 
         Vector3 delta = Flatten(targetPosition - center);
@@ -646,9 +776,9 @@ public static class AttackShapeUtility
         return delta.sqrMagnitude <= radius * radius;
     }
 
-    private static bool IsWithinVerticalTolerance(Vector3 origin, Vector3 targetPosition, float targetRadius, AttackHitboxData hitbox)
+    private static bool IsWithinVerticalTolerance(Vector3 origin, Vector3 targetPosition, float targetRadius, AttackShapeData shape)
     {
-        float verticalTolerance = Mathf.Max(0f, hitbox.verticalTolerance) + targetRadius;
+        float verticalTolerance = Mathf.Max(0f, shape.verticalTolerance) + targetRadius;
         return Mathf.Abs(targetPosition.y - origin.y) <= verticalTolerance;
     }
 }

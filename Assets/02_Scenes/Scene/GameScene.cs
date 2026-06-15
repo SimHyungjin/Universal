@@ -159,7 +159,7 @@ public class GameScene : SceneBase
         // 배너는 unscaledTime으로 애니메이션하므로 월드가 멎는 동안에도 정상 재생된다.
         // 연출 값은 우선 하드코딩 — 추후 점령 연출 튜닝 SO로 옮길 수 있다.
         CombatOnHit.TriggerHitstop(
-            new AttackHitstopData { duration = 0.5f, timeScale = 0.02f },
+            new AttackTimeScaleData { duration = 0.5f, timeScale = 0.02f },
             CancellationToken.None).Forget();
 
         Popup_BannerMessage.ShowAsync("SECTOR CAPTURED!").Forget();

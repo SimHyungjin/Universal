@@ -17,10 +17,6 @@ public sealed class Character_Vfx : MonoBehaviour
     [SerializeField] private float dashVfxHeight = 0.6f;
     [SerializeField] private bool rotateDashParticlesAgainstDirection = true;
 
-    [Header("Dash Trails")]
-    [SerializeField] private TrailRenderer[] dashTrails;
-    [SerializeField] private bool clearDashTrailsOnStart = true;
-
     [Header("Dash Follow Particles")]
     [SerializeField] private ParticleSystem[] dashFollowParticles;
     [SerializeField] private bool clearDashFollowParticlesOnStart = true;
@@ -50,15 +46,9 @@ public sealed class Character_Vfx : MonoBehaviour
     [SerializeField, Min(1)] private int jumpAfterimageCount = 2;
     [SerializeField, Min(0.01f)] private float jumpAfterimageInterval = 0.04f;
 
-    [Header("Swing Trails")]
-    [Tooltip("Weapon roots. Child TrailRenderers are auto-collected. Use one entry for one weapon, multiple entries for dual wield.")]
-    [SerializeField] private Transform[] weaponRoots;
-    [SerializeField] private bool clearSwingTrailsOnStart = true;
-
     private static DashAfterimage _motionAfterimagePrefab;
     private static Material _defaultAfterimageMaterial;
 
-    private TrailRenderer[] _swingTrails = Array.Empty<TrailRenderer>();
     private bool _dashAfterimagesPlaying;
     private float _dashAfterimageTimer;
     private int _jumpAfterimagesRemaining;
@@ -71,7 +61,6 @@ public sealed class Character_Vfx : MonoBehaviour
         EnsureMotionAfterimagePoolRegistered(motionAfterimagePoolSize);
         StopDash();
         StopDashFollowParticles(ParticleSystemStopBehavior.StopEmittingAndClear);
-        RefreshWeaponTrails();
     }
 
     private void Update()
@@ -80,22 +69,8 @@ public sealed class Character_Vfx : MonoBehaviour
         TickJumpAfterimages(Time.deltaTime);
     }
 
-    public void RefreshWeaponTrails()
-    {
-        System.Collections.Generic.List<TrailRenderer> trails = new();
-        if (weaponRoots != null)
-        {
-            for (int i = 0; i < weaponRoots.Length; i++)
-                AppendSwingTrails(weaponRoots[i], trails);
-        }
-
-        _swingTrails = trails.Count > 0 ? trails.ToArray() : Array.Empty<TrailRenderer>();
-        StopAllSwingTrails();
-    }
-
     public void PlayDashStart(Vector3 direction)
     {
-        SetDashTrailsEmitting(true);
         PlayDashFollowParticles();
         StartDashAfterimages();
         SpawnDashVfx(dashStartVfxAddress, direction, dashStartVfxForwardOffset);
@@ -103,7 +78,6 @@ public sealed class Character_Vfx : MonoBehaviour
 
     public void PlayDashEnd(Vector3 direction)
     {
-        SetDashTrailsEmitting(false);
         StopDashFollowParticles(dashFollowStopBehavior);
         _dashAfterimagesPlaying = false;
         SpawnDashVfx(dashEndVfxAddress, direction, dashEndVfxForwardOffset);
@@ -111,7 +85,6 @@ public sealed class Character_Vfx : MonoBehaviour
 
     public void StopDash()
     {
-        SetDashTrailsEmitting(false);
         StopDashFollowParticles(dashFollowStopBehavior);
         _dashAfterimagesPlaying = false;
     }
@@ -121,80 +94,17 @@ public sealed class Character_Vfx : MonoBehaviour
         StartJumpAfterimages();
     }
 
-    public void PlaySwingTrails(string[] ids)
+    // 연속 모션 잔상 방출 시작/정지. dash 번들(follow 파티클·start/end VFX)과 독립적으로 잔상만 켠다.
+    // 공격 feedback(motionAfterimages) 등에서 재사용.
+    public void StartMotionAfterimages()
     {
-        if (ids == null || ids.Length == 0) return;
-
-        for (int i = 0; i < _swingTrails.Length; i++)
-        {
-            TrailRenderer trail = _swingTrails[i];
-            if (trail == null || !ContainsId(ids, trail.name)) continue;
-
-            if (clearSwingTrailsOnStart)
-                trail.Clear();
-            trail.emitting = true;
-        }
+        if (!CanPlayMotionAfterimages()) return;
+        _dashAfterimagesPlaying = true;
+        _dashAfterimageTimer = 0f;
+        EmitMotionAfterimage();
     }
 
-    public void StopSwingTrails(string[] ids)
-    {
-        if (ids == null || ids.Length == 0) return;
-
-        for (int i = 0; i < _swingTrails.Length; i++)
-        {
-            TrailRenderer trail = _swingTrails[i];
-            if (trail == null || !ContainsId(ids, trail.name)) continue;
-            trail.emitting = false;
-        }
-    }
-
-    public void StopAllSwingTrails()
-    {
-        for (int i = 0; i < _swingTrails.Length; i++)
-        {
-            TrailRenderer trail = _swingTrails[i];
-            if (trail == null) continue;
-            trail.emitting = false;
-        }
-    }
-
-    private static bool ContainsId(string[] ids, string name)
-    {
-        for (int i = 0; i < ids.Length; i++)
-        {
-            if (ids[i] == name) return true;
-        }
-        return false;
-    }
-
-    private static void AppendSwingTrails(Transform root, System.Collections.Generic.List<TrailRenderer> target)
-    {
-        if (root == null) return;
-
-        TrailRenderer[] trails = root.GetComponentsInChildren<TrailRenderer>(true);
-        for (int i = 0; i < trails.Length; i++)
-        {
-            TrailRenderer trail = trails[i];
-            if (trail != null && !target.Contains(trail))
-                target.Add(trail);
-        }
-    }
-
-    private void SetDashTrailsEmitting(bool emitting)
-    {
-        if (dashTrails == null) return;
-
-        for (int i = 0; i < dashTrails.Length; i++)
-        {
-            TrailRenderer trail = dashTrails[i];
-            if (trail == null) continue;
-
-            if (emitting && clearDashTrailsOnStart)
-                trail.Clear();
-
-            trail.emitting = emitting;
-        }
-    }
+    public void StopMotionAfterimages() => _dashAfterimagesPlaying = false;
 
     private void PlayDashFollowParticles()
     {

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using MapNav.Ecs;
 using Unity.Entities;
@@ -18,9 +19,9 @@ public partial class Character_AttackController : LoopMonoBehaviour
     public bool IsInCombo   => _attackTimer > 0f || _comboTimer > 0f;
     public bool IsComboWindowOpen => _attackTimer <= 0f && _comboTimer > 0f;
     public bool IsSkillSequenceActive => _skillSequence != null;
-    public bool SuspendsAtApex => IsAttacking && _currentData != null && _currentData.Jump.suspendAtApex
-                                  && _currentData.Lunge.moveType != AttackMoveType.Slam;
-    public bool IsSlamDescending => _slamDescending && _currentData != null && _currentData.Lunge.moveType == AttackMoveType.Slam;
+    public bool SuspendsAtApex => IsAttacking && _currentData != null
+                                  && _suspendAtApexActive && !_slamDescending;
+    public bool IsSlamDescending => _slamDescending;
     public bool BlocksMovement => _attackTimer > 0f || (_comboTimer > 0f && _lockMovementDuringComboWindow);
     public bool IsSuperArmoredAgainst(float superArmorBreak)
         => IsAttacking && _currentData != null && _currentData.SuperArmor > superArmorBreak;
@@ -43,13 +44,10 @@ public partial class Character_AttackController : LoopMonoBehaviour
     private bool  _nextQueued;
     private Vector3       _pendingLookDirection;
     private SO_Attack_Data _currentData;
-    private bool          _hitboxFired;
-    private int           _hitboxFireCount;
-    private float         _nextHitboxElapsed;
-    private bool          _attackMoveVfxPlaying;
-    private AutoDespawn   _castVfxInstance;
-    private System.Threading.CancellationTokenSource _castVfxSpawnCts;
-    private System.Threading.CancellationTokenSource _releaseEffectsCts;
+    private bool          _afterimageFeedbackActive;
+    private float         _afterimageFeedbackEndElapsed; // motionAfterimages 이벤트 endTime(>0이면 그 elapsed에 정지, 0이면 공격 종료에서)
+    // 추적되는 Actor 공간 피드백 VFX. eventIndex로 소속 피드백 이벤트를 알아 endTime에 개별 디스폰한다.
+    private readonly List<(int eventIndex, AutoDespawn vfx)> _feedbackVfxInstances = new();
     private bool          _slamLandingFired;
     private bool          _slamDescending;
 
@@ -61,8 +59,15 @@ public partial class Character_AttackController : LoopMonoBehaviour
     private int             _skillSequenceIndex;
     private bool  _skillSequenceAnyHit;
     private bool _hitCameraCuePlayed;
-    private bool[]  _extraHitFired;
-    private float[] _extraNextHitboxElapsed;
+    private bool[] _deliveryStarted;
+    private bool[] _deliveryEnded;
+    private bool[] _deliveryAnyHit;
+    private int[] _deliveryFireCount;
+    private float[] _deliveryNextFireElapsed;
+    private bool[] _movementStarted;
+    private bool[] _movementEnded;
+    private bool[] _feedbackFired;
+    private bool _suspendAtApexActive;
     private readonly AttackHitRegistry _attackHitRegistry = new();
 
     // 근접·발사체·장판이 공유하는 히트 판정 구현(GameObject + ECS).
@@ -78,7 +83,6 @@ public partial class Character_AttackController : LoopMonoBehaviour
     private bool  _windupActive;          // windup(느린 예비동작) 진행 중 — 조준 잠금/데칼 표시 구간
     private float _pendingTelegraphLeadTime; // 다음 StartAttackData에서 적용할 windup 목표 길이
     private Color _pendingTelegraphColor = Color.red;
-    private bool  _deferLungeUntilHitbox; // 돌진을 windup 후(hitbox 발동 시점)로 미룸
 
     private void Awake()
     {
@@ -208,6 +212,8 @@ public partial class Character_AttackController : LoopMonoBehaviour
 
         if (_attackTimer > 0f)
         {
+            if (!CanQueueCurrentAttack())
+                return false;
             _nextQueued = true;
             return true;
         }
@@ -218,6 +224,13 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _nextQueued = false;
         StartAttack();
         return IsAttacking;
+    }
+
+    private bool CanQueueCurrentAttack()
+    {
+        // 콤보 선입력: 공격이 진행 중이면 다음 입력을 항상 버퍼링한다(공격 종료 후 자동 발사).
+        // 구 SO flow.comboQueue 창은 전 에셋이 0..totalDuration로 균일해 변별력이 없어 코드 기본규칙으로 흡수.
+        return _currentData != null;
     }
 
     protected override void OnGameUpdate(float gdt)
@@ -242,7 +255,9 @@ public partial class Character_AttackController : LoopMonoBehaviour
             if (!_slamDescending)
                 _attackTimer -= dt;
 
-            TickAttackHitbox(_currentData, dt);
+            TickMovementEvents(_currentData, dt);
+            TickFeedbackEvents(_currentData);
+            TickDeliveryEvents(_currentData);
 
             if (_attackTimer <= 0f) OnAttackEnd();
             return;
@@ -291,17 +306,6 @@ public partial class Character_AttackController : LoopMonoBehaviour
         return _commandSource != null && _commandSource.ConsumeSkill(slot);
     }
 
-    private static void ShakeOnAttackRelease(AttackReleaseEffectData release)
-    {
-        AttackCameraShakeData shake = release.shake;
-        if (!shake.enabled || shake.amplitude <= 0f || shake.duration <= 0f) return;
-
-        App.ShakeCamera(
-            shake.amplitude,
-            shake.duration,
-            shake.frequency > 0f ? shake.frequency : 25f);
-    }
-
     // 반응 루프의 반격: 퍼펙트 닷지 후 공격 버튼이 호출한다. 진행 중 동작을 끊고 반격기를 즉시 시전한다.
     // _counterAttack 미할당 시 기본 콤보 1타로 폴백(슬라이스 즉시 테스트용).
     public void TriggerCounter()
@@ -332,63 +336,6 @@ public partial class Character_AttackController : LoopMonoBehaviour
         if (attack == null) return;
 
         StartAttackData(attack);
-        ScheduleReleaseEffects(attack.ReleaseEffects, attack.Duration);
-        PlayAttackCameraCue(attack, AttackCueTrigger.Release);
-    }
-
-    private void ScheduleReleaseEffects(AttackReleaseEffectData release, float attackDuration)
-    {
-        StopReleaseEffects();
-
-        if (!HasReleaseEffects(release))
-            return;
-
-        float delay = Mathf.Max(0f, attackDuration) * Mathf.Clamp01(release.timing);
-        if (delay <= 0f)
-        {
-            PlayReleaseEffects(release);
-            return;
-        }
-
-        _releaseEffectsCts = new System.Threading.CancellationTokenSource();
-        PlayReleaseEffectsDelayed(release, delay, _releaseEffectsCts.Token).Forget();
-    }
-
-    private static bool HasReleaseEffects(AttackReleaseEffectData release)
-        => (release.shake.enabled && release.shake.amplitude > 0f && release.shake.duration > 0f)
-           || (release.slowMo.enabled && release.slowMo.duration > 0f);
-
-    private async UniTaskVoid PlayReleaseEffectsDelayed(AttackReleaseEffectData release, float delay, System.Threading.CancellationToken token)
-    {
-        try
-        {
-            await UniTask.Delay(TimeSpan.FromSeconds(delay), DelayType.UnscaledDeltaTime, cancellationToken: token);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-
-        PlayReleaseEffects(release);
-    }
-
-    private void PlayReleaseEffects(AttackReleaseEffectData release)
-    {
-        // 공격 릴리즈(스윙) 시점의 플레이어 시점 juice(카메라 셰이크·슬로모)는 로컬 플레이어 공격에만.
-        // 적/아군 AI가 휘두를 때 화면을 흔들거나 시간을 멈추지 않는다.
-        if (!PlayerController.IsLocalPlayer(_actionHandler))
-            return;
-
-        ShakeOnAttackRelease(release);
-        if (release.slowMo.enabled)
-            TriggerSlowMo(release.slowMo).Forget();
-    }
-
-    private void StopReleaseEffects()
-    {
-        _releaseEffectsCts?.Cancel();
-        _releaseEffectsCts?.Dispose();
-        _releaseEffectsCts = null;
     }
 
     private void PollAndDiscardSkillInput()
@@ -398,26 +345,6 @@ public partial class Character_AttackController : LoopMonoBehaviour
 
         for (int i = 0; i < _skillCooldowns.Length; i++)
             ConsumeSkill(i);
-    }
-
-    // 카메라 컷인은 플레이어 시점 효과 — 로컬 플레이어 공격에만(Release/End/Hit 모든 트리거 공통 게이트).
-    // 적/아군 AI가 휘두를 때(Release)·끝낼 때(End)·맞출 때(Hit) 카메라가 움직이지 않는다.
-    private void PlayAttackCameraCue(SO_Attack_Data attack, AttackCueTrigger trigger)
-    {
-        if (attack == null || !PlayerController.IsLocalPlayer(_actionHandler)) return;
-
-        AttackCameraCueData cue = attack.CameraCue;
-        if (!cue.enabled || cue.trigger != trigger) return;
-
-        Game.PlayCameraCutIn(new SkillCutInData
-        {
-            enabled = true,
-            duration = cue.duration > 0f ? cue.duration : Mathf.Max(0.01f, attack.Duration),
-            fovOverride = cue.fovOverride,
-            distanceOverride = cue.distanceOverride,
-            heightDelta = cue.heightDelta,
-            yawVelocity = cue.yawVelocity
-        });
     }
 
     private void StartAttackData(SO_Attack_Data attack)
@@ -431,74 +358,46 @@ public partial class Character_AttackController : LoopMonoBehaviour
             transform.rotation = Quaternion.LookRotation(lookDir);
 
         if (_drivesCameraFollowAlignment)
-            App.AlignThirdPersonCameraToTargetYaw(attack.Duration);
+            App.AlignThirdPersonCameraToTargetYaw(GetAttackDuration(attack));
 
         _pendingLookDirection = Vector3.zero;
         _currentData = attack;
         _comboTimer = 0f;
-        _attackTimer = _currentData.Duration;
-        _hitboxFired = false;
-        _hitboxFireCount = 0;
+        _attackTimer = GetAttackDuration(_currentData);
         _hitCameraCuePlayed = false;
-        _nextHitboxElapsed = 0f;
         _skillSequenceAnyHit = false;
         _slamLandingFired = false;
+        _suspendAtApexActive = false;
         _attackHitRegistry.Clear();
 
         _actionHandler?.InterruptJumpArcForAttack();
-        InitExtraHitState(_currentData);
+        InitDeliveryEventState(_currentData);
+        InitMovementEventState(_currentData);
+        InitFeedbackEventState(_currentData);
         _playerAnimator?.PlayAttack(_currentData.Animation);
         SetupWindup(_currentData);
-        if (_currentData.Lunge.moveType == AttackMoveType.Slam)
-            _slamDescending = true;
         // windup(예고)으로 미룬 경우 돌진/대시 VFX는 hitbox 발동 시점(EndWindup)에 시작한다.
-        if (!_deferLungeUntilHitbox)
-            _moveController?.StartLunge(transform.forward, _currentData.Lunge);
-        if (_currentData.Jump.enabled)
-        {
-            _moveController?.Jump(_currentData.Jump.height);
-        }
-        if (!_deferLungeUntilHitbox && ShouldPlayDashVfx(_currentData.Lunge))
-        {
-            _vfx?.PlayDashStart(transform.forward);
-            _attackMoveVfxPlaying = true;
-        }
 
         // 스윙 연출(트레일·SFX·cast VFX)은 실제 휘두름에 맞춰야 한다. windup(예고)이 있으면
         // 느린 예비동작 중에 먼저 나오지 않도록 hitbox 발동(EndWindup) 시점으로 미룬다.
-        if (!_windupActive)
-            PlayCastAndSwingFeedback(castImmediate: false);
+        TickFeedbackEvents(_currentData);
     }
 
     // cast VFX·스윙 트레일·스윙 SFX를 재생한다. windup 뒤에 부를 때(castImmediate)는 이미 hitbox 시점이므로
     // cast VFX의 timing 지연을 0으로 둬 휘두름과 동시에 나오게 한다.
-    private void PlayCastAndSwingFeedback(bool castImmediate)
-    {
-        AttackFeedbackData fb = _currentData.Feedback;
-        StopCastVfx();
-        if (!string.IsNullOrEmpty(fb.castVfxAddress))
-        {
-            float castTiming = castImmediate ? 0f : fb.castVfxTiming;
-            SpawnCastVfxAsync(fb.castVfxAddress, fb.castVfxOffset, fb.castVfxEuler, fb.castVfxSpace, fb.castVfxScale, _currentData.Duration, castTiming).Forget();
-        }
-        _vfx?.PlaySwingTrails(fb.swingTrailIds);
-        App.PlaySfx(fb.swingSfx, transform.position);
-    }
-
     // 예약된 예고 leadTime이 있으면 첫타 windup(0~timing)을 그만큼 늘리도록 설정한다.
     // 애니 재생속도를 낮추고 바닥 데칼을 띄우며, 돌진은 hitbox 발동까지 미룬다.
     private void SetupWindup(SO_Attack_Data attack)
     {
         _windupActive = false;
         _windupStretch = 1f;
-        _deferLungeUntilHitbox = false;
         _playerAnimator?.SetAttackSpeedScale(1f);
 
         float leadTime = _pendingTelegraphLeadTime;
         _pendingTelegraphLeadTime = 0f;
         if (leadTime <= 0f) return;
 
-        float windup = attack.Duration * attack.Hitbox.timing;
+        float windup = GetAttackWindupDuration(attack);
         if (windup <= 0.01f) return; // 즉발(timing≈0) 공격은 늘릴 windup이 없다
 
         // leadTime은 "최소 예고 시간". windup이 이미 그보다 길면 늘리지 않고(stretch=1) 원래 windup 동안 예고만 띄운다.
@@ -506,26 +405,20 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _windupActive = true;
         if (_windupStretch > 1f)
             _playerAnimator?.SetAttackSpeedScale(1f / _windupStretch);
-        _deferLungeUntilHitbox = HasMeaningfulLunge(attack.Lunge);
 
         _telegraph ??= GetComponent<Character_AttackTelegraph>();
         _telegraph?.Show(attack, _pendingTelegraphColor, leadTime);
     }
 
     // 돌진/대시처럼 시전자를 이동시키는 lunge인가(Slam은 별도 강하 로직이라 제외).
-    private static bool HasMeaningfulLunge(AttackLungeData lunge)
-        => lunge.moveType != AttackMoveType.None
-           && lunge.moveType != AttackMoveType.Slam
-           && lunge.distance > 0.01f;
-
     // windup 구간이면 dt를 stretch만큼 늦추고 데칼 진행도를 갱신한다.
     // hitbox 발동 시점(timing 도달)에 정상 속도로 복귀하고 미뤘던 돌진을 시작한다.
     private float TickWindup(float gdt)
     {
         if (!_windupActive) return gdt;
 
-        float startElapsed = _currentData.Duration * _currentData.Hitbox.timing;
-        float elapsed = _currentData.Duration - Mathf.Max(0f, _attackTimer);
+        float startElapsed = GetAttackWindupDuration(_currentData);
+        float elapsed = GetAttackDuration(_currentData) - Mathf.Max(0f, _attackTimer);
         if (elapsed < startElapsed)
         {
             float progress = startElapsed > 0.0001f ? Mathf.Clamp01(elapsed / startElapsed) : 1f;
@@ -547,35 +440,16 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _playerAnimator?.SetAttackSpeedScale(1f);
         _telegraph?.Hide();
 
-        if (_deferLungeUntilHitbox)
-        {
-            _deferLungeUntilHitbox = false;
-            // 제자리 예비 후 "확 돌진": 잔여 공격 시간에 맞춰 lunge를 압축하고, speedCurve의 뒤쪽 몰림을 무시(선형)해
-            // hitbox와 동시에 즉시 돌진하도록 한다. 안 그러면 lunge가 공격이 끝난 뒤에야 이동한다.
-            AttackLungeData lunge = _currentData.Lunge;
-            if (_attackTimer > 0.05f && lunge.duration > _attackTimer)
-                lunge.duration = _attackTimer;
-            lunge.speedCurve = null;
-            _moveController?.StartLunge(transform.forward, lunge);
-            if (ShouldPlayDashVfx(lunge))
-            {
-                _vfx?.PlayDashStart(transform.forward);
-                _attackMoveVfxPlaying = true;
-            }
-        }
-
         // windup 동안 미뤘던 스윙 연출(트레일·SFX·cast VFX)을 실제 휘두름 시점에 시작한다.
-        PlayCastAndSwingFeedback(castImmediate: true);
     }
 
     // windup 도중 공격이 취소될 때 정리(속도·데칼·미룬 돌진 상태 원복).
     private void CancelWindup()
     {
         _pendingTelegraphLeadTime = 0f;
-        if (!_windupActive && _windupStretch <= 1f && !_deferLungeUntilHitbox) return;
+        if (!_windupActive && _windupStretch <= 1f) return;
         _windupActive = false;
         _windupStretch = 1f;
-        _deferLungeUntilHitbox = false;
         _playerAnimator?.SetAttackSpeedScale(1f);
         _telegraph?.Hide();
     }
@@ -586,18 +460,15 @@ public partial class Character_AttackController : LoopMonoBehaviour
                                      && _attacks != null
                                      && _comboCount + 1 < _attacks.Length;
         _playerAnimator?.ExitAttack(playIdle: !opensBasicComboWindow);
-        StopAttackMoveVfx(true);
-        StopCastVfx();
-        StopReleaseEffects();
+        StopFeedbackAfterimages();
+        StopFeedbackVfx();
         if (_currentData != null)
         {
             // Release 트리거 큐가 남아 있으면 취소 (cancelOnTickMiss 등 조기 종료 시 큐가 계속 재생되는 문제 방지).
             // 컷인은 로컬 플레이어만 재생하므로 취소도 플레이어만 — 적 공격 종료가 플레이어의 활성 컷인을 끊지 않게.
             if (PlayerController.IsLocalPlayer(_actionHandler)
-                && _currentData.CameraCue.enabled && _currentData.CameraCue.trigger == AttackCueTrigger.Release)
+                && AttackTimelineUtility.HasCameraCue(_currentData, AttackCueTrigger.Release))
                 Game.CancelCameraCutIn();
-            PlayAttackCameraCue(_currentData, AttackCueTrigger.End);
-            _vfx?.StopSwingTrails(_currentData.Feedback.swingTrailIds);
         }
 
         // ?ㅽ궗 ?쒗??吏꾪뻾 以묒씠硫??ㅼ쓬 attack???먮룞 諛쒖궗. ?쒗?ㅺ? ?앸굹硫??쇰컲 肄ㅻ낫 ?곹깭濡?蹂듦?.
@@ -637,24 +508,75 @@ public partial class Character_AttackController : LoopMonoBehaviour
     }
 
     private static bool CanAdvanceSkillSequenceWithoutHit(SO_Attack_Data data)
-        => data != null
-           && data.Damage <= 0f
-           && !data.Launch.enabled
-           && !data.Down.enabled;
+        => data != null && !HasDamagingOrControlDelivery(data);
 
-    private void InitExtraHitState(SO_Attack_Data data)
+    private static bool HasDamagingOrControlDelivery(SO_Attack_Data data)
     {
-        int count = data.AdditionalHits?.Length ?? 0;
-        if (_extraHitFired == null || _extraHitFired.Length < count)
+        AttackDeliveryEvent[] deliveries = data.DeliveryEvents;
+        if (deliveries == null) return false;
+
+        for (int i = 0; i < deliveries.Length; i++)
         {
-            _extraHitFired = new bool[count];
-            _extraNextHitboxElapsed = new float[count];
+            if (!deliveries[i].enabled) continue;
+            AttackHitResultData result = deliveries[i].hitResult;
+            if (result.damage > 0f || result.targetLaunch.enabled || result.landingDown.enabled)
+                return true;
         }
+        return false;
+    }
+
+    private static float GetAttackDuration(SO_Attack_Data data)
+        => AttackTimelineUtility.GetDuration(data);
+
+    private static float GetAttackWindupDuration(SO_Attack_Data data)
+        => AttackTimelineUtility.GetFirstDeliveryStartTime(data);
+
+    private void InitDeliveryEventState(SO_Attack_Data data)
+    {
+        int count = data != null && data.HasDeliveryEvents ? data.DeliveryEvents.Length : 0;
+        if (_deliveryStarted == null || _deliveryStarted.Length < count)
+        {
+            _deliveryStarted = new bool[count];
+            _deliveryEnded = new bool[count];
+            _deliveryAnyHit = new bool[count];
+            _deliveryFireCount = new int[count];
+            _deliveryNextFireElapsed = new float[count];
+        }
+
         for (int i = 0; i < count; i++)
         {
-            _extraHitFired[i] = false;
-            _extraNextHitboxElapsed[i] = 0f;
+            _deliveryStarted[i] = false;
+            _deliveryEnded[i] = false;
+            _deliveryAnyHit[i] = false;
+            _deliveryFireCount[i] = 0;
+            _deliveryNextFireElapsed[i] = 0f;
         }
+    }
+
+    private void InitMovementEventState(SO_Attack_Data data)
+    {
+        int count = data != null && data.HasMovementEvents ? data.MovementEvents.Length : 0;
+        if (_movementStarted == null || _movementStarted.Length < count)
+        {
+            _movementStarted = new bool[count];
+            _movementEnded = new bool[count];
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            _movementStarted[i] = false;
+            _movementEnded[i] = false;
+        }
+    }
+
+    private void InitFeedbackEventState(SO_Attack_Data data)
+    {
+        int count = data != null && data.HasFeedbackEvents ? data.FeedbackEvents.Length : 0;
+        if (_feedbackFired == null || _feedbackFired.Length < count)
+            _feedbackFired = new bool[count];
+
+        for (int i = 0; i < count; i++)
+            _feedbackFired[i] = false;
     }
 
     private void ResetCombo()
@@ -663,27 +585,34 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _comboTimer = 0f;
         _nextQueued = false;
         _pendingLookDirection = Vector3.zero;
-        _hitboxFired = false;
-        _hitboxFireCount = 0;
-        _nextHitboxElapsed = 0f;
         _skillSequenceAnyHit = false;
         _hitCameraCuePlayed = false;
         _slamLandingFired = false;
         _slamDescending = false;
-        StopReleaseEffects();
-        if (_extraHitFired != null)
-            for (int i = 0; i < _extraHitFired.Length; i++)
+        _suspendAtApexActive = false;
+        if (_deliveryStarted != null)
+            for (int i = 0; i < _deliveryStarted.Length; i++)
             {
-                _extraHitFired[i] = false;
-                _extraNextHitboxElapsed[i] = 0f;
+                _deliveryStarted[i] = false;
+                _deliveryEnded[i] = false;
+                _deliveryAnyHit[i] = false;
+                _deliveryFireCount[i] = 0;
+                _deliveryNextFireElapsed[i] = 0f;
             }
+        if (_movementStarted != null)
+            for (int i = 0; i < _movementStarted.Length; i++)
+            {
+                _movementStarted[i] = false;
+                _movementEnded[i] = false;
+            }
+        if (_feedbackFired != null)
+            for (int i = 0; i < _feedbackFired.Length; i++)
+                _feedbackFired[i] = false;
         _attackHitRegistry.Clear();
         _windupActive = false;
         _windupStretch = 1f;
-        _deferLungeUntilHitbox = false;
         _playerAnimator?.SetAttackSpeedScale(1f);
-        StopAttackMoveVfx(false);
-        _vfx?.StopAllSwingTrails();
+        StopFeedbackAfterimages();
         _playerAnimator?.ReleaseLocomotion();
     }
 
@@ -694,14 +623,13 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _moveController?.StopLunge();
         _slamDescending = false;
         _playerAnimator?.ExitAttack();
-        StopCastVfx();
-        StopReleaseEffects();
+        StopFeedbackVfx();
+        StopFeedbackAfterimages();
         if (_currentData != null)
         {
             // 컷인은 로컬 플레이어만 재생/취소(적 공격 취소가 플레이어의 활성 컷인을 끊지 않게).
-            if (PlayerController.IsLocalPlayer(_actionHandler) && _currentData.CameraCue.enabled)
+            if (PlayerController.IsLocalPlayer(_actionHandler) && AttackTimelineUtility.HasAnyCameraCue(_currentData))
                 Game.CancelCameraCutIn();
-            _vfx?.StopSwingTrails(_currentData.Feedback.swingTrailIds);
         }
         _skillSequence = null;
         _skillData = null;
@@ -709,188 +637,504 @@ public partial class Character_AttackController : LoopMonoBehaviour
         ResetCombo();
     }
 
-    private void TickAttackHitbox(SO_Attack_Data data, float deltaTime)
+    private void TickMovementEvents(SO_Attack_Data data, float deltaTime)
     {
-        if (data.Lunge.moveType == AttackMoveType.Slam)
-        {
-            if (_slamDescending && _moveController != null && !_moveController.IsGrounded)
-                _vertical?.SlamMove(data.Lunge.slamDescentSpeed, deltaTime);
+        if (data == null || !data.HasMovementEvents)
+            return;
 
-            if (!_slamLandingFired && (_moveController == null || _moveController.IsGrounded))
+        AttackMovementEvent[] movements = data.MovementEvents;
+        if (movements == null || movements.Length == 0)
+            return;
+
+        float duration = GetAttackDuration(data);
+        float elapsed = duration - Mathf.Max(0f, _attackTimer);
+
+        for (int i = 0; i < movements.Length; i++)
+        {
+            AttackMovementEvent movement = movements[i];
+            if (!movement.enabled || _movementEnded[i])
+                continue;
+
+            float startTime = Mathf.Max(0f, movement.startTime);
+            if (!_movementStarted[i])
             {
-                _slamLandingFired = true;
-                _slamDescending = false;
-                if (ShouldFireMeleeHitbox(data)) FireHitbox(data);
-                TrySpawnRangedDelivery(data, includeField: true);
+                if (elapsed < startTime) continue;
+                _movementStarted[i] = true;
+                StartMovementEvent(movement);
             }
-            return;
-        }
 
-        AttackHitboxData hitbox = data.Hitbox;
-        AttackRepeatData repeat = data.Repeat;
-        float elapsed = data.Duration - Mathf.Max(0f, _attackTimer);
-        float startElapsed = data.Duration * hitbox.timing;
-        if (!_hitboxFired)
-        {
-            if (elapsed < startElapsed)
-                return;
-
-            _hitboxFired = true;
-            _hitboxFireCount = 1;
-            _nextHitboxElapsed = elapsed + Mathf.Max(0.01f, repeat.interval);
-            if (ShouldFireMeleeHitbox(data)) FireHitbox(data);
-            TrySpawnRangedDelivery(data, includeField: true);
-            return;
-        }
-
-        if (!repeat.enabled)
-        {
-            TickExtraHitboxes(data, elapsed);
-            return;
-        }
-
-        // repeat.maxCount > 0이면 첫 발동 포함 그 횟수만큼만 발동. 0=무제한(duration 동안).
-        bool limited = repeat.maxCount > 0;
-        bool fireMelee = ShouldFireMeleeHitbox(data);
-        float repeatInterval = Mathf.Max(0.01f, repeat.interval);
-        while (_nextHitboxElapsed <= elapsed)
-        {
-            if (limited && _hitboxFireCount >= repeat.maxCount)
-                break;
-
-            bool hit = fireMelee && FireHitbox(data);
-            TrySpawnRangedDelivery(data, includeField: false); // 연사: 발사체만 재발사, 장판은 첫 발동 1회
-            _hitboxFireCount++;
-            _nextHitboxElapsed += repeatInterval;
-            if (fireMelee && !hit && repeat.cancelOnMiss)
+            if (movement.type == AttackMovementType.Slam)
             {
-                _attackTimer = 0f;
-                break;
-            }
-        }
-
-        TickExtraHitboxes(data, elapsed);
-    }
-
-    private void TickExtraHitboxes(SO_Attack_Data data, float elapsed)
-    {
-        AttackExtraHit[] extras = data.AdditionalHits;
-        if (extras == null || extras.Length == 0) return;
-
-        float scaledBaseDamage = CombatFormula.ScaleAttackDamage(_attackPower, data.Damage);
-
-        for (int i = 0; i < extras.Length; i++)
-        {
-            AttackExtraHit extra = extras[i];
-            AttackRepeatData repeat = extra.repeat;
-            float startElapsed = data.Duration * extra.hitbox.timing;
-
-            if (!_extraHitFired[i])
-            {
-                if (elapsed < startElapsed) continue;
-                _extraHitFired[i] = true;
-                _extraNextHitboxElapsed[i] = elapsed + Mathf.Max(0.01f, repeat.interval);
-                FireExtraHit(data, extra, i, scaledBaseDamage);
+                TickMovementSlam(data, movement, deltaTime);
                 continue;
             }
 
-            if (!repeat.enabled) continue;
-
-            float repeatInterval = Mathf.Max(0.01f, repeat.interval);
-            while (_extraNextHitboxElapsed[i] <= elapsed)
+            if (movement.type == AttackMovementType.Suspend)
             {
-                bool hit = FireExtraHit(data, extra, i, scaledBaseDamage);
-                _extraNextHitboxElapsed[i] += repeatInterval;
-                if (!hit && repeat.cancelOnMiss)
+                if (movement.duration > 0f && elapsed >= startTime + movement.duration)
+                {
+                    _suspendAtApexActive = false;
+                    _movementEnded[i] = true;
+                }
+                continue;
+            }
+
+            _movementEnded[i] = movement.duration <= 0f || elapsed >= startTime + movement.duration;
+        }
+    }
+
+    private void TickFeedbackEvents(SO_Attack_Data data)
+    {
+        if (data == null || !data.HasFeedbackEvents)
+            return;
+
+        AttackFeedbackEvent[] events = data.FeedbackEvents;
+        float elapsed = GetAttackDuration(data) - Mathf.Max(0f, _attackTimer);
+        for (int i = 0; i < events.Length; i++)
+        {
+            AttackFeedbackEvent feedbackEvent = events[i];
+            if (_feedbackFired[i] || !feedbackEvent.enabled || feedbackEvent.trigger != AttackFeedbackTrigger.Timeline)
+                continue;
+            if (feedbackEvent.deferUntilWindupEnd && _windupActive)
+                continue;
+            if (elapsed < Mathf.Max(0f, feedbackEvent.startTime))
+                continue;
+
+            _feedbackFired[i] = true;
+            PlayFeedbackEvent(data, feedbackEvent, default, false, i);
+        }
+
+        SweepFeedbackVfxEndTimes(events, elapsed);
+
+        // motionAfterimages 창의 endTime 도달 시 잔상 정지(공격 종료를 기다리지 않음). endTime<=0이면 공격 종료에서 처리.
+        if (_afterimageFeedbackActive && _afterimageFeedbackEndElapsed > 0f && elapsed >= _afterimageFeedbackEndElapsed)
+            StopFeedbackAfterimages();
+    }
+
+    // endTime이 지난 추적 VFX는 공격 종료를 기다리지 않고 개별 디스폰한다(지속 VFX 창).
+    private void SweepFeedbackVfxEndTimes(AttackFeedbackEvent[] events, float elapsed)
+    {
+        for (int i = _feedbackVfxInstances.Count - 1; i >= 0; i--)
+        {
+            (int eventIndex, AutoDespawn vfx) tracked = _feedbackVfxInstances[i];
+            float endTime = tracked.eventIndex >= 0 && tracked.eventIndex < events.Length
+                ? events[tracked.eventIndex].endTime
+                : 0f;
+            if (endTime <= 0f || elapsed < endTime)
+                continue;
+            DespawnFeedbackVfxInstance(tracked.vfx);
+            _feedbackVfxInstances.RemoveAt(i);
+        }
+    }
+
+    private void PlayDeliveryFeedbackEvents(SO_Attack_Data data, AttackDeliveryEvent delivery, int deliveryIndex)
+    {
+        if (data == null || !data.HasFeedbackEvents)
+            return;
+
+        AttackFeedbackEvent[] events = data.FeedbackEvents;
+        for (int i = 0; i < events.Length; i++)
+        {
+            AttackFeedbackEvent feedbackEvent = events[i];
+            if (!feedbackEvent.enabled || feedbackEvent.trigger != AttackFeedbackTrigger.DeliveryFire)
+                continue;
+            if (feedbackEvent.deliveryIndex >= 0 && feedbackEvent.deliveryIndex != deliveryIndex)
+                continue;
+
+            PlayFeedbackEvent(data, feedbackEvent, delivery, true, i);
+        }
+    }
+
+    private void PlayFeedbackEvent(SO_Attack_Data data, AttackFeedbackEvent feedbackEvent, AttackDeliveryEvent delivery, bool hasDelivery, int feedbackIndex)
+    {
+        if (feedbackEvent.localPlayerOnly && !PlayerController.IsLocalPlayer(_actionHandler))
+            return;
+
+        if (!string.IsNullOrEmpty(feedbackEvent.vfxAddress))
+        {
+            if (feedbackEvent.vfxOrigin == AttackFeedbackVfxOrigin.DeliveryCenter && hasDelivery)
+            {
+                Vector3 center = ResolveDeliveryFeedbackCenter(delivery);
+                center += transform.rotation * feedbackEvent.vfxOffset;
+                CombatFeedback.SpawnVfxAtPosition(feedbackEvent.vfxAddress, center, destroyCancellationToken);
+            }
+            else
+            {
+                CastVfxSpace space = feedbackEvent.vfxOrigin == AttackFeedbackVfxOrigin.Actor
+                    ? CastVfxSpace.Actor
+                    : CastVfxSpace.World;
+                SpawnFeedbackVfxAsync(feedbackEvent, space, feedbackIndex).Forget();
+            }
+        }
+
+        App.PlaySfx(feedbackEvent.sfx, transform.position);
+
+        if (feedbackEvent.cameraShake.enabled)
+            App.ShakeCamera(feedbackEvent.cameraShake.amplitude, feedbackEvent.cameraShake.duration, feedbackEvent.cameraShake.frequency);
+        if (feedbackEvent.slowMo.duration > 0f)
+            TriggerSlowMo(feedbackEvent.slowMo).Forget();
+        PlayCameraCue(feedbackEvent.cameraCue, GetAttackDuration(data));
+
+        if (feedbackEvent.motionAfterimages)
+        {
+            _vfx?.StartMotionAfterimages();
+            _afterimageFeedbackActive = true;
+            _afterimageFeedbackEndElapsed = feedbackEvent.endTime;
+        }
+    }
+
+    private Vector3 ResolveDeliveryFeedbackCenter(AttackDeliveryEvent delivery)
+    {
+        if (delivery.type == AttackDeliveryType.Melee)
+            return AttackShapeUtility.GetQueryCenter(transform.position, transform.forward, delivery.melee.hitbox, delivery.melee.shape);
+        return transform.position;
+    }
+
+    private void PlayCameraCue(AttackCameraCueData cue, float fallbackDuration)
+    {
+        if (!cue.enabled || !PlayerController.IsLocalPlayer(_actionHandler))
+            return;
+
+        Game.PlayCameraCutIn(new SkillCutInData
+        {
+            enabled = true,
+            duration = cue.duration > 0f ? cue.duration : Mathf.Max(0.01f, fallbackDuration),
+            fovOverride = cue.fovOverride,
+            distanceOverride = cue.distanceOverride,
+            heightDelta = cue.heightDelta,
+            yawVelocity = cue.yawVelocity
+        });
+    }
+
+    private void StartMovementEvent(AttackMovementEvent movement)
+    {
+        switch (movement.type)
+        {
+            case AttackMovementType.SelfJump:
+                _moveController?.Jump(movement.height);
+                break;
+            case AttackMovementType.Suspend:
+                _suspendAtApexActive = true;
+                break;
+            case AttackMovementType.Slam:
+                _slamDescending = true;
+                _slamLandingFired = false;
+                break;
+            case AttackMovementType.Lunge:
+                StartMovementLunge(movement);
+                break;
+        }
+    }
+
+    private void StartMovementLunge(AttackMovementEvent movement)
+    {
+        AttackLungeData lunge = new()
+        {
+            distance = movement.distance,
+            duration = movement.duration,
+            speedCurve = movement.curve
+        };
+
+        // 이동은 순수 모션만. 잔상 등 연출은 feedbackEvent(motionAfterimages)가 독립적으로 구동한다.
+        _moveController?.StartLunge(transform.forward, lunge);
+    }
+
+    private void TickMovementSlam(SO_Attack_Data data, AttackMovementEvent movement, float deltaTime)
+    {
+        if (!_slamDescending)
+            return;
+
+        if (_moveController != null && !_moveController.IsGrounded)
+        {
+            _vertical?.SlamMove(Mathf.Max(0f, movement.speed), deltaTime);
+            return;
+        }
+
+        if (_slamLandingFired)
+            return;
+
+        _slamLandingFired = true;
+        _slamDescending = false;
+        float duration = GetAttackDuration(data);
+        float landingDeliveryTime = AttackTimelineUtility.GetFirstDeliveryStartTime(data);
+        _attackTimer = Mathf.Min(_attackTimer, Mathf.Max(0f, duration - landingDeliveryTime));
+    }
+
+    private void TickDeliveryEvents(SO_Attack_Data data)
+    {
+        AttackDeliveryEvent[] deliveries = data.DeliveryEvents;
+        if (deliveries == null || deliveries.Length == 0) return;
+
+        float duration = GetAttackDuration(data);
+        float elapsed = duration - Mathf.Max(0f, _attackTimer);
+
+        for (int i = 0; i < deliveries.Length; i++)
+        {
+            AttackDeliveryEvent delivery = deliveries[i];
+            if (!delivery.enabled || _deliveryEnded[i])
+                continue;
+
+            float startTime = Mathf.Max(0f, delivery.startTime);
+            if (!_deliveryStarted[i])
+            {
+                if (elapsed < startTime) continue;
+
+                _deliveryStarted[i] = true;
+                bool didHit = FireDeliveryEvent(data, delivery, i);
+                _deliveryAnyHit[i] |= didHit;
+                _deliveryFireCount[i] = 1;
+                _deliveryNextFireElapsed[i] = startTime + Mathf.Max(0.01f, delivery.melee.repeat.interval);
+            }
+
+            TickDeliveryRepeat(data, delivery, i, elapsed, startTime);
+
+            // delivery 활성 창 = melee면 repeat 창(repeat.duration), 그 외(field/projectile)는 스폰 즉시 종료.
+            float activeWindow = delivery.type == AttackDeliveryType.Melee ? Mathf.Max(0f, delivery.melee.repeat.duration) : 0f;
+            float activeEnd = startTime + activeWindow;
+            bool hasActiveWindow = activeWindow > 0f;
+            if ((!hasActiveWindow && _deliveryStarted[i]) || (hasActiveWindow && elapsed >= activeEnd))
+            {
+                _deliveryEnded[i] = true;
+                if (delivery.melee.flow.endAttackIfNoHitByEventEnd && !_deliveryAnyHit[i])
                 {
                     _attackTimer = 0f;
-                    break;
+                    return;
                 }
             }
         }
     }
 
-    private bool FireExtraHit(SO_Attack_Data data, AttackExtraHit extra, int extraIndex, float scaledBaseDamage)
+    private void TickDeliveryRepeat(SO_Attack_Data data, AttackDeliveryEvent delivery, int deliveryIndex, float elapsed, float startTime)
     {
-        float finalDamage = CombatFormula.ScaleAttackDamage(_attackPower, extra.hitResult.damage);
+        if (delivery.type != AttackDeliveryType.Melee)
+            return;
 
-        string timingVfx = data.Feedback.timingVfxAddress;
-        if (!string.IsNullOrEmpty(timingVfx))
+        AttackHitRepeat repeat = delivery.melee.repeat;
+        if (!repeat.enabled || repeat.duration <= 0f)
+            return;
+
+        float activeEnd = startTime + repeat.duration;
+        float interval = Mathf.Max(0.01f, repeat.interval);
+        bool limited = repeat.maxCount > 0;
+        while (_deliveryNextFireElapsed[deliveryIndex] <= elapsed
+               && _deliveryNextFireElapsed[deliveryIndex] <= activeEnd)
         {
-            Vector3 center = AttackShapeUtility.GetQueryCenter(transform.position, transform.forward, extra.hitbox, extra.shape);
-            center += transform.rotation * data.Feedback.timingVfxOffset;
-            float vfxDuration = extra.repeat.enabled ? extra.repeat.interval : 0f;
-            CombatFeedback.SpawnVfxAtPosition(timingVfx, center, destroyCancellationToken, vfxDuration);
+            if (limited && _deliveryFireCount[deliveryIndex] >= repeat.maxCount)
+                break;
+
+            bool didHit = FireDeliveryEvent(data, delivery, deliveryIndex);
+            _deliveryAnyHit[deliveryIndex] |= didHit;
+            _deliveryFireCount[deliveryIndex]++;
+            _deliveryNextFireElapsed[deliveryIndex] += interval;
         }
+    }
+
+    private bool FireDeliveryEvent(SO_Attack_Data data, AttackDeliveryEvent delivery, int deliveryIndex)
+    {
+        PlayDeliveryFeedbackEvents(data, delivery, deliveryIndex);
+        return delivery.type switch
+        {
+            AttackDeliveryType.Projectile => SpawnDeliveryProjectiles(data, delivery),
+            AttackDeliveryType.Field => SpawnDeliveryField(data, delivery),
+            _ => FireMeleeDelivery(data, delivery, deliveryIndex)
+        };
+    }
+
+    private bool FireMeleeDelivery(SO_Attack_Data data, AttackDeliveryEvent delivery, int deliveryIndex)
+    {
+        float finalDamage = CombatFormula.ScaleAttackDamage(_attackPower, delivery.hitResult.damage);
 
         bool didHit = _emitter.Emit(
-            transform.position, transform.forward, extra.hitbox, extra.shape,
-            AttackHitInfo.FromExtra(data, extra), extra.hitResult.hitType, finalDamage,
+            transform.position, transform.forward, delivery.melee.hitbox, delivery.melee.shape,
+            AttackHitInfo.FromHitResult(delivery.hitResult), delivery.hitResult.hitType, finalDamage,
             AttackerFaction, ResolveAttackerEntity(),
-            _attackHitRegistry, extraIndex + 10, extra.repeat.hitSameTargetOnce, data);
+            _attackHitRegistry, ResolveDeliveryHitScope(delivery.dedupe, deliveryIndex),
+            ShouldDeliveryHitSameTargetOnce(delivery.dedupe), data,
+            useFeedbackOverride: true,
+            hitSfxOverride: delivery.hitResult.hitSfx,
+            hitVfxOverride: delivery.hitResult.hitVfxAddress);
 
         _skillSequenceAnyHit |= didHit;
         if (!didHit) return false;
 
-        CombatOnHit.ApplyAttackerGains(data, finalDamage, _actionHandler, _playerStats != null ? _playerStats.GaugeGainPerDamage : 0f);
+        CombatOnHit.ApplyAttackerGains(delivery.hitResult.lifeSteal, finalDamage, _actionHandler, _playerStats != null ? _playerStats.GaugeGainPerDamage : 0f);
 
-        // 플레이어 시점 juice(컷인·카메라 셰이크·전역 히트스톱)는 로컬 플레이어가 때렸을 때만.
-        // 적/아군 AI 공격은 SFX/VFX만(이미터에서) 나오고 화면을 흔들거나 시간을 멈추지 않는다.
-        if (PlayerController.IsLocalPlayer(_actionHandler))
-        {
-            if (!_hitCameraCuePlayed)
-            {
-                _hitCameraCuePlayed = true;
-                PlayAttackCameraCue(data, AttackCueTrigger.Hit);
-            }
-            CombatFeedback.PlayHitCameraShake(data);
-            CombatOnHit.TriggerHitstop(data.HitEffects.hitstop, destroyCancellationToken).Forget();
-        }
+        if (delivery.melee.flow.stopMovementOnHit)
+            _moveController?.StopLunge();
+
+        PlayLocalDeliveryHitEffects(data, delivery.hitResult);
         return true;
     }
 
-    private bool FireHitbox(SO_Attack_Data data)
+    private bool SpawnDeliveryProjectiles(SO_Attack_Data data, AttackDeliveryEvent delivery)
     {
-        float finalDamage = CombatFormula.ScaleAttackDamage(_attackPower, data.Damage);
+        AttackProjectileDelivery projectile = delivery.projectile;
+        if (string.IsNullOrEmpty(projectile.prefabAddress))
+            return false;
 
-        string timingVfx = data.Feedback.timingVfxAddress;
-        if (!string.IsNullOrEmpty(timingVfx))
+        float finalDamage = CombatFormula.ScaleAttackDamage(_attackPower, delivery.hitResult.damage);
+        RangedOwner owner = CreateRangedOwner();
+        bool spawnFieldOnImpact = TryGetProjectileImpactField(data, out AttackFieldDelivery impactField, out AttackHitResultData impactHitResult, out float impactDuration);
+        float impactFinalDamage = spawnFieldOnImpact
+            ? CombatFormula.ScaleAttackDamage(_attackPower, impactHitResult.damage)
+            : 0f;
+
+        int count = Mathf.Max(1, projectile.count);
+        Vector3 forward = ResolveProjectileDirection(projectile);
+        Vector3 spawnPos = transform.position + transform.rotation * projectile.spawnOffset;
+
+        if (count == 1)
         {
-            Vector3 center = AttackShapeUtility.GetQueryCenter(transform.position, transform.forward, data.Hitbox, data.Shape);
-            center += transform.rotation * data.Feedback.timingVfxOffset;
-            float timingVfxDuration = data.Repeat.enabled ? data.Repeat.interval : 0f;
-            CombatFeedback.SpawnVfxAtPosition(timingVfx, center, destroyCancellationToken, timingVfxDuration);
+            SpawnOneDeliveryProjectileAsync(data, projectile, delivery.hitResult, finalDamage, owner, spawnFieldOnImpact, impactField, impactHitResult, impactDuration, impactFinalDamage, spawnPos, forward).Forget();
+            return false;
         }
 
-        bool didHit = _emitter.Emit(
-            transform.position, transform.forward, data.Hitbox, data.Shape,
-            AttackHitInfo.FromMain(data), data.HitType, finalDamage,
-            AttackerFaction, ResolveAttackerEntity(),
-            _attackHitRegistry, 1, data.Repeat.hitSameTargetOnce, data);
+        float spread = projectile.spreadAngle;
+        float step, start;
+        if (spread >= 360f) { step = 360f / count; start = 0f; }
+        else { step = spread / (count - 1); start = -spread * 0.5f; }
 
-        _skillSequenceAnyHit |= didHit;
-        if (!didHit) return false;
-
-        CombatOnHit.ApplyAttackerGains(data, finalDamage, _actionHandler, _playerStats != null ? _playerStats.GaugeGainPerDamage : 0f);
-
-        if (data.Lunge.stopOnHit)
+        for (int i = 0; i < count; i++)
         {
-            _moveController?.StopLunge();
-            StopAttackMoveVfx(true);
+            Vector3 dir = Quaternion.AngleAxis(start + step * i, Vector3.up) * forward;
+            SpawnOneDeliveryProjectileAsync(data, projectile, delivery.hitResult, finalDamage, owner, spawnFieldOnImpact, impactField, impactHitResult, impactDuration, impactFinalDamage, spawnPos, dir).Forget();
+        }
+        return false;
+    }
+
+    private async UniTaskVoid SpawnOneDeliveryProjectileAsync(
+        SO_Attack_Data data,
+        AttackProjectileDelivery projectileDelivery,
+        AttackHitResultData hitResult,
+        float finalDamage,
+        RangedOwner owner,
+        bool spawnFieldOnImpact,
+        AttackFieldDelivery impactField,
+        AttackHitResultData impactHitResult,
+        float impactDuration,
+        float impactFinalDamage,
+        Vector3 spawnPos,
+        Vector3 direction)
+    {
+        Quaternion rot = Quaternion.LookRotation(direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector3.forward);
+
+        Projectile_Hitbox projectile = await App.SpawnAsync<Projectile_Hitbox>(projectileDelivery.prefabAddress, token: destroyCancellationToken);
+        if (projectile == null) return;
+        projectile.transform.SetPositionAndRotation(spawnPos, rot);
+        projectile.Launch(data, projectileDelivery, hitResult, finalDamage, owner, direction, spawnFieldOnImpact, impactField, impactHitResult, impactDuration, impactFinalDamage);
+    }
+
+    private bool SpawnDeliveryField(SO_Attack_Data data, AttackDeliveryEvent delivery)
+    {
+        AttackFieldDelivery field = delivery.field;
+        if (field.origin == FieldOrigin.ProjectileImpact || string.IsNullOrEmpty(field.prefabAddress))
+            return false;
+
+        float finalDamage = CombatFormula.ScaleAttackDamage(_attackPower, delivery.hitResult.damage);
+        SpawnDeliveryFieldAsync(data, field, delivery.hitResult, Mathf.Max(0f, field.lifetime), finalDamage, CreateRangedOwner()).Forget();
+        return false;
+    }
+
+    private async UniTaskVoid SpawnDeliveryFieldAsync(
+        SO_Attack_Data data,
+        AttackFieldDelivery field,
+        AttackHitResultData hitResult,
+        float duration,
+        float finalDamage,
+        RangedOwner owner)
+    {
+        Vector3 forward = transform.forward;
+        Vector3 spawnPos;
+        Transform follow = null;
+        if (field.origin == FieldOrigin.AimTarget)
+        {
+            spawnPos = ResolveAimTargetPosition(owner.Faction, Mathf.Max(0f, field.forwardOffset));
+        }
+        else
+        {
+            spawnPos = transform.position + forward * field.forwardOffset;
+            follow = field.followAttacker ? transform : null;
         }
 
-        // 플레이어 시점 juice는 로컬 플레이어가 때렸을 때만(적/아군 AI 공격은 SFX/VFX만).
-        if (PlayerController.IsLocalPlayer(_actionHandler))
+        Field_Hitbox instance = await App.SpawnAsync<Field_Hitbox>(field.prefabAddress, token: destroyCancellationToken);
+        if (instance == null) return;
+        instance.transform.position = spawnPos;
+        instance.Activate(data, field, hitResult, duration, finalDamage, owner, forward, follow);
+    }
+
+    private bool TryGetProjectileImpactField(
+        SO_Attack_Data data,
+        out AttackFieldDelivery field,
+        out AttackHitResultData hitResult,
+        out float duration)
+    {
+        AttackDeliveryEvent[] deliveries = data.DeliveryEvents;
+        if (deliveries != null)
         {
-            if (!_hitCameraCuePlayed)
+            for (int i = 0; i < deliveries.Length; i++)
             {
-                _hitCameraCuePlayed = true;
-                PlayAttackCameraCue(data, AttackCueTrigger.Hit);
+                AttackDeliveryEvent delivery = deliveries[i];
+                if (!delivery.enabled || delivery.type != AttackDeliveryType.Field)
+                    continue;
+                if (delivery.field.origin != FieldOrigin.ProjectileImpact || string.IsNullOrEmpty(delivery.field.prefabAddress))
+                    continue;
+
+                field = delivery.field;
+                hitResult = delivery.hitResult;
+                duration = Mathf.Max(0f, delivery.field.lifetime);
+                return true;
             }
-            CombatFeedback.PlayHitCameraShake(data);
-            CombatOnHit.TriggerHitstop(data.HitEffects.hitstop, destroyCancellationToken).Forget();
         }
-        return true;
+
+        field = default;
+        hitResult = default;
+        duration = 0f;
+        return false;
+    }
+
+    private RangedOwner CreateRangedOwner()
+        => new(
+            AttackerFaction,
+            ResolveAttackerEntity(),
+            _actionHandler,
+            _playerStats != null ? _playerStats.GaugeGainPerDamage : 0f);
+
+    private Vector3 ResolveProjectileDirection(AttackProjectileDelivery projectile)
+    {
+        if (projectile.aimMode == AttackProjectileAimMode.InputDirection && _pendingLookDirection.sqrMagnitude > ExplicitLookInputSqrThreshold)
+            return _pendingLookDirection.normalized;
+
+        if (projectile.aimMode == AttackProjectileAimMode.AutoTarget || projectile.aimMode == AttackProjectileAimMode.NearestTarget)
+        {
+            Vector3 autoAim = FindAutoAimDirection(_currentData);
+            if (autoAim.sqrMagnitude > 0.0001f)
+                return autoAim.normalized;
+        }
+
+        return transform.forward;
+    }
+
+    private static int ResolveDeliveryHitScope(AttackHitDeduplication dedupe, int deliveryIndex)
+        => dedupe == AttackHitDeduplication.OncePerAttack ? 1 : deliveryIndex + 100;
+
+    private static bool ShouldDeliveryHitSameTargetOnce(AttackHitDeduplication dedupe)
+        => dedupe != AttackHitDeduplication.None;
+
+    private void PlayLocalDeliveryHitEffects(SO_Attack_Data data, AttackHitResultData hitResult)
+    {
+        if (!PlayerController.IsLocalPlayer(_actionHandler))
+            return;
+
+        if (!_hitCameraCuePlayed)
+        {
+            _hitCameraCuePlayed = true;
+            if (hitResult.cameraCue.enabled)
+                PlayCameraCue(hitResult.cameraCue, GetAttackDuration(data));
+        }
+
+        if (hitResult.cameraShake.enabled)
+            App.ShakeCamera(hitResult.cameraShake.amplitude, hitResult.cameraShake.duration, hitResult.cameraShake.frequency);
+        CombatOnHit.TriggerHitstop(hitResult.hitstop, destroyCancellationToken).Forget();
     }
 
     public void UpdateLookDirection(Vector3 worldInput)
@@ -901,104 +1145,11 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _pendingLookDirection = worldInput;
     }
 
-    // 발사체/장판이 그 공격의 전달 수단이면 근접 메인 hitbox는 스킵한다(Shape·damage를 공유하므로).
-    // MeleeAlongsideDelivery가 켜져 있으면 근접도 함께 발동(검 휘두르며 충격파 등).
-    private static bool ShouldFireMeleeHitbox(SO_Attack_Data data)
-    {
-        bool hasDelivery = data.Projectile.enabled || data.Field.enabled;
-        return !hasDelivery || data.MeleeAlongsideDelivery;
-    }
-
     // 공격자(이 캐릭터)의 ECS 엔티티. 잡몹이 강제 어그로 대상으로 매칭하는 CharacterNavTarget 엔티티다.
     private Entity ResolveAttackerEntity()
     {
         if (_ecsBridge == null) _ecsBridge = GetComponent<Character_EcsBridge>();
         return _ecsBridge != null ? _ecsBridge.CharacterEntity : Entity.Null;
-    }
-
-    // 발사체/장판 발사. includeField=false면 장판은 건너뛰고 발사체만 쏜다.
-    // repeat 틱마다 호출되면 발사체는 매 틱 재발사(=연사)되고, 장판은 첫 발동(includeField=true) 1회만 깔린다.
-    // 데미지는 공격력으로 스케일한 값을 스냅샷으로 넘긴다(스폰 후 공격자 상태와 무관하게 일관).
-    private void TrySpawnRangedDelivery(SO_Attack_Data data, bool includeField)
-    {
-        AttackProjectileData proj = data.Projectile;
-        AttackFieldData field = data.Field;
-        bool wantProjectile = proj.enabled && !string.IsNullOrEmpty(proj.prefabAddress);
-        bool wantField = includeField && field.enabled && !string.IsNullOrEmpty(field.prefabAddress);
-        if (!wantProjectile && !wantField) return;
-
-        float finalDamage = CombatFormula.ScaleAttackDamage(_attackPower, data.Damage);
-        RangedOwner owner = new RangedOwner(
-            AttackerFaction,
-            ResolveAttackerEntity(),
-            _actionHandler,
-            _playerStats != null ? _playerStats.GaugeGainPerDamage : 0f);
-
-        // ProjectileImpact 장판은 발사체가 도착 시 자체 스폰하므로 컨트롤러는 직접 깔지 않는다.
-        bool fieldByProjectile = field.enabled && field.origin == FieldOrigin.ProjectileImpact;
-
-        if (wantProjectile)
-            SpawnProjectiles(data, finalDamage, owner, fieldByProjectile);
-        if (wantField && !fieldByProjectile)
-            SpawnFieldAsync(data, finalDamage, owner).Forget();
-    }
-
-    // 멀티샷 발사. count개를 전방 기준 spreadAngle 부채꼴로 균등 분산해 동시에 쏜다.
-    private void SpawnProjectiles(SO_Attack_Data data, float finalDamage, RangedOwner owner, bool spawnFieldOnImpact)
-    {
-        AttackProjectileData proj = data.Projectile;
-        int count = Mathf.Max(1, proj.count);
-        Vector3 forward = transform.forward;
-        Vector3 spawnPos = transform.position + transform.rotation * proj.spawnOffset;
-
-        if (count == 1)
-        {
-            SpawnOneProjectileAsync(data, finalDamage, owner, spawnFieldOnImpact, spawnPos, forward).Forget();
-            return;
-        }
-
-        float spread = proj.spreadAngle;
-        float step, start;
-        if (spread >= 360f) { step = 360f / count; start = 0f; }       // 전방위 균등(끝 겹침 방지)
-        else { step = spread / (count - 1); start = -spread * 0.5f; }   // 부채꼴 균등
-
-        for (int i = 0; i < count; i++)
-        {
-            Vector3 dir = Quaternion.AngleAxis(start + step * i, Vector3.up) * forward;
-            SpawnOneProjectileAsync(data, finalDamage, owner, spawnFieldOnImpact, spawnPos, dir).Forget();
-        }
-    }
-
-    private async UniTaskVoid SpawnOneProjectileAsync(SO_Attack_Data data, float finalDamage, RangedOwner owner, bool spawnFieldOnImpact, Vector3 spawnPos, Vector3 direction)
-    {
-        Quaternion rot = Quaternion.LookRotation(direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector3.forward);
-
-        Projectile_Hitbox projectile = await App.SpawnAsync<Projectile_Hitbox>(data.Projectile.prefabAddress, token: destroyCancellationToken);
-        if (projectile == null) return;
-        projectile.transform.SetPositionAndRotation(spawnPos, rot);
-        projectile.Launch(data, finalDamage, owner, direction, spawnFieldOnImpact);
-    }
-
-    private async UniTaskVoid SpawnFieldAsync(SO_Attack_Data data, float finalDamage, RangedOwner owner)
-    {
-        AttackFieldData field = data.Field;
-        Vector3 forward = transform.forward;
-        Vector3 spawnPos;
-        Transform follow = null;
-        if (field.origin == FieldOrigin.AimTarget)
-        {
-            spawnPos = ResolveAimTargetPosition(owner.Faction, Mathf.Max(0f, field.forwardOffset));
-        }
-        else // ForwardOffset
-        {
-            spawnPos = transform.position + forward * field.forwardOffset;
-            follow = field.followAttacker ? transform : null;
-        }
-
-        Field_Hitbox instance = await App.SpawnAsync<Field_Hitbox>(field.prefabAddress, token: destroyCancellationToken);
-        if (instance == null) return;
-        instance.transform.position = spawnPos;
-        instance.Activate(data, finalDamage, owner, forward, follow);
     }
 
     private SO_Attack_Data GetData(int index)
@@ -1007,78 +1158,60 @@ public partial class Character_AttackController : LoopMonoBehaviour
             : null;
 
 
-    private async Cysharp.Threading.Tasks.UniTaskVoid SpawnCastVfxAsync(string address, Vector3 offset, Vector3 euler, CastVfxSpace space, Vector3 scale, float duration, float timing)
-    {
-        _castVfxSpawnCts?.Cancel();
-        _castVfxSpawnCts?.Dispose();
-        _castVfxSpawnCts = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(destroyCancellationToken);
-
-        System.Threading.CancellationToken token = _castVfxSpawnCts.Token;
-        try
-        {
-            float delay = Mathf.Max(0f, duration) * Mathf.Clamp01(timing);
-            if (delay > 0f)
-                await UniTask.Delay(TimeSpan.FromSeconds(delay), cancellationToken: token);
-
-            var vfx = await App.SpawnAsync<AutoDespawn>(address, token: token);
-            if (vfx == null || token.IsCancellationRequested) return;
-            Vector3 resolvedScale = ResolveCastVfxScale(scale);
-            if (space == CastVfxSpace.Actor)
-            {
-                vfx.transform.SetParent(transform, false);
-                vfx.transform.localPosition = offset;
-                vfx.transform.localRotation = Quaternion.Euler(euler);
-                vfx.transform.localScale = resolvedScale;
-            }
-            else
-            {
-                vfx.transform.SetParent(null, true);
-                vfx.transform.position = transform.position + transform.rotation * offset;
-                vfx.transform.rotation = transform.rotation * Quaternion.Euler(euler);
-                vfx.transform.localScale = resolvedScale;
-            }
-            vfx.Restart();
-            _castVfxInstance = vfx;
-        }
-        catch (OperationCanceledException)
-        {
-        }
-    }
-
     private static Vector3 ResolveCastVfxScale(Vector3 scale)
         => scale.sqrMagnitude > 0f ? scale : Vector3.one;
 
-    private void StopCastVfx()
+    private async UniTaskVoid SpawnFeedbackVfxAsync(AttackFeedbackEvent feedbackEvent, CastVfxSpace space, int feedbackIndex)
     {
-        _castVfxSpawnCts?.Cancel();
-        _castVfxSpawnCts?.Dispose();
-        _castVfxSpawnCts = null;
+        AutoDespawn vfx = await App.SpawnAsync<AutoDespawn>(feedbackEvent.vfxAddress, token: destroyCancellationToken);
+        if (vfx == null) return;
 
-        if (_castVfxInstance == null) return;
-        AutoDespawn instance = _castVfxInstance;
-        _castVfxInstance = null;
+        Vector3 scale = ResolveCastVfxScale(feedbackEvent.vfxScale);
+        if (space == CastVfxSpace.Actor)
+        {
+            vfx.transform.SetParent(transform, false);
+            vfx.transform.localPosition = feedbackEvent.vfxOffset;
+            vfx.transform.localRotation = Quaternion.Euler(feedbackEvent.vfxEuler);
+        }
+        else
+        {
+            vfx.transform.SetParent(null, true);
+            vfx.transform.position = transform.position + transform.rotation * feedbackEvent.vfxOffset;
+            vfx.transform.rotation = transform.rotation * Quaternion.Euler(feedbackEvent.vfxEuler);
+        }
+        vfx.transform.localScale = scale;
+        vfx.Restart();
+        if (space == CastVfxSpace.Actor)
+            _feedbackVfxInstances.Add((feedbackIndex, vfx));
+    }
+
+    private void StopFeedbackVfx()
+    {
+        for (int i = 0; i < _feedbackVfxInstances.Count; i++)
+            DespawnFeedbackVfxInstance(_feedbackVfxInstances[i].vfx);
+        _feedbackVfxInstances.Clear();
+    }
+
+    private void DespawnFeedbackVfxInstance(AutoDespawn instance)
+    {
         if (instance == null) return;
+        if (instance.transform.parent != transform) return;
         instance.transform.SetParent(null, true);
         if (instance.gameObject.activeInHierarchy)
             App.Despawn(instance.gameObject);
     }
 
-    private void StopAttackMoveVfx(bool playEnd)
+    private void StopFeedbackAfterimages()
     {
-        if (!_attackMoveVfxPlaying)
+        if (!_afterimageFeedbackActive)
             return;
 
-        _attackMoveVfxPlaying = false;
-        if (playEnd)
-            _vfx?.PlayDashEnd(transform.forward);
-        else
-            _vfx?.StopDash();
+        _afterimageFeedbackActive = false;
+        _afterimageFeedbackEndElapsed = 0f;
+        _vfx?.StopMotionAfterimages();
     }
 
-    private static bool ShouldPlayDashVfx(AttackLungeData lunge)
-        => lunge.moveType == AttackMoveType.Dash || lunge.moveType == AttackMoveType.RushTrack;
-
-    private async UniTaskVoid TriggerSlowMo(AttackSlowMoData slowMo)
+    private async UniTaskVoid TriggerSlowMo(AttackTimeScaleData slowMo)
     {
         if (slowMo.duration <= 0f) return;
 
@@ -1093,9 +1226,7 @@ public partial class Character_AttackController : LoopMonoBehaviour
 
     private void OnDestroy()
     {
-        _castVfxSpawnCts?.Cancel();
-        _castVfxSpawnCts?.Dispose();
-        StopReleaseEffects();
+        StopFeedbackVfx();
         _emitter.Dispose();
         if (_cachedWorld != null && _cachedWorld.IsCreated)
             _autoAimQuery.Dispose();

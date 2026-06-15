@@ -26,32 +26,29 @@ public readonly struct RangedOwner
 // 명중 시 공통 효과. 근접(Character_AttackController)·발사체(Projectile_Hitbox)·장판(Field_Hitbox)이 공유한다.
 public static class CombatOnHit
 {
-    // 공격자 의존 효과: 흡혈 + 게이지. handler가 null(공격자 사망/소멸)이면 건너뛴다.
-    public static void ApplyAttackerGains(SO_Attack_Data data, float finalDamage, Character_ActionHandler handler, float gaugeGainPerDamage)
+    public static void ApplyAttackerGains(AttackLifeStealData lifeSteal, float finalDamage, Character_ActionHandler handler, float gaugeGainPerDamage)
     {
         if (handler == null) return;
 
-        if (data.LifeSteal.enabled)
+        if (lifeSteal.enabled)
         {
-            float heal = finalDamage * data.LifeSteal.ratio;
-            if (data.LifeSteal.maxPerHit > 0f)
-                heal = Mathf.Min(heal, data.LifeSteal.maxPerHit);
+            float heal = finalDamage * lifeSteal.ratio;
+            if (lifeSteal.maxPerHit > 0f)
+                heal = Mathf.Min(heal, lifeSteal.maxPerHit);
             handler.Heal(heal);
         }
 
         handler.AddGauge(finalDamage * gaugeGainPerDamage);
     }
 
-    // 히트 트리거 카메라 컷인(전역). cue.trigger == Hit일 때만 발동.
-    public static void PlayHitCameraCue(SO_Attack_Data data)
+    public static void PlayCameraCue(AttackCameraCueData cue, float fallbackDuration)
     {
-        AttackCameraCueData cue = data.CameraCue;
-        if (!cue.enabled || cue.trigger != AttackCueTrigger.Hit) return;
+        if (!cue.enabled) return;
 
         Game.PlayCameraCutIn(new SkillCutInData
         {
             enabled = true,
-            duration = cue.duration > 0f ? cue.duration : Mathf.Max(0.01f, data.Duration),
+            duration = cue.duration > 0f ? cue.duration : Mathf.Max(0.01f, fallbackDuration),
             fovOverride = cue.fovOverride,
             distanceOverride = cue.distanceOverride,
             heightDelta = cue.heightDelta,
@@ -60,7 +57,7 @@ public static class CombatOnHit
     }
 
     // 히트스톱(전역 시간 감속). 근접/발사체/장판 공통.
-    public static async UniTaskVoid TriggerHitstop(AttackHitstopData hitstop, CancellationToken token)
+    public static async UniTaskVoid TriggerHitstop(AttackTimeScaleData hitstop, CancellationToken token)
     {
         if (hitstop.duration <= 0f) return;
 

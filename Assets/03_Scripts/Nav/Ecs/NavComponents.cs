@@ -213,6 +213,7 @@ namespace MapNav.Ecs
         public float ShapeWidth;
         public float SuperArmor;
         public float SuperArmorBreak;
+        public float BreakGaugeDamage;
         public HitType HitType;
         public SfxType HitSfx;
         public FixedString64Bytes HitVfxAddress;

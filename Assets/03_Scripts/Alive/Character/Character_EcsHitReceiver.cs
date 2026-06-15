@@ -60,7 +60,7 @@ public sealed class Character_EcsHitReceiver : MonoBehaviour
             force    = profile.KnockbackForce,
             friction = profile.KnockbackFriction
         };
-        AttackHitstopData hitstop = new AttackHitstopData
+        AttackTimeScaleData hitstop = new AttackTimeScaleData
         {
             duration  = profile.HitstopDuration,
             timeScale = profile.HitstopTimeScale
@@ -84,6 +84,7 @@ public sealed class Character_EcsHitReceiver : MonoBehaviour
             hitstop,
             down,
             profile.SuperArmorBreak,
+            profile.BreakGaugeDamage,
             launch);
 
         // VFX는 피격자 쪽에서 재생한다. 잡몹 위치(source)는 넉백 방향 계산용이다.

@@ -12,15 +12,17 @@ public partial class Character_AttackController
                 : null;
         if (gizmoData == null) return;
 
-        AttackHitboxData hitbox = gizmoData.Hitbox;
+        if (!AttackTimelineUtility.TryGetPrimaryHitVolume(gizmoData, out AttackHitboxData hitbox, out AttackShapeData shape))
+            return;
+
         Color solid = attackGizmoColor;
         solid.a = Mathf.Clamp01(solid.a);
         Gizmos.color = solid;
-        DrawAttackShapeGizmo(transform.position, transform.forward, hitbox, gizmoData.Shape, true);
+        DrawAttackShapeGizmo(transform.position, transform.forward, hitbox, shape, true);
         Color wire = solid;
         wire.a = 0.9f;
         Gizmos.color = wire;
-        DrawAttackShapeGizmo(transform.position, transform.forward, hitbox, gizmoData.Shape, false);
+        DrawAttackShapeGizmo(transform.position, transform.forward, hitbox, shape, false);
     }
 
     private SO_Attack_Data GetGizmoData()
@@ -48,7 +50,7 @@ public partial class Character_AttackController
                 break;
             default:
                 Vector3 center = origin + forward * hitbox.offset + Vector3.up * hitbox.yOffset;
-                DrawCylinderGizmo(center, Mathf.Max(0f, shape.radius), hitbox.verticalTolerance, solid);
+                DrawCylinderGizmo(center, Mathf.Max(0f, shape.radius), shape.verticalTolerance, solid);
                 break;
         }
     }
@@ -58,7 +60,7 @@ public partial class Character_AttackController
         Vector3 apex = origin + forward * hitbox.offset + Vector3.up * hitbox.yOffset;
         float length = Mathf.Max(shape.radius, shape.length);
         float halfAngle = Mathf.Clamp(shape.angle, 1f, 360f) * 0.5f;
-        float verticalTolerance = Mathf.Max(0f, hitbox.verticalTolerance);
+        float verticalTolerance = Mathf.Max(0f, shape.verticalTolerance);
         int segments = 24;
 
         if (solid)
@@ -104,7 +106,7 @@ public partial class Character_AttackController
     {
         float length = shape.length;
         float width  = shape.width;
-        float height = Mathf.Max(0.05f, Mathf.Max(0f, hitbox.verticalTolerance) * 2f);
+        float height = Mathf.Max(0.05f, Mathf.Max(0f, shape.verticalTolerance) * 2f);
         Vector3 center = origin + forward * (hitbox.offset + length * 0.5f) + Vector3.up * hitbox.yOffset;
         Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
         Matrix4x4 previousMatrix = Gizmos.matrix;

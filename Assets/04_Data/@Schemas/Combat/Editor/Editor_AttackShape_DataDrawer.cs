@@ -46,6 +46,8 @@ public class Editor_AttackShape_DataDrawer : PropertyDrawer
                 break;
         }
 
+        DrawField(ref row, property, "verticalTolerance", lineH, spacing);
+
         EditorGUI.indentLevel--;
         EditorGUI.EndProperty();
     }
@@ -66,7 +68,7 @@ public class Editor_AttackShape_DataDrawer : PropertyDrawer
 
         float lineH   = EditorGUIUtility.singleLineHeight;
         float spacing = EditorGUIUtility.standardVerticalSpacing;
-        return (2 + fieldCount) * (lineH + spacing) - spacing; // foldout + type + shape fields
+        return (3 + fieldCount) * (lineH + spacing) - spacing; // foldout + type + shape fields + verticalTolerance
     }
 
     private static void DrawField(ref Rect row, SerializedProperty parent, string name, float lineH, float spacing)

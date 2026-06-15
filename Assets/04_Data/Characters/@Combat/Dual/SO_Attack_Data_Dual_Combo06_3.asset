@@ -12,14 +12,136 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 04afefad81cf42009a9997add1629312, type: 3}
   m_Name: SO_Attack_Data_Dual_Combo06_3
   m_EditorClassIdentifier: 
+  schemaVersion: 2
   animation:
     stateName: Frank_RPG_Dual_Combo06_3
     transition: 0.05
-  lunge:
-    moveType: 0
-    distance: 6
+    timingMode: 0
+    speed: 1
+    startNormalizedTime: 0
+  totalDuration: 0.4
+  superArmor:
+    value: 1
+    breakPower: 100
+  deliveryEvents:
+  - label: Main
+    enabled: 1
+    startTime: 0.2
+    activeDuration: 0
+    type: 0
+    melee:
+      shape:
+        type: 2
+        radius: 5
+        angle: 360
+        length: 5
+        width: 4
+        verticalTolerance: 1
+      hitbox:
+        timing: 0
+        offset: -1
+        yOffset: 0
+        verticalTolerance: 1
+      repeat:
+        enabled: 0
+        interval: 0.2
+        duration: 0
+        maxCount: 0
+    projectile:
+      prefabAddress: 
+      shape:
+        type: 0
+        radius: 0
+        angle: 0
+        length: 0
+        width: 0
+        verticalTolerance: 0
+      hitbox:
+        timing: 0
+        offset: 0
+        yOffset: 0
+        verticalTolerance: 0
+      spawnOffset: {x: 0, y: 0, z: 0}
+      speed: 0
+      maxDistance: 0
+      lifetime: 0
+      pierce: 0
+      count: 1
+      spreadAngle: 0
+      aimMode: 0
+    field:
+      prefabAddress: 
+      shape:
+        type: 0
+        radius: 0
+        angle: 0
+        length: 0
+        width: 0
+        verticalTolerance: 0
+      hitbox:
+        timing: 0
+        offset: 0
+        yOffset: 0
+        verticalTolerance: 0
+      origin: 0
+      lifetime: 0
+      tickInterval: 0
+      forwardOffset: 0
+      followAttacker: 0
+    targetFilter:
+      team: 0
+      requireHittable: 1
+    dedupe: 0
+    hitResult:
+      damage: 1
+      hitType: 1
+      knockback:
+        type: 1
+        force: 20
+        friction: 12
+      targetLaunch:
+        enabled: 1
+        height: 1
+        suspendDuration: 0
+      landingDown:
+        enabled: 1
+        duration: 1
+      breakDamage: 100
+      lifeSteal:
+        enabled: 0
+        ratio: 0.1
+        maxPerHit: 0
+      hitVfxAddress: CFXR3 Hit Fire B (Air)
+      hitSfx: 0
+      hitstop:
+        timeScale: 0.02
+        duration: 0.3
+      cameraShake:
+        enabled: 1
+        amplitude: 0.5
+        duration: 0.25
+        frequency: 25
+      cameraCue:
+        enabled: 0
+        trigger: 0
+        duration: 0
+        fovOverride: 0
+        distanceOverride: 0
+        heightDelta: 0
+        yawVelocity: 0
+    flow:
+      endAttackIfNoHitByEventEnd: 0
+      stopMovementOnHit: 0
+  movementEvents:
+  - label: Lunge
+    enabled: 1
+    startTime: 0
     duration: 0.2
-    speedCurve:
+    type: 0
+    distance: 6
+    speed: 0
+    height: 0
+    curve:
       serializedVersion: 2
       m_Curve:
       - serializedVersion: 3
@@ -44,112 +166,35 @@ MonoBehaviour:
       m_PostInfinity: 2
       m_RotationOrder: 4
     stopOnHit: 0
-    slamDescentSpeed: 0
-  jump:
-    enabled: 0
-    height: 0
-    suspendAtApex: 1
-  duration: 0.4
-  shape:
-    type: 0
-    radius: 5
-    angle: 360
-    length: 3
-    width: 2
-  hitbox:
-    timing: 0
-    offset: 0
-    yOffset: 0
-    verticalTolerance: 3
-  repeat:
-    enabled: 0
-    interval: 0.2
-    hitSameTargetOnce: 0
-    cancelOnMiss: 1
-    maxCount: 0
-  additionalHits: []
-  damage: 10
-  hitType: 1
-  knockback:
-    type: 0
-    force: 0
-    friction: 12
-  launch:
+  feedbackEvents:
+  - label: Motion
     enabled: 1
-    height: 5
-    suspendDuration: 0
-  down:
-    enabled: 1
-    duration: 1
-  lifeSteal:
-    enabled: 0
-    ratio: 0.1
-    maxPerHit: 0
-  superArmor:
-    value: 1
-    breakPower: 100
-  projectile:
-    enabled: 0
-    prefabAddress: 
-    speed: 15
-    maxDistance: 12
-    lifetime: 1.5
-    spawnOffset: {x: 0, y: 0, z: 0}
-    pierce: 0
-    count: 1
-    spreadAngle: 0
-  field:
-    enabled: 0
-    prefabAddress: 
-    origin: 0
-    duration: 3
-    tickInterval: 0.5
-    forwardOffset: 2
-    followAttacker: 0
-  meleeAlongsideDelivery: 0
-  feedback:
-    castVfxAddress: 
-    castVfxTiming: 0
-    castVfxOffset: {x: 0, y: 0.5, z: 0}
-    castVfxEuler: {x: 0, y: 0, z: 0}
-    castVfxSpace: 1
-    castVfxScale: {x: 3, y: 3, z: 3}
-    swingTrailIds:
-    - 0
-    - 1
-    - 2
-    swingSfx: 0
-    timingVfxAddress: 
-    timingVfxOffset: {x: 0, y: 0, z: 0}
-    hitVfxAddress: CFXR3 Hit Fire B (Air)
-    hitSfx: 0
-  releaseEffects:
-    timing: 0
-    shake:
-      enabled: 1
-      amplitude: 0.08
-      duration: 0.12
-      frequency: 28
-    slowMo:
-      enabled: 0
-      timeScale: 0.3
-      duration: 0.5
-  hitEffects:
-    shake:
-      enabled: 1
-      amplitude: 0.15
-      duration: 0.18
-      frequency: 25
-    hitstop:
-      duration: 0
-      timeScale: 0
-  cameraCue:
-    enabled: 0
     trigger: 0
-    duration: 0
-    fovOverride: 80
-    distanceOverride: 4.4
-    heightDelta: -0.35
-    yawVelocity: 30
-  hitVfxAddress: 
-  hitSfx: 0
+    startTime: 0
+    endTime: 0.2
+    deliveryIndex: 0
+    localPlayerOnly: 0
+    deferUntilWindupEnd: 1
+    motionAfterimages: 1
+    vfxAddress: 
+    vfxOrigin: 0
+    vfxOffset: {x: 0, y: 0, z: 0}
+    vfxEuler: {x: 0, y: 0, z: 0}
+    vfxScale: {x: 0, y: 0, z: 0}
+    sfx: 0
+    cameraShake:
+      enabled: 0
+      amplitude: 0.5
+      duration: 0.5
+      frequency: 100
+    slowMo:
+      timeScale: 0
+      duration: 0
+    cameraCue:
+      enabled: 0
+      trigger: 0
+      duration: 0
+      fovOverride: 0
+      distanceOverride: 0
+      heightDelta: 0
+      yawVelocity: 0

@@ -529,9 +529,7 @@ public sealed class Elite_Brain : LoopMonoBehaviour
         {
             SO_Attack_Data attack = sequence[i];
             if (attack == null) continue;
-            AttackMoveType moveType = attack.Lunge.moveType;
-            if ((moveType == AttackMoveType.Dash || moveType == AttackMoveType.RushTrack || moveType == AttackMoveType.Lunge)
-                && attack.Lunge.distance > attackRange * 0.75f)
+            if (AttackTimelineUtility.GetMaxForwardMovementDistance(attack) > attackRange * 0.75f)
                 return true;
         }
         return false;
@@ -545,13 +543,7 @@ public sealed class Elite_Brain : LoopMonoBehaviour
 
         SO_Attack_Data attack = sequence[0];
         float range = GetAttackRange(attack);
-        AttackLungeData lunge = attack.Lunge;
-        if (lunge.moveType == AttackMoveType.Dash || lunge.moveType == AttackMoveType.RushTrack || lunge.moveType == AttackMoveType.Lunge)
-            range += Mathf.Max(0f, lunge.distance) * 0.8f;
-        if (attack.Projectile.enabled)
-            range = Mathf.Max(range, attack.Projectile.maxDistance);
-        if (attack.Field.enabled)
-            range = Mathf.Max(range, attack.Field.forwardOffset + AttackShapeUtility.GetPlanarReach(attack.Shape));
+        range += AttackTimelineUtility.GetMaxForwardMovementDistance(attack) * 0.8f;
         return Mathf.Max(fallbackRange, range);
     }
 
@@ -688,7 +680,7 @@ public sealed class Elite_Brain : LoopMonoBehaviour
     private float GetAttackRange(SO_Attack_Data attack)
     {
         float reach = attack != null
-            ? attack.Hitbox.offset + AttackShapeUtility.GetPlanarReach(attack.Shape)
+            ? AttackTimelineUtility.GetTargetingRange(attack)
             : 1.5f;
         float padding = _brain != null ? _brain.AttackRangePadding : 0.25f;
         return Mathf.Max(0.1f, reach + padding);

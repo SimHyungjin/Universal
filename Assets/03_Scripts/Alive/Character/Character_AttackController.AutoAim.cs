@@ -16,7 +16,7 @@ public partial class Character_AttackController
 
     private Vector3 FindAutoAimDirection(SO_Attack_Data data)
     {
-        float range = data.Hitbox.offset + AttackShapeUtility.GetPlanarReach(data.Shape);
+        float range = Mathf.Max(0.1f, AttackTimelineUtility.GetTargetingRange(data));
         Vector3 best = Vector3.zero;
         float bestDist = range * range;
         Vector3 myPos = transform.position;

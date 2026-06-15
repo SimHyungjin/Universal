@@ -389,9 +389,10 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         Vector3 hitSource,
         AttackKnockbackData knockback,
         float damage,
-        AttackHitstopData hitstop = default,
+        AttackTimeScaleData hitstop = default,
         AttackDownData down = default,
         float superArmorBreak = 0f,
+        float breakGaugeDamage = 0f,
         AttackLaunchData launch = default,
         Vector3 attackerForward = default)
     {
@@ -407,8 +408,8 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         float resolvedDamage = alreadyBroken ? damage * BrokenDamageTakenMultiplier : damage;
         ApplyDamage(resolvedDamage);
         if (_state == Character_ActionState.Dead) return;
-        // 브레이크 게이지는 체력 데미지와 독립 — 오직 공격의 superArmorBreak(SO_Attack_Data.superArmor.breakPower)만큼만 깎인다.
-        bool broken = _vitals != null && _vitals.ApplyBreakDamage(Mathf.Max(0f, superArmorBreak));
+        // 그로기 게이지는 체력 데미지와 독립 — hitResult.breakGaugeDamage만큼 깎인다(인터럽트용 superArmorBreak와 별개).
+        bool broken = _vitals != null && _vitals.ApplyBreakDamage(Mathf.Max(0f, breakGaugeDamage));
         AddGauge(statsData != null ? statsData.GaugeGainOnReceive : 0f);
         // 전역 히트스톱(슬로모)은 "로컬 플레이어가 때렸을 때"만 — 공격자측(CombatOnHit, IsLocalPlayer 게이트)이 담당한다.
         // 피격자측에서 걸면 적이 플레이어/유닛을 때릴 때도 시간이 멈추므로(ECS 잡몹 공격 포함) 여기선 걸지 않는다.
@@ -498,19 +499,6 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         PlayHitReaction(hasKnockback ? HitReactionKind.HeavyHit : HitReactionKind.LightHit);
     }
 
-    public void ReceiveHit(Vector3 hitSource, SO_Attack_Data attack)
-    {
-        if (attack == null) return;
-        ReceiveHit(
-            hitSource,
-            attack.Knockback,
-            attack.Damage,
-            attack.Hitstop,
-            attack.Down,
-            attack.SuperArmorBreak,
-            attack.Launch);
-    }
-
     // IHitTarget: GameObject 공격(Character_AttackController OverlapSphere)이 들어오는 경로.
     // finalDamage는 공격자 쪽에서 이미 공격력 스케일을 적용한 값이라 그대로 사용한다.
     // ReceiveHit이 무시하는 상태(무적·사망)와 동일 조건. 공격자가 이때 시체/무적 대상을 건너뛰어
@@ -521,10 +509,10 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
 
     void IHitTarget.ReceiveHit(Vector3 attackerPos, Vector3 attackerForward, in AttackHitInfo hit, float finalDamage)
     {
-        ReceiveHit(attackerPos, hit.Knockback, finalDamage, hit.Hitstop, hit.Down, hit.SuperArmorBreak, hit.Launch, attackerForward);
+        ReceiveHit(attackerPos, hit.Knockback, finalDamage, hit.Hitstop, hit.Down, hit.SuperArmorBreak, hit.BreakGaugeDamage, hit.Launch, attackerForward);
     }
 
-    private void TriggerHitstop(AttackHitstopData hitstop)
+    private void TriggerHitstop(AttackTimeScaleData hitstop)
     {
         if (hitstop.duration <= 0f || Main.Loop == null) return;
         DoHitstop(hitstop, destroyCancellationToken).Forget();
@@ -556,7 +544,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         => brokenByThisHit
            || (_vitals != null && _vitals.IsBroken);
 
-    private static async UniTaskVoid DoHitstop(AttackHitstopData hitstop, CancellationToken token)
+    private static async UniTaskVoid DoHitstop(AttackTimeScaleData hitstop, CancellationToken token)
     {
         Main.Loop.SetGameSpeed(Mathf.Clamp01(hitstop.timeScale));
         try
@@ -697,7 +685,7 @@ public partial class Character_ActionHandler : LoopMonoBehaviour, IDamageable, I
         float hitstopDuration = ResolvedBreakHitstopDuration;
         if (hitstopDuration > 0f)
         {
-            TriggerHitstop(new AttackHitstopData
+            TriggerHitstop(new AttackTimeScaleData
             {
                 duration = hitstopDuration,
                 timeScale = ResolvedBreakHitstopTimeScale

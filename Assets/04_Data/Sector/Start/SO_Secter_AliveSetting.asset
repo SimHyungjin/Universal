@@ -13,14 +13,14 @@ MonoBehaviour:
   m_Name: SO_Secter_AliveSetting
   m_EditorClassIdentifier: Assembly-CSharp::SO_Secter_AliveSetting
   erosionStage: 6
-  defaultSectorCapacity: 0
+  defaultSectorCapacity: 1
   allyComposition: {fileID: 11400000, guid: 15bd8dcc0a08a6941b1b658e3a15e256, type: 2}
   enemyComposition: {fileID: 11400000, guid: 6f0c783088fbbc6429f9982a51e8d9a2, type: 2}
   allyElites: []
   enemyElites:
   - character: {fileID: 11400000, guid: bd2eee321f7bf32488a72c5cc92d1a1b, type: 2}
     faction: 1
-    count: 1
+    count: 10
     isBoss: 0
   - character: {fileID: 11400000, guid: 6cb8d6db13e4b6e46b2996bd3a55fb29, type: 2}
     faction: 1

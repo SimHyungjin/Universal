@@ -1,38 +1,35 @@
 using UnityEngine;
 
-// GameObject(IHitTarget) 공격이 피격자에게 전달하는 히트 결과 묶음.
-// 메인 hitbox와 additionalHits(extra)가 동일한 계약으로 결과를 넘기기 위한 통합 구조.
-// hitstop/superArmorBreak는 공격 SO 레벨 공유값, knockback/launch/down은 hit별 고유값이다
+// GameObject(IHitTarget) 공격이 피격자에게 전달하는 히트 결과 묶음(delivery hitResult 기반).
+// superArmorBreak=슈퍼아머 관통(인터럽트 임계), breakGaugeDamage=그로기 게이지 누적 — 별개 축.
 // (AttackHitEmitter의 ECS 경로 규칙과 동일).
 public readonly struct AttackHitInfo
 {
     public readonly AttackKnockbackData Knockback;
     public readonly AttackLaunchData Launch;
     public readonly AttackDownData Down;
-    public readonly AttackHitstopData Hitstop;
+    public readonly AttackTimeScaleData Hitstop;
     public readonly float SuperArmorBreak;
+    public readonly float BreakGaugeDamage;
 
     public AttackHitInfo(
         AttackKnockbackData knockback,
         AttackLaunchData launch,
         AttackDownData down,
-        AttackHitstopData hitstop,
-        float superArmorBreak)
+        AttackTimeScaleData hitstop,
+        float superArmorBreak,
+        float breakGaugeDamage)
     {
-        Knockback       = knockback;
-        Launch          = launch;
-        Down            = down;
-        Hitstop         = hitstop;
-        SuperArmorBreak = superArmorBreak;
+        Knockback        = knockback;
+        Launch           = launch;
+        Down             = down;
+        Hitstop          = hitstop;
+        SuperArmorBreak  = superArmorBreak;
+        BreakGaugeDamage = breakGaugeDamage;
     }
 
-    // 메인 hitbox: 결과 전부 SO 최상위 값에서.
-    public static AttackHitInfo FromMain(SO_Attack_Data data)
-        => new(data.Knockback, data.Launch, data.Down, data.Hitstop, data.SuperArmorBreak);
-
-    // additionalHits: knockback/launch/down은 extra 고유, hitstop/superArmorBreak는 data 공유.
-    public static AttackHitInfo FromExtra(SO_Attack_Data data, in AttackExtraHit extra)
-        => new(extra.hitResult.knockback, extra.hitResult.launch, extra.hitResult.down, data.Hitstop, data.SuperArmorBreak);
+    public static AttackHitInfo FromHitResult(in AttackHitResultData hitResult)
+        => new(hitResult.knockback, hitResult.targetLaunch, hitResult.landingDown, hitResult.hitstop, hitResult.superArmorBreak, hitResult.breakGaugeDamage);
 }
 
 public interface IHitTarget

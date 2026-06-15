@@ -192,16 +192,15 @@ public sealed class Character_AttackTelegraph : MonoBehaviour
 
     private static void ResolveEffectiveShape(SO_Attack_Data attack, out AttackHitboxData hitbox, out AttackShapeData shape)
     {
-        hitbox = attack.Hitbox;
-        shape = attack.Shape;
+        if (!AttackTimelineUtility.TryGetPrimaryHitVolume(attack, out hitbox, out shape))
+            return;
 
-        // 이동하며 때리는 공격은 이동 경로를 레인(Box)으로 보여준다.
-        //  - Dash/RushTrack: 돌진 의도라 distance가 조금만 있어도 레인
-        //  - Lunge: 보통 짧은 전진(공격 붙이기)이지만, distance가 크면(예: Swiping=20) 사실상 돌진이므로 레인
-        AttackLungeData lunge = attack.Lunge;
-        bool dashType = lunge.moveType == AttackMoveType.Dash || lunge.moveType == AttackMoveType.RushTrack;
-        bool longLunge = lunge.moveType == AttackMoveType.Lunge && lunge.distance > 3f && !attack.Jump.enabled;
-        if ((dashType && lunge.distance > 0.5f) || longLunge)
+        // 휩쓸며 때리는 공격(다단 repeat + 전방 이동)은 위험 경로를 레인(Box)으로 보여준다.
+        // 단발/제자리는 첫타 shape 그대로 — repeat가 "지속 위험 창" 신호라 매직 거리 임계 없이 가른다.
+        float movementDistance = AttackTimelineUtility.GetMaxForwardMovementDistance(attack);
+        if (movementDistance > 0f
+            && AttackTimelineUtility.HasRepeatingMeleeDelivery(attack)
+            && !AttackTimelineUtility.HasSelfJump(attack))
         {
             float reach = AttackShapeUtility.GetPlanarReach(shape);
             float width = shape.type == AttackShape.Box
@@ -210,19 +209,21 @@ public sealed class Character_AttackTelegraph : MonoBehaviour
             shape = new AttackShapeData
             {
                 type = AttackShape.Box,
-                length = lunge.distance + reach,
+                length = movementDistance + reach,
                 width = width,
                 radius = shape.radius,
-                angle = shape.angle
+                angle = shape.angle,
+                verticalTolerance = shape.verticalTolerance
             };
             return;
         }
 
-        AttackProjectileData projectile = attack.Projectile;
-        if (!projectile.enabled)
+        if (!AttackTimelineUtility.TryGetFirstProjectile(attack, out AttackProjectileDelivery projectile))
             return;
 
-        float range = projectile.maxDistance > 0f ? projectile.maxDistance : 10f;
+        float range = AttackTimelineUtility.GetProjectileRange(projectile);
+        if (range <= 0f)
+            range = 10f;
         if (projectile.count > 1 && projectile.spreadAngle > 1f)
         {
             shape = new AttackShapeData

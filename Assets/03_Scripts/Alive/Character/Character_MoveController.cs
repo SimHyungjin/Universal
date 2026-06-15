@@ -40,13 +40,9 @@ public class Character_MoveController : LoopMonoBehaviour
 
     public void StartLunge(Vector3 direction, AttackLungeData lunge)
     {
-        if (lunge.moveType == AttackMoveType.None)
-        {
-            StopLunge();
-            return;
-        }
-
-        if (lunge.distance <= 0f || lunge.duration <= 0f) return;
+        // distance 음수 = 후진(백스텝). 부호는 TickLunge에서 그대로 흐른다. 0만 거른다.
+        // (이동 취소는 별도 StopLunge() 경로가 담당)
+        if (Mathf.Approximately(lunge.distance, 0f) || lunge.duration <= 0f) return;
 
         _lungeDirection = new Vector3(direction.x, 0f, direction.z).normalized;
         _lungeDistance = lunge.distance;

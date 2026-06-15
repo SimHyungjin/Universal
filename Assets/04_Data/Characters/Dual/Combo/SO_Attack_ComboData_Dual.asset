@@ -13,7 +13,6 @@ MonoBehaviour:
   m_Name: SO_Attack_ComboData_Dual
   m_EditorClassIdentifier: 
   attacks:
-  - {fileID: 11400000, guid: 183d6f1334f889e41a742dfc5bf91e6c, type: 2}
   - {fileID: 11400000, guid: f8252071488101e478886e44fb23ffa8, type: 2}
   - {fileID: 11400000, guid: cc872a42d4f0a7e448331233f5095886, type: 2}
   - {fileID: 11400000, guid: 11ffcb4b5346b9746a58d978e21ea0fe, type: 2}

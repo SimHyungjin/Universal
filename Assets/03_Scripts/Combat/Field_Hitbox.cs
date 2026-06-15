@@ -1,7 +1,7 @@
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 
-// SO_Attack_Data.Field 설정으로 스폰되는 지속 장판. duration 동안 유지되며 tickInterval마다
+// AttackFieldDelivery(delivery 이벤트) 설정으로 스폰되는 지속 장판. field.lifetime 동안 유지되며 tickInterval마다
 // 자기 위치에서 AttackHitEmitter로 잡몹(ECS)·장수(GameObject)를 판정한다. 틱마다 레지스트리를
 // 비워 같은 적을 매 틱 재타격한다(근접 repeat와 동일 개념).
 [DisallowMultipleComponent]
@@ -24,6 +24,9 @@ public sealed class Field_Hitbox : LoopMonoBehaviour, IPoolable
     private float _tickInterval;
     private AttackHitboxData _hitbox;
     private AttackShapeData _shape;
+    private AttackHitInfo _hitInfo;
+    private HitType _hitType;
+    private AttackHitResultData _hitResult;
 
     private float _elapsed;
     private float _nextTick;
@@ -36,7 +39,15 @@ public sealed class Field_Hitbox : LoopMonoBehaviour, IPoolable
         _particles = GetComponentsInChildren<ParticleSystem>(true);
     }
 
-    public void Activate(SO_Attack_Data data, float finalDamage, in RangedOwner owner, Vector3 forward, Transform followTarget)
+    public void Activate(
+        SO_Attack_Data data,
+        in AttackFieldDelivery delivery,
+        in AttackHitResultData hitResult,
+        float duration,
+        float finalDamage,
+        in RangedOwner owner,
+        Vector3 forward,
+        Transform followTarget)
     {
         _data = data;
         _finalDamage = finalDamage;
@@ -44,25 +55,19 @@ public sealed class Field_Hitbox : LoopMonoBehaviour, IPoolable
         _followTarget = followTarget;
         _forward = forward.sqrMagnitude > 0.0001f ? forward.normalized : transform.forward;
 
-        AttackFieldData field = data.Field;
-        _forwardOffset = field.forwardOffset;
-        _duration = field.duration;
-        _tickInterval = Mathf.Max(0.01f, field.tickInterval);
-
-        // 히트 볼륨은 장판 자기 위치 중심. offset/yOffset 0으로 두고 SO의 shape·수직 허용범위를 쓴다.
-        _shape = data.Shape;
-        _hitbox = new AttackHitboxData
-        {
-            timing = 0f,
-            offset = 0f,
-            yOffset = 0f,
-            verticalTolerance = data.Hitbox.verticalTolerance
-        };
+        _forwardOffset = delivery.forwardOffset;
+        _duration = duration;
+        _tickInterval = Mathf.Max(0.01f, delivery.tickInterval);
+        _shape = delivery.shape;
+        _hitbox = delivery.hitbox;
+        _hitInfo = AttackHitInfo.FromHitResult(hitResult);
+        _hitType = hitResult.hitType;
+        _hitResult = hitResult;
 
         _elapsed = 0f;
-        _nextTick = 0f; // 활성화 즉시 1틱
+        _nextTick = 0f;
         _hitCuePlayed = false;
-        ClearVfx(); // 스폰 위치로 옮긴 직후 이전 위치 잔상 제거
+        ClearVfx();
         _active = true;
     }
 
@@ -92,8 +97,11 @@ public sealed class Field_Hitbox : LoopMonoBehaviour, IPoolable
             _registry.Clear(); // 틱마다 재타격
             bool hit = _emitter.Emit(
                 transform.position, _forward, _hitbox, _shape,
-                AttackHitInfo.FromMain(_data), _data.HitType, _finalDamage,
-                _owner.Faction, _owner.Entity, _registry, scope: 1, hitSameTargetOnce: true, _data);
+                _hitInfo, _hitType, _finalDamage,
+                _owner.Faction, _owner.Entity, _registry, scope: 1, hitSameTargetOnce: true, _data,
+                useFeedbackOverride: true,
+                hitSfxOverride: _hitResult.hitSfx,
+                hitVfxOverride: _hitResult.hitVfxAddress);
 
             if (hit)
                 ApplyOnHitEffects();
@@ -107,7 +115,7 @@ public sealed class Field_Hitbox : LoopMonoBehaviour, IPoolable
     // 로컬 플레이어가 깐 것일 때만(적/아군 AI 장판은 SFX/VFX만 — 화면 흔들기·시간 정지 없음).
     private void ApplyOnHitEffects()
     {
-        CombatOnHit.ApplyAttackerGains(_data, _finalDamage, _owner.Handler, _owner.GaugeGainPerDamage);
+        CombatOnHit.ApplyAttackerGains(_hitResult.lifeSteal, _finalDamage, _owner.Handler, _owner.GaugeGainPerDamage);
 
         if (!PlayerController.IsLocalPlayer(_owner.Handler))
             return;
@@ -115,10 +123,12 @@ public sealed class Field_Hitbox : LoopMonoBehaviour, IPoolable
         if (!_hitCuePlayed)
         {
             _hitCuePlayed = true;
-            CombatOnHit.PlayHitCameraCue(_data);
+            if (_hitResult.cameraCue.enabled)
+                CombatOnHit.PlayCameraCue(_hitResult.cameraCue, _data.TotalDuration);
         }
-        CombatFeedback.PlayHitCameraShake(_data);
-        CombatOnHit.TriggerHitstop(_data.HitEffects.hitstop, destroyCancellationToken).Forget();
+        if (_hitResult.cameraShake.enabled)
+            App.ShakeCamera(_hitResult.cameraShake.amplitude, _hitResult.cameraShake.duration, _hitResult.cameraShake.frequency);
+        CombatOnHit.TriggerHitstop(_hitResult.hitstop, destroyCancellationToken).Forget();
     }
 
     private void Expire()

@@ -673,10 +673,16 @@ namespace MapNav.Ecs
             float wakeupRecovery = data != null && data.ActionRecovery != null ? data.ActionRecovery.WakeupDuration : 1f;
             float defense        = stats != null ? stats.Defense       : 0f;
             SO_Attack_Data attack = stats?.EnemyAttack;
-            float attackDamage   = attack != null ? attack.Damage      : 5f;
-            float attackRange    = attack != null ? attack.Hitbox.offset + AttackShapeUtility.GetPlanarReach(attack.Shape) : 1.4f;
-            float attackWindup   = attack != null ? attack.Duration * attack.Hitbox.timing : 0.4f;
-            float attackCooldown = attack != null ? attack.Duration * (1f - attack.Hitbox.timing) : 1.2f;
+            bool hasDelivery = AttackTimelineUtility.TryGetFirstEnabledDelivery(
+                attack, out AttackDeliveryEvent delivery, out AttackHitboxData hitbox, out AttackShapeData shape);
+            float attackDamage   = hasDelivery ? delivery.hitResult.damage : 5f;
+            float attackRange    = hasDelivery
+                ? hitbox.offset + AttackShapeUtility.GetPlanarReach(shape)
+                : 1.4f;
+            float attackWindup   = hasDelivery ? AttackTimelineUtility.GetFirstDeliveryStartTime(attack) : 0.4f;
+            float attackCooldown = hasDelivery
+                ? Mathf.Max(0f, AttackTimelineUtility.GetDuration(attack) - attackWindup)
+                : 1.2f;
 
             return new NavAgentSettings
             {
@@ -841,8 +847,13 @@ namespace MapNav.Ecs
         private static NavAgentAttackProfile BakeAttackProfile(SO_Attack_Data attack, float attackerAttackPower)
         {
             if (attack == null) return default;
+            if (!AttackTimelineUtility.TryGetFirstEnabledDelivery(
+                    attack, out AttackDeliveryEvent delivery, out AttackHitboxData hitbox, out AttackShapeData shape))
+                return default;
+            AttackHitResultData hitResult = delivery.hitResult;
+
             FixedString64Bytes vfx = default;
-            string vfxAddress = attack.HitVfxAddress;
+            string vfxAddress = hitResult.hitVfxAddress;
             if (!string.IsNullOrEmpty(vfxAddress))
             {
                 // FixedString64Bytes 용량 초과 문자열은 잘려나감. 어드레서블 키가 60자 이상이면 더 큰 FixedString 검토 필요.
@@ -860,29 +871,30 @@ namespace MapNav.Ecs
 
             return new NavAgentAttackProfile
             {
-                Damage = CombatFormula.ScaleAttackDamage(attackerAttackPower, attack.Damage),
-                KnockbackType = attack.Knockback.type,
-                KnockbackForce = attack.Knockback.force,
-                KnockbackFriction = attack.Knockback.friction,
-                HitstopDuration = attack.Hitstop.duration,
-                HitstopTimeScale = attack.Hitstop.timeScale,
-                IsDownAttack = (byte)(attack.Down.enabled ? 1 : 0),
-                DownDuration = attack.Down.duration,
-                LaunchEnabled = (byte)(attack.Launch.enabled ? 1 : 0),
-                LaunchHeight = attack.Launch.height,
-                LaunchSuspendDuration = attack.Launch.suspendDuration,
-                Shape = attack.Shape.type,
-                HitboxOffset = attack.Hitbox.offset,
-                HitboxYOffset = attack.Hitbox.yOffset,
-                HitboxVerticalTolerance = attack.Hitbox.verticalTolerance,
-                ShapeRadius = attack.Shape.radius,
-                ShapeAngle = attack.Shape.angle,
-                ShapeLength = attack.Shape.length,
-                ShapeWidth = attack.Shape.width,
+                Damage = CombatFormula.ScaleAttackDamage(attackerAttackPower, hitResult.damage),
+                KnockbackType = hitResult.knockback.type,
+                KnockbackForce = hitResult.knockback.force,
+                KnockbackFriction = hitResult.knockback.friction,
+                HitstopDuration = hitResult.hitstop.duration,
+                HitstopTimeScale = hitResult.hitstop.timeScale,
+                IsDownAttack = (byte)(hitResult.landingDown.enabled ? 1 : 0),
+                DownDuration = hitResult.landingDown.duration,
+                LaunchEnabled = (byte)(hitResult.targetLaunch.enabled ? 1 : 0),
+                LaunchHeight = hitResult.targetLaunch.height,
+                LaunchSuspendDuration = hitResult.targetLaunch.suspendDuration,
+                Shape = shape.type,
+                HitboxOffset = hitbox.offset,
+                HitboxYOffset = hitbox.yOffset,
+                HitboxVerticalTolerance = shape.verticalTolerance,
+                ShapeRadius = shape.radius,
+                ShapeAngle = shape.angle,
+                ShapeLength = shape.length,
+                ShapeWidth = shape.width,
                 SuperArmor = attack.SuperArmor,
-                SuperArmorBreak = attack.SuperArmorBreak,
-                HitType = attack.HitType,
-                HitSfx = attack.HitSfx,
+                SuperArmorBreak = hitResult.superArmorBreak,
+                BreakGaugeDamage = hitResult.breakGaugeDamage,
+                HitType = hitResult.hitType,
+                HitSfx = hitResult.hitSfx,
                 HitVfxAddress = vfx,
                 AttackStateName = attackStateName,
                 AttackTransition = attack.Animation.transition
