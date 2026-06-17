@@ -20,7 +20,7 @@ MonoBehaviour:
   enemyElites:
   - character: {fileID: 11400000, guid: bd2eee321f7bf32488a72c5cc92d1a1b, type: 2}
     faction: 1
-    count: 10
+    count: 1
     isBoss: 0
   - character: {fileID: 11400000, guid: 6cb8d6db13e4b6e46b2996bd3a55fb29, type: 2}
     faction: 1

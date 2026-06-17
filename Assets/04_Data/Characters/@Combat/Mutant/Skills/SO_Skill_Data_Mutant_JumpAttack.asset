@@ -28,11 +28,10 @@ MonoBehaviour:
     holdDuration: 0
     fadeOutDuration: 0
   telegraph:
-    enabled: 0
-    leadTime: 0.8
+    enabled: 1
+    leadTime: 0
     color: {r: 1, g: 0.2, b: 0.2, a: 1}
   attackSequence:
-  - {fileID: 11400000, guid: 06a2bfe8f653f994e90880d41e010681, type: 2}
   - {fileID: 11400000, guid: 73b812336cb3f5544b45ee5caa4b81f9, type: 2}
   advanceWithoutHit: 0
   sectorPowerBonus: 0

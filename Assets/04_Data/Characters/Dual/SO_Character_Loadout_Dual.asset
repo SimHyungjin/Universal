@@ -14,4 +14,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   equippedAttackCombo: {fileID: 11400000, guid: 45c921a31dba2f741b69aa9a6941b876, type: 2}
   counterAttack: {fileID: 11400000, guid: 388d46153f904dd47a14b65435107da3, type: 2}
-  equippedSkills: []
+  equippedSkills:
+  - {fileID: 11400000, guid: b778d36cab3ac1e4bb1894e331f74733, type: 2}

@@ -11,14 +11,21 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 04afefad81cf42009a9997add1629312, type: 3}
   m_Name: SO_Attack_Data_OneHand_ThrowSlash
-  m_EditorClassIdentifier:
+  m_EditorClassIdentifier: 
   schemaVersion: 2
+  animation:
+    stateName: One_Hand_ThrowSlash
+    transition: 0.05
+    timingMode: 0
+    speed: 1
+    startNormalizedTime: 0
   totalDuration: 0.5
+  superArmor:
+    value: 1
   deliveryEvents:
   - label: Projectile
     enabled: 1
     startTime: 0.1
-    activeDuration: 0
     type: 1
     melee:
       shape:
@@ -27,15 +34,18 @@ MonoBehaviour:
         angle: 0
         length: 0
         width: 0
+        verticalTolerance: 0
       hitbox:
-        timing: 0
         offset: 0
         yOffset: 0
-        verticalTolerance: 0
       repeat:
         enabled: 0
         interval: 0
+        duration: 0
         maxCount: 0
+      flow:
+        endAttackIfNoHitByEventEnd: 0
+        stopMovementOnHit: 0
     projectile:
       prefabAddress: Slash Projectile VFX Water_1
       shape:
@@ -44,11 +54,10 @@ MonoBehaviour:
         angle: 0
         length: 0
         width: 0
+        verticalTolerance: 0
       hitbox:
-        timing: 0
         offset: 0
         yOffset: 0
-        verticalTolerance: 0
       spawnOffset: {x: 0, y: 1, z: 0}
       speed: 25
       maxDistance: 20
@@ -58,28 +67,27 @@ MonoBehaviour:
       spreadAngle: 120
       aimMode: 0
     field:
-      prefabAddress:
+      prefabAddress: 
       shape:
         type: 0
         radius: 0
         angle: 0
         length: 0
         width: 0
+        verticalTolerance: 0
       hitbox:
-        timing: 0
         offset: 0
         yOffset: 0
-        verticalTolerance: 0
       origin: 0
+      lifetime: 0
       tickInterval: 0
       forwardOffset: 0
       followAttacker: 0
-    targetFilter:
-      team: 0
-      requireHittable: 1
     dedupe: 1
     hitResult:
       damage: 5
+      superArmorBreak: 0
+      breakGaugeDamage: 0
       hitType: 1
       knockback:
         type: 1
@@ -92,7 +100,6 @@ MonoBehaviour:
       landingDown:
         enabled: 0
         duration: 0.5
-      breakDamage: 0
       lifeSteal:
         enabled: 0
         ratio: 0.1
@@ -100,8 +107,8 @@ MonoBehaviour:
       hitVfxAddress: CFXR3 Hit Fire B (Air)
       hitSfx: 0
       hitstop:
-        duration: 0
         timeScale: 0
+        duration: 0
       cameraShake:
         enabled: 0
         amplitude: 0.15
@@ -115,9 +122,6 @@ MonoBehaviour:
         distanceOverride: 0
         heightDelta: 0
         yawVelocity: 0
-    flow:
-      endAttackIfNoHitByEventEnd: 0
-      stopMovementOnHit: 0
   movementEvents:
   - label: Lunge
     enabled: 1
@@ -133,21 +137,21 @@ MonoBehaviour:
       m_PreInfinity: 2
       m_PostInfinity: 2
       m_RotationOrder: 4
-    stopOnHit: 0
   feedbackEvents:
   - label: Cast VFX
     enabled: 1
     trigger: 0
     startTime: 0
+    endTime: 0
     deliveryIndex: 0
     localPlayerOnly: 0
     deferUntilWindupEnd: 1
+    motionAfterimages: 0
     vfxAddress: Slash
     vfxOrigin: 1
     vfxOffset: {x: 0, y: 1, z: -0.2}
     vfxEuler: {x: 0, y: 150, z: 10}
     vfxScale: {x: 2, y: 2, z: 2}
-    swingTrailIds: []
     sfx: 0
     cameraShake:
       enabled: 0
@@ -155,7 +159,6 @@ MonoBehaviour:
       duration: 0
       frequency: 0
     slowMo:
-      enabled: 0
       timeScale: 0
       duration: 0
     cameraCue:
@@ -170,18 +173,16 @@ MonoBehaviour:
     enabled: 1
     trigger: 0
     startTime: 0
+    endTime: 0
     deliveryIndex: 0
     localPlayerOnly: 0
     deferUntilWindupEnd: 1
-    vfxAddress:
+    motionAfterimages: 0
+    vfxAddress: 
     vfxOrigin: 0
     vfxOffset: {x: 0, y: 0, z: 0}
     vfxEuler: {x: 0, y: 0, z: 0}
     vfxScale: {x: 0, y: 0, z: 0}
-    swingTrailIds:
-    - 0
-    - 1
-    - 2
     sfx: 0
     cameraShake:
       enabled: 0
@@ -189,7 +190,6 @@ MonoBehaviour:
       duration: 0
       frequency: 0
     slowMo:
-      enabled: 0
       timeScale: 0
       duration: 0
     cameraCue:
@@ -200,134 +200,3 @@ MonoBehaviour:
       distanceOverride: 0
       heightDelta: 0
       yawVelocity: 0
-  flow:
-    comboQueue:
-      enabled: 1
-      openTime: 0
-      closeTime: 0.5
-  animation:
-    stateName: One_Hand_ThrowSlash
-    transition: 0.05
-    timingMode: 0
-    speed: 1
-    startNormalizedTime: 0
-  lunge:
-    moveType: 0
-    distance: 1
-    duration: 0.5
-    speedCurve:
-      serializedVersion: 2
-      m_Curve: []
-      m_PreInfinity: 2
-      m_PostInfinity: 2
-      m_RotationOrder: 4
-    stopOnHit: 0
-    slamDescentSpeed: 0
-  jump:
-    enabled: 0
-    height: 2
-    suspendAtApex: 0
-  duration: 0.5
-  shape:
-    type: 2
-    radius: 20
-    angle: 120
-    length: 1
-    width: 6
-  hitbox:
-    timing: 0.2
-    offset: 0
-    yOffset: 0
-    verticalTolerance: 1
-  repeat:
-    enabled: 0
-    interval: 0.08
-    hitSameTargetOnce: 0
-    cancelOnMiss: 0
-    maxCount: 2
-  additionalHits: []
-  damage: 5
-  hitType: 1
-  knockback:
-    type: 1
-    force: 100
-    friction: 12
-  launch:
-    enabled: 0
-    height: 1.5
-    suspendDuration: 0
-  down:
-    enabled: 0
-    duration: 0.5
-  lifeSteal:
-    enabled: 0
-    ratio: 0.1
-    maxPerHit: 0
-  superArmor:
-    value: 1
-    breakPower: 0
-  projectile:
-    enabled: 1
-    prefabAddress: Slash Projectile VFX Water_1
-    speed: 25
-    maxDistance: 20
-    lifetime: 4
-    spawnOffset: {x: 0, y: 1, z: 0}
-    pierce: 1
-    count: 16
-    spreadAngle: 120
-  field:
-    enabled: 0
-    prefabAddress:
-    origin: 0
-    duration: 3
-    tickInterval: 0.5
-    forwardOffset: 2
-    followAttacker: 0
-  meleeAlongsideDelivery: 0
-  feedback:
-    castVfxAddress: Slash
-    castVfxTiming: 0
-    castVfxOffset: {x: 0, y: 1, z: -0.2}
-    castVfxEuler: {x: 0, y: 150, z: 10}
-    castVfxSpace: 0
-    castVfxScale: {x: 2, y: 2, z: 2}
-    swingTrailIds:
-    - 0
-    - 1
-    - 2
-    swingSfx: 0
-    timingVfxAddress:
-    timingVfxOffset: {x: 0, y: 0, z: 0}
-    hitVfxAddress: CFXR3 Hit Fire B (Air)
-    hitSfx: 0
-  releaseEffects:
-    timing: 0.4
-    shake:
-      enabled: 0
-      amplitude: 0.2
-      duration: 0.2
-      frequency: 0.2
-    slowMo:
-      enabled: 0
-      timeScale: 0.1
-      duration: 0.5
-  hitEffects:
-    shake:
-      enabled: 0
-      amplitude: 0.15
-      duration: 0.18
-      frequency: 25
-    hitstop:
-      duration: 0
-      timeScale: 0
-  cameraCue:
-    enabled: 0
-    trigger: 0
-    duration: 0
-    fovOverride: 0
-    distanceOverride: 0
-    heightDelta: 0
-    yawVelocity: 0
-  hitVfxAddress:
-  hitSfx: 0

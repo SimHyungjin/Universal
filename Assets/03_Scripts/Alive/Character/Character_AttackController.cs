@@ -81,7 +81,8 @@ public partial class Character_AttackController : LoopMonoBehaviour
     private Character_AttackTelegraph _telegraph;
     private float _windupStretch = 1f;   // >1이면 windup을 그만큼 늘려 재생(애니+타이머)
     private bool  _windupActive;          // windup(느린 예비동작) 진행 중 — 조준 잠금/데칼 표시 구간
-    private float _pendingTelegraphLeadTime; // 다음 StartAttackData에서 적용할 windup 목표 길이
+    private bool  _pendingTelegraph;          // 다음 StartAttackData에서 예고 데칼을 띄울지(표시 여부 ≠ leadTime)
+    private float _pendingTelegraphLeadTime; // 최소 예고 시간. 자연 windup(첫타 startTime)보다 길 때만 windup을 늘림(leadTime 0 가능)
     private Color _pendingTelegraphColor = Color.red;
 
     private void Awake()
@@ -189,11 +190,13 @@ public partial class Character_AttackController : LoopMonoBehaviour
 
         _skillCooldowns[slot] = skill.Cooldown;
 
-        // 예고: 적(비 로컬플레이어 = 빙의 안 된 AI)이 시전할 때만 첫타 windup을 leadTime까지 늘려 예고 데칼을 띄운다.
+        // 예고: 적(비 로컬플레이어 = 빙의 안 된 AI)이 시전할 때 예고 데칼을 띄운다. leadTime은 "최소 예고 시간"이라
+        // 첫타 startTime(자연 windup)보다 길 때만 windup을 그만큼 늘리고, leadTime 0이면 자연 windup 동안 그대로 표시한다.
         // 플레이어(빙의체)는 즉발(손맛 유지). juice 게이트(IsLocalPlayer)의 반대 방향. StartAttackData가 소비.
         AttackTelegraphData tg = skill.Telegraph;
-        if (tg.enabled && tg.leadTime > 0f && !PlayerController.IsLocalPlayer(_actionHandler))
+        if (tg.enabled && !PlayerController.IsLocalPlayer(_actionHandler))
         {
+            _pendingTelegraph = true;
             _pendingTelegraphLeadTime = tg.leadTime;
             _pendingTelegraphColor = tg.color;
         }
@@ -385,7 +388,8 @@ public partial class Character_AttackController : LoopMonoBehaviour
 
     // cast VFX·스윙 트레일·스윙 SFX를 재생한다. windup 뒤에 부를 때(castImmediate)는 이미 hitbox 시점이므로
     // cast VFX의 timing 지연을 0으로 둬 휘두름과 동시에 나오게 한다.
-    // 예약된 예고 leadTime이 있으면 첫타 windup(0~timing)을 그만큼 늘리도록 설정한다.
+    // 예고가 예약돼 있으면 데칼을 띄운다. 표시 시간 = max(첫타 startTime, leadTime):
+    // leadTime이 더 길 때만 windup(0~timing)을 그만큼 늘리고(stretch>1), 아니면 자연 windup 동안 그대로 표시한다(stretch=1, leadTime 0 포함).
     // 애니 재생속도를 낮추고 바닥 데칼을 띄우며, 돌진은 hitbox 발동까지 미룬다.
     private void SetupWindup(SO_Attack_Data attack)
     {
@@ -393,12 +397,14 @@ public partial class Character_AttackController : LoopMonoBehaviour
         _windupStretch = 1f;
         _playerAnimator?.SetAttackSpeedScale(1f);
 
+        bool requested = _pendingTelegraph;
+        _pendingTelegraph = false;
         float leadTime = _pendingTelegraphLeadTime;
         _pendingTelegraphLeadTime = 0f;
-        if (leadTime <= 0f) return;
+        if (!requested) return;
 
         float windup = GetAttackWindupDuration(attack);
-        if (windup <= 0.01f) return; // 즉발(timing≈0) 공격은 늘릴 windup이 없다
+        if (windup <= 0.01f) return; // 자연 windup(첫타 startTime)이 없으면 예고할 구간이 없다
 
         // leadTime은 "최소 예고 시간". windup이 이미 그보다 길면 늘리지 않고(stretch=1) 원래 windup 동안 예고만 띄운다.
         _windupStretch = Mathf.Max(1f, leadTime / windup);
@@ -446,6 +452,7 @@ public partial class Character_AttackController : LoopMonoBehaviour
     // windup 도중 공격이 취소될 때 정리(속도·데칼·미룬 돌진 상태 원복).
     private void CancelWindup()
     {
+        _pendingTelegraph = false;
         _pendingTelegraphLeadTime = 0f;
         if (!_windupActive && _windupStretch <= 1f) return;
         _windupActive = false;

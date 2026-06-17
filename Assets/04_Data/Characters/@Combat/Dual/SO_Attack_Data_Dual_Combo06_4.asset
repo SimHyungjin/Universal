@@ -22,12 +22,10 @@ MonoBehaviour:
   totalDuration: 1.2
   superArmor:
     value: 1
-    breakPower: 100
   deliveryEvents:
   - label: Main
     enabled: 1
     startTime: 0
-    activeDuration: 1
     type: 0
     melee:
       shape:
@@ -38,15 +36,16 @@ MonoBehaviour:
         width: 2
         verticalTolerance: 3
       hitbox:
-        timing: 0
         offset: 0
         yOffset: 0
-        verticalTolerance: 3
       repeat:
         enabled: 1
         interval: 0.2
         duration: 1
         maxCount: 100
+      flow:
+        endAttackIfNoHitByEventEnd: 0
+        stopMovementOnHit: 0
     projectile:
       prefabAddress: 
       shape:
@@ -57,10 +56,8 @@ MonoBehaviour:
         width: 0
         verticalTolerance: 0
       hitbox:
-        timing: 0
         offset: 0
         yOffset: 0
-        verticalTolerance: 0
       spawnOffset: {x: 0, y: 0, z: 0}
       speed: 0
       maxDistance: 0
@@ -79,21 +76,18 @@ MonoBehaviour:
         width: 0
         verticalTolerance: 0
       hitbox:
-        timing: 0
         offset: 0
         yOffset: 0
-        verticalTolerance: 0
       origin: 0
       lifetime: 0
       tickInterval: 0
       forwardOffset: 0
       followAttacker: 0
-    targetFilter:
-      team: 0
-      requireHittable: 1
     dedupe: 0
     hitResult:
       damage: 10
+      superArmorBreak: 0
+      breakGaugeDamage: 0
       hitType: 1
       knockback:
         type: 1
@@ -106,7 +100,6 @@ MonoBehaviour:
       landingDown:
         enabled: 1
         duration: 1
-      breakDamage: 100
       lifeSteal:
         enabled: 0
         ratio: 0.1
@@ -129,13 +122,9 @@ MonoBehaviour:
         distanceOverride: 0
         heightDelta: 0
         yawVelocity: 0
-    flow:
-      endAttackIfNoHitByEventEnd: 0
-      stopMovementOnHit: 0
   - label: Main
     enabled: 1
     startTime: 1
-    activeDuration: 0
     type: 0
     melee:
       shape:
@@ -146,15 +135,16 @@ MonoBehaviour:
         width: 2
         verticalTolerance: 3
       hitbox:
-        timing: 0
         offset: 0
         yOffset: 0
-        verticalTolerance: 3
       repeat:
         enabled: 0
         interval: 0.2
         duration: 0
         maxCount: 100
+      flow:
+        endAttackIfNoHitByEventEnd: 0
+        stopMovementOnHit: 0
     projectile:
       prefabAddress: 
       shape:
@@ -165,10 +155,8 @@ MonoBehaviour:
         width: 0
         verticalTolerance: 0
       hitbox:
-        timing: 0
         offset: 0
         yOffset: 0
-        verticalTolerance: 0
       spawnOffset: {x: 0, y: 0, z: 0}
       speed: 0
       maxDistance: 0
@@ -187,21 +175,18 @@ MonoBehaviour:
         width: 0
         verticalTolerance: 0
       hitbox:
-        timing: 0
         offset: 0
         yOffset: 0
-        verticalTolerance: 0
       origin: 0
       lifetime: 0
       tickInterval: 0
       forwardOffset: 0
       followAttacker: 0
-    targetFilter:
-      team: 0
-      requireHittable: 1
     dedupe: 0
     hitResult:
       damage: 1
+      superArmorBreak: 0
+      breakGaugeDamage: 0
       hitType: 1
       knockback:
         type: 1
@@ -214,7 +199,6 @@ MonoBehaviour:
       landingDown:
         enabled: 1
         duration: 1
-      breakDamage: 100
       lifeSteal:
         enabled: 0
         ratio: 0.1
@@ -237,16 +221,13 @@ MonoBehaviour:
         distanceOverride: 0
         heightDelta: 0
         yawVelocity: 0
-    flow:
-      endAttackIfNoHitByEventEnd: 0
-      stopMovementOnHit: 0
   movementEvents:
   - label: Lunge
     enabled: 1
     startTime: 0
     duration: 1
     type: 0
-    distance: 20
+    distance: 5
     speed: 0
     height: 0
     curve:
@@ -255,7 +236,6 @@ MonoBehaviour:
       m_PreInfinity: 2
       m_PostInfinity: 2
       m_RotationOrder: 4
-    stopOnHit: 0
   feedbackEvents:
   - label: Swing
     enabled: 1
